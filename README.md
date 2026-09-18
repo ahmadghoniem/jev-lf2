@@ -8,9 +8,13 @@ and a measurement rig to find out whether Jev plays better than the COM.
 
 | | |
 |---|---|
-| Phase | 0 — offline foundations |
+| Phase | 0 — live state reading works; input and telemetry next |
 | Jev integration | not started (needs `TYPESAFE_API_KEY`) |
 | Game route | direct TypeSafe API only. Cloudflare Workers AI deferred. |
+
+Reading the arena out of a running match is done: fighters, weapons, projectiles,
+their positions, their current frame and how far into it they are. See
+[docs/05-live-state.md](docs/05-live-state.md).
 
 ## What this is
 
@@ -29,10 +33,15 @@ and numeric comparison. Geometry never reaches the model; it reaches the model a
 ## Layout
 
 ```
-docs/     findings, architecture, API notes, experiment protocol, data format
+docs/     findings, architecture, API notes, experiment protocol, data format,
+          live state
 src/      harness source
   lf2data/  parser for the game's plain-text frame data
-scripts/  one-off tools (data extraction, verification)
+  cdp/      DevTools protocol client for the shipped game
+  state/    live entity reader
+scripts/  tools — launcher, scope and entity probes, data extraction
+build/    parsed frame tables (generated, not committed)
+runs/     scope snapshots and telemetry (generated, not committed)
 ```
 
 ## Prerequisites

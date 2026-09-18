@@ -8,7 +8,7 @@
  */
 import { setTimeout as sleep } from 'node:timers/promises';
 
-export async function connect({ port = 9222, waitMs = 30000, quiet = true } = {}) {
+export async function connect({ port = 9222, waitMs = 30000, quiet = true, keepAwake = true } = {}) {
   const page = await waitForPage(port, waitMs);
   const ws = new WebSocket(page.webSocketDebuggerUrl);
 
@@ -98,6 +98,17 @@ export async function connect({ port = 9222, waitMs = 30000, quiet = true } = {}
     if (down) await send('Input.dispatchKeyEvent', { type: 'keyDown', ...base });
     if (down && up) await sleep(holdMs);
     if (up) await send('Input.dispatchKeyEvent', { type: 'keyUp', ...base });
+  }
+
+  /**
+   * Chromium stops the frame loop for a window that is not on screen, which
+   * stops the game with it: reads come back frozen and a screenshot never
+   * returns. Emulated focus restarts it. The window still has to be visible
+   * for full speed — occluded, it is throttled to a few frames a second.
+   */
+  if (keepAwake) {
+    await send('Emulation.setFocusEmulationEnabled', { enabled: true });
+    await send('Page.setWebLifecycleState', { state: 'active' });
   }
 
   const on = (fn) => { listeners.add(fn); return () => listeners.delete(fn); };
