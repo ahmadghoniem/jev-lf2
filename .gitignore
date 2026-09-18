@@ -1,0 +1,13 @@
+# secrets — never commit the TypeSafe key
+.env
+.env.*
+!.env.example
+
+# runtime artifacts
+node_modules/
+logs/
+runs/
+*.log
+
+# generated data (rebuild with: node scripts/build-move-tables.mjs)
+build/
