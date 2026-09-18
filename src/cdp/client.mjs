@@ -148,10 +148,12 @@ export const KEY_OF = {
   ArrowUp: 'ArrowUp', ArrowDown: 'ArrowDown', ArrowLeft: 'ArrowLeft', ArrowRight: 'ArrowRight',
   KeyW: 'w', KeyA: 'a', KeyS: 's', KeyD: 'd', KeyI: 'i', KeyJ: 'j', KeyK: 'k', KeyL: 'l',
   F1: 'F1', F2: 'F2',
+  F13: 'F13', F14: 'F14', F15: 'F15', F16: 'F16', F17: 'F17', F18: 'F18', F19: 'F19', F20: 'F20', F21: 'F21', F22: 'F22', F23: 'F23', F24: 'F24',
 };
 export const VK_OF = {
   Enter: 13, Escape: 27, Space: 32, Tab: 9, ShiftRight: 16,
   ArrowUp: 38, ArrowDown: 40, ArrowLeft: 37, ArrowRight: 39,
   KeyW: 87, KeyA: 65, KeyS: 83, KeyD: 68, KeyI: 73, KeyJ: 74, KeyK: 75, KeyL: 76,
   F1: 112, F2: 113,
+  F13: 124, F14: 125, F15: 126, F16: 127, F17: 128, F18: 129, F19: 130, F20: 131, F21: 132, F22: 133, F23: 134, F24: 135,
 };

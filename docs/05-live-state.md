@@ -115,6 +115,54 @@ confirm state is advancing and useless for anything timed.
 **Run experiments with the game window on screen.** Treat a suspiciously low
 frame rate as an occluded window before suspecting the harness.
 
+## Key bindings live in localStorage
+
+The remaster stores all four players' controls as one delimited string under an
+obfuscated `localStorage` key (`PoeS*z@y` on this machine, found by value rather
+than by name since the name is not stable across builds):
+
+```
+P1©ArrowUp©ArrowDown©ArrowLeft©ArrowRight©Enter©ShiftRight©Quote©None©None©None©P2©…
+```
+
+Ten slots per player, in order: **up, down, left, right, attack, jump, defend**,
+then three unused. Confirmed in game — P1's fifth entry is `Enter`, and pressing
+Enter is what joins a slot on the character-select screen.
+
+Values are DOM `event.code` strings, and the game compares them directly, so
+**F13–F24 work**: keys with no physical equivalent on a normal keyboard, which
+is exactly what the harness's player slot needs. Verified by rebinding P4 to
+F13–F19 and joining a slot with a synthetic `F17`. Writing the string directly
+also skips the rebinding screen, which would otherwise need a key held down per
+binding.
+
+The game reads the bindings once at start-up, so a change needs a page reload.
+
+`scripts/bind-keys.mjs` does all of this, and backs the original up to
+`build/keybinds-backup.json` before its first write. That file is not committed,
+so the defaults are recorded here too:
+
+| | up | down | left | right | attack | jump | defend |
+|---|---|---|---|---|---|---|---|
+| P1 | ArrowUp | ArrowDown | ArrowLeft | ArrowRight | Enter | ShiftRight | Quote |
+| P2 | KeyW | KeyX | KeyA | KeyD | KeyS | Tab | Backquote |
+| P3 | Numpad8 | Numpad2 | Numpad4 | Numpad6 | Numpad5 | Numpad0 | NumpadAdd |
+| P4 | KeyI | Comma | KeyJ | KeyL | KeyK | Space | Period |
+
+**P4 is the harness slot**, now bound to F13–F19. P1, P2 and P3 are untouched,
+so two humans and a spare keyboard layout are all still available.
+
+## Getting into a match
+
+Every screen is reachable with synthetic keys; no file patching, no mods.
+
+1. title screen — `Enter` selects **VS Mode**
+2. character select — each slot joins with that player's own attack key
+3. attack steps down the rows (fighter, team), then a **"How many Computer
+   Players?"** prompt takes 0–7
+4. a pre-fight panel offers Fight / Reset / Background / Difficulty, so
+   difficulty is a recorded run parameter rather than an assumption
+
 ## Tools
 
 | script | what it does |
@@ -126,5 +174,7 @@ frame rate as an occluded window before suspecting the harness.
 | `scripts/watch-fields.mjs` | samples fighters over time and reports which fields moved |
 | `scripts/scene-dump.mjs` | the PixiJS display list — rendering only, no game state |
 | `scripts/fn-scopes.mjs` | closure scopes of a function, used to find the game loop |
+| `scripts/bind-keys.mjs` | shows and rewrites the key bindings; `--assign P4 --from F13 --reload` |
+| `scripts/record-baseline.mjs` | records a match to `runs/`, measures read latency, reports which fields moved |
 
 The game loop itself is the ticker listener `() => DQcu()` on `app._ticker`.

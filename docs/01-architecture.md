@@ -10,7 +10,7 @@
        CDP Input.dispatchKeyEvent   │ CDP Runtime.queryObjects
               (keys, isTrusted)     │ → the 400-slot entity pool
   ┌───────────┴─────────────────────▼───────────┐
-  │ EXECUTOR — local, 30 Hz                     │
+  │ EXECUTOR — local, 30 Hz (a pool read: 3 ms) │
   │  • state reader        • frame-data lookup  │
   │  • reflexes (block, dodge, anti-whiff)      │
   │  • option builder      • macros             │

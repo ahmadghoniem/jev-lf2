@@ -11,14 +11,23 @@ The executor runs a hardcoded heuristic in Jev's place.
 
 1. ~~Prove state extraction works with a match live~~ — done, see
    [05-live-state.md](05-live-state.md).
-2. Prove input injection drives a character through a real fight.
-3. Validate the frame-data reflexes: does the blocker actually block.
-4. **Record the COM's own telemetry.** Free, and it produces the baseline.
-5. Calibrate what is still unconfirmed: which entity field is HP, which is MP,
+2. ~~Prove synthetic keys reach the game on a slot no human can press~~ — done.
+   P4 is rebound to F13–F19 and joins a match on a dispatched `F17`.
+3. Prove those keys drive a character through a real fight, not just menus.
+4. Validate the frame-data reflexes: does the blocker actually block.
+5. **Record the COM's own telemetry.** Free, and it produces the baseline. First
+   recording taken: 75 s, four fighters, 19,581 tick rows.
+6. Calibrate what is still unconfirmed: which entity field is HP, which is MP,
    what milk and beer restore, how long a pickup takes.
 
 Exit criteria: a character completes a stage phase under harness control, and
 `ticks.jsonl` holds one complete row per tick.
+
+**Measured, so the loop no longer has to guess its own rate:** one read of the
+whole entity pool costs **3 ms at the median and 6 ms at the 95th percentile**.
+An uncapped loop samples at about 260 Hz. The game advances 30 times a second,
+so the recorder caps itself at 30 Hz — the constraint on the executor is the Jev
+round trip, not the connection.
 
 ### Phase 1 — Jev and a COM, same character
 
@@ -97,9 +106,16 @@ run at different rates and get read for different reasons:
 | `judgements.jsonl` | ~2 Hz | the exact `state` sent, the schema id, the full answer with probabilities and confidence, latency, `usage`, request id — and the misses, because a miss is data |
 | `events.jsonl` | sparse | damage, pickups, drinks, knockdowns, deaths, and outcome windows attached by tick |
 
-The question schema is written once per run as `schema-<hash>.json` rather than
-repeated on every row. `manifest.json` closes the run with configuration, counts
-and totals.
+The question schema is written once per run as `schema-<hash>.json`, but only
+its stable part: the `action` and `target` options are rebuilt every tick from
+what is on the ground, so hashing the whole set wrote a near-identical schema
+file on almost every tick. The live options ride on the judgement row instead.
+Both designs were built and measured over 2000 realistic ticks before choosing —
+1999 schema files and 6.94 MB the first way, 1 file and 4.56 MB the second, with
+the second ahead from the very first tick. Numbers in
+[`bench/schema-ab.md`](../bench/schema-ab.md).
+
+`manifest.json` closes the run with configuration, counts and totals.
 
 Storing the verbatim `state` on every judgement is what makes replay possible,
 and replay is what makes a $5 credit stretch.

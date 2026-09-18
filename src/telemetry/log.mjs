@@ -14,7 +14,12 @@
  *   events.jsonl       sparse  discrete facts: damage, pickups, deaths
  *
  * The question schema is written once per run rather than repeated on every
- * judgement row, since it is identical across a run and dwarfs the row.
+ * judgement row. Only the stable part of it, though: the `action` and `target`
+ * options are rebuilt every tick from what is actually on the ground, so
+ * hashing the whole set produced a new schema file on almost every tick. A
+ * benchmark over 2000 realistic ticks (`bench/schema-ab.md`) measured 1999
+ * schema files and 6.94 MB that way, against 1 file and 4.56 MB when the
+ * varying criteria ride along on the judgement row instead.
  */
 
 import { createWriteStream, mkdirSync, writeFileSync } from 'node:fs';
@@ -37,23 +42,33 @@ export function openRun({ dir = 'runs', id = stamp(), meta = {} } = {}) {
   const counts = { ticks: 0, judgements: 0, events: 0, jevAnswers: 0, jevMisses: 0 };
 
   /**
-   * Registers a question set and returns the id to reference it by. Called
-   * once per schema, not once per tick.
+   * Registers a question set and returns the id to reference it by.
+   *
+   * `dynamic` names the questions whose `criteria` is rebuilt every tick. Those
+   * criteria are blanked before hashing, so the schema id stays put for a whole
+   * run and the live options are stored per judgement instead.
    */
-  function useSchema(questions) {
-    const json = JSON.stringify(questions);
-    const id = createHash('sha256').update(json).digest('hex').slice(0, 12);
+  function useSchema(questions, { dynamic = DYNAMIC_QUESTIONS } = {}) {
+    const stable = Object.fromEntries(Object.entries(questions).map(
+      ([qid, q]) => [qid, dynamic.has(qid) ? { ...q, criteria: PER_TICK } : q]));
+    const id = createHash('sha256').update(JSON.stringify(stable)).digest('hex').slice(0, 12);
     if (!schemas.has(id)) {
-      schemas.set(id, questions);
-      writeFileSync(join(runDir, `schema-${id}.json`), JSON.stringify(questions, null, 2));
+      schemas.set(id, stable);
+      writeFileSync(join(runDir, `schema-${id}.json`), JSON.stringify(stable, null, 2));
     }
     return id;
   }
+
+  /** The criteria of a dynamic question, pulled out to ride on the row. */
+  const liveCriteria = (questions, dynamic = DYNAMIC_QUESTIONS) => Object.fromEntries(
+    Object.entries(questions).filter(([qid]) => dynamic.has(qid))
+      .map(([qid, q]) => [qid, q.criteria]));
 
   return {
     id,
     dir: runDir,
     useSchema,
+    liveCriteria,
 
     /** One row per executor tick. Keep it flat and small; this is the high-rate stream. */
     tick(row) {
@@ -65,11 +80,11 @@ export function openRun({ dir = 'runs', id = stamp(), meta = {} } = {}) {
      * One row per Jev call, including the calls that never came back — a miss
      * is data. `state` is stored verbatim because replay needs the exact input.
      */
-    judgement({ tick, schema, state, answers, latencyMs, usage, requestId, source, action, error }) {
+    judgement({ tick, schema, criteria, state, answers, latencyMs, usage, requestId, source, action, error }) {
       counts.judgements++;
       if (answers) counts.jevAnswers++; else counts.jevMisses++;
       write('judgements', {
-        t: Date.now() - started, tick, schema, state, answers,
+        t: Date.now() - started, tick, schema, criteria, state, answers,
         latencyMs, usage, requestId, source, action,
         error: error ? String(error.message ?? error) : undefined,
       });
@@ -108,6 +123,10 @@ export function openRun({ dir = 'runs', id = stamp(), meta = {} } = {}) {
     },
   };
 }
+
+/** Questions whose options are rebuilt from the arena on every tick. */
+const DYNAMIC_QUESTIONS = new Set(['action', 'target']);
+const PER_TICK = '<stored per judgement>';
 
 const stamp = () => new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
 
