@@ -11,3 +11,6 @@ runs/
 
 # generated data (rebuild with: node scripts/build-move-tables.mjs)
 build/
+
+# ad-hoc probes, not part of the harness
+scratch/
