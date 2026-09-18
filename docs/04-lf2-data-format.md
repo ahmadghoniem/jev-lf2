@@ -49,35 +49,40 @@ Header line fields (all optional except `pic`):
 | `next` | frame id to advance to (negative values are engine signals) |
 | `centerx` / `centery` | sprite origin |
 | `dvx` / `dvy` | velocity applied on entering the frame |
-| `mp` | MP cost. Observed on Davis: 25, 40, 75, 225. The LF2 MP bar is widely documented as 0–500, which fits this range, but **confirm empirically** by logging MP before and after a special. |
+| `mp` | MP cost against a 500 bar. A **negative** value is the engine's marker for a move that stays usable when MP runs short — the amount spent is still its absolute value. Henry's arrow is `mp -12`. |
 | `hit_a` `hit_d` `hit_j` | combo transition on attack / defend / jump |
 | `hit_Fa` `hit_Ua` `hit_Da` `hit_Uj` | combo transition on Forward+Attack, Up+Attack, Down+Attack, Up+Jump |
 | `sound` | mp3 path |
 
-The `hit_*` fields are the **complete move list, machine-readable**: input → target frame,
-and the target frame carries the MP cost and the itr that does the damage. The move
-repertoire does not need to be hand-written.
+The `hit_*` fields carry the **special** moves: input → target frame, with the
+target frame holding the MP cost and the itr that does the damage.
 
-In LF2 these transitions fire on the defend-prefixed combos — `hit_Fa` on D→F→A,
-`hit_Ua` on D→↑→A, and so on. Confirm the exact input strings in game before wiring the
+They are not the whole move list. Bandit has no `hit_*` fields at all, and every
+character's ordinary attacks are reached by fixed entry frames instead, which
+the data names: `punch`, `super_punch`, `jump_attack`, `run_attack`,
+`dash_attack`, `normal_weapon_atck` and the rest. `src/lf2data/profile.mjs`
+walks both — the `hit_*` targets and the named entry frames — which is why
+profiles exist for all 23 fighters and not only the ones with specials.
+
+In LF2 these transitions fire on defend-prefixed combos — `hit_Fa` on D→F→A,
+`hit_Ua` on D→↑→A. Confirm the exact input strings in game before wiring the
 macros, since the remaster could have changed them.
 
-## Extracted move table
+## Derived fighting profiles
 
-`node scripts/build-move-tables.mjs` parses all 65 files: **5974 frames, 206 moves,
-1220 damaging frames**. Davis, as a spot check:
+`node scripts/build-move-tables.mjs` writes `build/_profiles.json`: for every
+character, each move with its kind, reach, damage, MP cost and startup, plus an
+archetype derived from what the plain attack button does.
 
-| input | entry frame | name | mp | startup | effect |
-|---|---|---|---|---|---|
-| Fa | 240 | ball1 | 40 | 4t | spawns object 207 |
-| a | 247 / 253 / 259 / 264 | ball2–4 | 40 | 2–3t | spawns object 207 |
-| Da | 270 | many_punch | 75 | 1t | 45 dmg |
-| Ua | 300 | singlong | 225 | 1t | 85 dmg |
-| a | 293 | — | 0 | 0t | 50 dmg |
+```
+character       archetype  bare reach  cheapest ranged mp  basic attack
+Bandit          melee              50                   -  melee 20 dmg
+Henry           ranged             92                  12  ranged 70 dmg
+Davis           mixed              54                  40  melee 20 dmg
+```
 
-Three entries come back `unresolved` (`a`→f89, `j`/`Uj`→f290, `d`→f999). f999 is an engine
-sentinel rather than a real frame; the other two need a longer walk or lead to frames whose
-damage comes from a spawned object. Worth closing before the macro layer is built.
+Reach is measured from the fighter's own hurt box, not from the sprite origin,
+because `centerx` is absent on most frames.
 
 ## Tags inside a frame
 
@@ -98,6 +103,21 @@ damage comes from a spawned object. Worth closing before the macro layer is buil
 
 `injury` is damage. `fall` and `bdefend` decide whether the hit knocks down or breaks a
 block. `effect 1` marks sharp/critical weapons.
+
+### itr kinds — which boxes actually hurt
+
+Only some kinds are attacks, and reading the rest as damage produces nonsense:
+
+| kind | meaning | counts as damage |
+|---|---|---|
+| 0 | ordinary attack | yes |
+| 2 | pick-up box, present on punch frames | no |
+| 5 | weapon-in-hand strength | no — `injury 789` here is a placeholder the engine replaces from the weapon's `<wsl>` |
+| 6 | super punch | yes |
+
+Henry's arrow reads as a 789-damage attack unless kind 5 is excluded; its real
+damage is 25–70. No **character** frame carries a kind-5 itr — checked across
+all 23 — so weapon damage is always the weapon object's business.
 
 ## State values — VERIFIED by cross-referencing frame names
 
@@ -145,11 +165,13 @@ All of them also carry `weapon_hp` (450 for drinks) and `weapon_drop_hurt` (35).
 
 ## How the reflex layer uses this
 
-Read the opponent's current **frame id** from game state, look it up in the parsed table:
+The live entity carries its current frame id in `Ts` and how far into it in
+`waiting` (see [05-live-state.md](05-live-state.md)). Look the frame up in the
+parsed table:
 
 - has a live `<i>` with `injury` → an attack is connecting **now**
 - `state 3` and the itr is a few frames ahead via `next`/`wait` → an attack is **coming**,
-  and the exact number of ticks until it lands is known
+  and `wait - waiting` is exactly how many ticks remain before it lands
 - `<b>` gives its hurt box, so the executor also knows where its own attack would land
 
 Deterministic, local, zero network. The same information the engine itself uses.

@@ -1,105 +1,140 @@
 # Experiment protocol
 
-The question is not "can Jev press buttons" — that is already answered. The question is
+The question is not "can Jev press buttons" — that is answered. The question is
 **does Jev play better than the game's own COM**, and what makes it better.
 
 ## Phases
 
 ### Phase 0 — harness only, no API calls, costs nothing
 
-Runs the executor with a hardcoded heuristic policy in Jev's place.
+The executor runs a hardcoded heuristic in Jev's place.
 
-Goals:
-1. Prove state extraction works with a match live — map the fighter objects inside the
-   973-variable script scope. This is the main open task in the repo.
+1. ~~Prove state extraction works with a match live~~ — done, see
+   [05-live-state.md](05-live-state.md).
 2. Prove input injection drives a character through a real fight.
 3. Validate the frame-data reflexes: does the blocker actually block.
-4. **Record the COM's own telemetry.** This is free and it produces the baseline Jev has
-   to beat.
-5. Calibrate the unknowns: MP cost units, what milk and beer actually restore, how long a
-   pickup takes.
+4. **Record the COM's own telemetry.** Free, and it produces the baseline.
+5. Calibrate what is still unconfirmed: which entity field is HP, which is MP,
+   what milk and beer restore, how long a pickup takes.
 
-Exit criteria: a character completes a stage phase under harness control, and the log
-contains one complete row per tick.
+Exit criteria: a character completes a stage phase under harness control, and
+`ticks.jsonl` holds one complete row per tick.
 
-### Phase 1 — Jev and a COM on the same team
+### Phase 1 — Jev and a COM, same character
 
-Jev's slot and a COM slot, **same character**, same stage, same difficulty, same waves.
-Nobody human is playing.
+Jev's slot and a COM slot, **same character**, same stage, same difficulty, same
+waves, nobody human playing. Identical conditions, two policies, side by side in
+the same fight. It also answers "does Jev work at all", so a standalone Jev run
+is skipped — it would spend credits to learn less.
 
-This is the controlled comparison: identical conditions, two policies, side by side in the
-same fight. It also answers "does Jev work at all", so the standalone Jev run is skipped —
-it would spend credits to learn less.
+Start with one character so the comparison has no confounds. The profiles in
+`build/_profiles.json` cover all 23 fighters, so widening the test later is a
+configuration change, not new code. Two characters are worth running eventually
+because they test different things:
 
-Confound to watch: in stage mode allies do not damage each other, but they do compete for
-items and can body-block. Log item contests so they can be excluded from analysis.
+- a `melee` character (Bandit, Deep) tests spacing and commitment
+- a `ranged` character (Henry) tests whether Jev exploits the archetype at all —
+  a policy that walks Henry into punching range is measurably wrong
+
+Confound to watch: in stage mode allies do not damage each other, but they do
+compete for items and can body-block. Log item contests so they can be excluded.
 
 ### Phase 2 — a human joins
 
-You on P1, Jev, a COM. Then your brother's slot. Human presence changes enemy aggro and
-item competition, so Phase 1 numbers are not directly comparable to Phase 2 numbers — each
-phase gets its own baseline.
+You on P1, Jev, a COM, then your brother's slot. Human presence changes enemy
+aggro and item competition, so Phase 1 numbers are not comparable to Phase 2
+numbers; each phase gets its own baseline.
 
-## Metrics, per fighter per run
+## Setup, through the menus
+
+Everything needed is reachable without touching the game's files:
+
+- **Game Start → Stage Mode** — character select, 8 slots
+- **"How many Computer Players?"** — 0 to 7, which is how the COM opponent and
+  the COM control arm are added
+- the pre-fight panel sets **Background** and **Difficulty**, so difficulty is a
+  logged run parameter rather than an assumption
+
+## Metrics
+
+The game's own end-of-stage screen already reports per-player totals. Those are
+worth recording as an independent check, but they are a summary at the end of a
+run and cannot say *why*. Everything in the second table exists only because the
+harness logs every tick, and that is where the feedback loop lives.
+
+**Also available from the game's result screen**
 
 | metric | why |
 |---|---|
-| damage dealt | raw offence |
-| damage taken | defensive quality — where the COM is expected to be weakest |
+| damage dealt / taken | raw offence and defence |
 | HP remaining at phase end | survival margin |
 | deaths | hard failures |
-| kills / assists | contribution share |
-| damage per MP spent | resource discipline |
-| items picked up, drinks consumed, weapon uptime | the strategic layer the COM ignores |
+| kills | contribution share |
 | time to clear the phase | overall efficiency |
 
-## Telemetry row, one per tick
+**Only from telemetry**
 
-```jsonc
-{
-  "t": 1758230400123, "tick": 4821, "phase": 2,
-  "state_sent": { },            // exactly what went to Jev
-  "questions": "v3",            // schema version, not the full text
-  "answers": { },               // with probabilities and confidence
-  "latency_ms": 312,
-  "usage": { "input_tokens": 612, "output_tokens": 38 },
-  "action_taken": "dash_attack",
-  "source": "jev",              // or "reflex" or "fallback" when the call failed
-  "outcome_2s": { "dmg_dealt": 55, "dmg_taken": 0, "hp_delta": -0 }
-}
-```
+| metric | why |
+|---|---|
+| damage per MP spent | resource discipline, invisible in the summary |
+| share of actions sourced `jev` vs `reflex` vs `fallback` | how much of the result is actually Jev |
+| decision latency distribution, and miss rate | whether 2 Hz is enough |
+| high-confidence decisions with bad outcomes | the criteria are wrong, not the model |
+| time spent inside vs outside own attack reach | whether an archer is being played as an archer |
+| whiff rate: attacks started with nothing in reach | the clearest single quality signal |
+| blocks landed against incoming itrs the reflex layer saw | does the reflex layer work |
+| item contests lost, weapon uptime, drinks consumed | the strategic layer the COM ignores |
+| damage taken while recovering from a committed move | punishment for over-commitment |
 
-`source` matters: it is the only way to tell how much of the performance is Jev and how
-much is the executor's reflexes.
+## What gets logged
+
+`src/telemetry/log.mjs` writes one directory per run, three streams because they
+run at different rates and get read for different reasons:
+
+| file | rate | contents |
+|---|---|---|
+| `ticks.jsonl` | 30 Hz | the arena: own frame/state/hp/mp/position, each threat's frame and offset, items, the action taken and its `source` |
+| `judgements.jsonl` | ~2 Hz | the exact `state` sent, the schema id, the full answer with probabilities and confidence, latency, `usage`, request id — and the misses, because a miss is data |
+| `events.jsonl` | sparse | damage, pickups, drinks, knockdowns, deaths, and outcome windows attached by tick |
+
+The question schema is written once per run as `schema-<hash>.json` rather than
+repeated on every row. `manifest.json` closes the run with configuration, counts
+and totals.
+
+Storing the verbatim `state` on every judgement is what makes replay possible,
+and replay is what makes a $5 credit stretch.
 
 ## Iteration loop
 
-1. Run N matches under a fixed schema version.
+1. Run N matches under a fixed schema.
 2. Compare Jev's metrics against the COM's from the same runs.
-3. Find the decisions that went wrong: filter for high confidence with bad `outcome_2s`.
-   High confidence plus bad outcome means the **criteria are wrong**, not the model.
+3. Find the decisions that went wrong: filter for high confidence with a bad
+   outcome window. High confidence plus bad outcome means the **criteria are
+   wrong**, not the model.
 4. Revise the question schema.
-5. **Replay the recorded states against the new schema offline** — no game time, batched
-   calls, cheap. Only promote a schema to a live run once it beats the old one on the
-   recorded set.
-
-Step 5 is what makes a $5 credit stretch across real iteration.
+5. **Replay the recorded states against the new schema offline** — no game time,
+   batched, cheap. Promote a schema to a live run only once it beats the old one
+   on the recorded set.
 
 ## Ablations worth running
 
-- **Executor alone** (Phase 0 heuristic) vs **executor + Jev**. If Jev doesn't clearly beat
-  the heuristic, the harness is doing the work and the result means nothing.
+- **Executor alone** (Phase 0 heuristic) vs **executor + Jev**. If Jev doesn't
+  clearly beat the heuristic, the harness is doing the work and the result means
+  nothing.
 - **Reflexes off**, Jev only. Shows how much the sub-100 ms layer contributes.
-- **Tick rate**, 1 Hz vs 3 Hz. Shows whether latency is actually the binding constraint.
-- **State richness**, 2 threats vs 4. Tests the "large irrelevant state distracts" warning
-  on our own data.
+- **Tick rate**, 1 Hz vs 2 Hz. Shows whether latency is the binding constraint.
+- **State richness**, 2 threats vs 4. Tests the "large irrelevant state
+  distracts" warning on our own data.
+- **Options withheld**: give Jev only `advance / retreat / attack` instead of the
+  full priced option set. Tests whether the option builder is carrying the
+  result.
 
 ## Hypotheses about the COM, to confirm in Phase 0
 
-These are the gaps Jev is expected to exploit. Phase 0 logs the COM for free, so none of
-them need to be assumed:
+Phase 0 logs the COM for free, so none of these need to be assumed:
 
 - it does not manage consumables strategically
 - it does not focus-fire a weakened enemy
 - its difficulty setting mostly changes reaction and aggression, not strategy
 - it uses weapons opportunistically rather than choosing the best one available
+- it does not play archetype-correctly: an archer COM still closes distance
