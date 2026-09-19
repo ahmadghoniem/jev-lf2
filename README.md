@@ -8,13 +8,19 @@ and a measurement rig to find out whether Jev plays better than the COM.
 
 | | |
 |---|---|
-| Phase | 0 — live state reading works; input and telemetry next |
-| Jev integration | client written and verified against the live API |
+| Phase | 0 — the harness plays. Measurement and tuning next. |
+| Jev integration | client written, verified live, and in the decision seat |
 | Game route | direct TypeSafe API only. Cloudflare Workers AI deferred. |
 
-Reading the arena out of a running match is done: fighters, weapons, projectiles,
-their positions, their current frame and how far into it they are. See
-[docs/05-live-state.md](docs/05-live-state.md).
+Jev plays a character. The executor reads the arena 30 times a second, prices
+every action that is genuinely available, asks Jev which one to take about twice
+a second, and presses the keys — on a player slot bound to F13–F19, which no
+physical keyboard can reach, so the humans' slots are untouchable. Every tick is
+logged with the layer that produced it.
+
+Still open: the heuristic control arm and Jev have not been compared over enough
+matches to say anything, special moves are not executable yet, and the reflex
+layer has not been validated.
 
 ## What this is
 
@@ -38,10 +44,12 @@ docs/     findings, architecture, API notes, experiment protocol, data format,
 src/      harness source
   lf2data/  parser for the game's plain-text frame data
   cdp/      DevTools protocol client for the shipped game
-  state/    live entity reader, option builder
+  state/    live entity reader, arena view, option builder, field names
+  executor/ the loop, key state, action planner, reflexes, policies
   jev/      Jev client, scoped from the official SDK
   telemetry/  run logging
-scripts/  tools — launcher, scope and entity probes, data extraction
+scripts/  tools — launcher, key binding, probes, data extraction, play, reports
+bench/    measurements that settled a design decision
 build/    parsed frame tables (generated, not committed)
 runs/     scope snapshots and telemetry (generated, not committed)
 ```
@@ -60,13 +68,26 @@ runs/     scope snapshots and telemetry (generated, not committed)
 ```
 node scripts/build-move-tables.mjs          # parse the game data, build profiles
 node scripts/launch-game.mjs                # start the game with the CDP port open
+node scripts/bind-keys.mjs --assign P4 --from F13 --reload   # give the harness a slot
 node scripts/entity-dump.mjs                # every entity in a live match
 node scripts/ask-jev.mjs --character henry  # build the options and let Jev choose
 ```
+
+Then start a VS match with P4 joined (its attack key is now `F17`) and some
+computer players, and hand the slot over:
+
+```
+node scripts/play.mjs --name Deep --policy heuristic --seconds 90 --fresh
+node scripts/play.mjs --name Deep --policy jev       --seconds 90 --fresh
+node scripts/report-run.mjs runs/<a> runs/<b>
+```
+
+`scripts/bind-keys.mjs --restore --reload` puts the original keys back.
 
 ## Start here
 
 - [docs/00-findings.md](docs/00-findings.md) — what has actually been verified, with measurements
 - [docs/01-architecture.md](docs/01-architecture.md) — the three layers, who decides what, per-character strategy
 - [docs/05-live-state.md](docs/05-live-state.md) — how the arena is read out of a running match
+- [docs/06-executor.md](docs/06-executor.md) — how the loop plays without ever waiting on the network
 - [docs/03-experiments.md](docs/03-experiments.md) — the phases, the metrics and what gets logged
