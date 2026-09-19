@@ -13,7 +13,12 @@ The executor runs a hardcoded heuristic in Jev's place.
    [05-live-state.md](05-live-state.md).
 2. ~~Prove synthetic keys reach the game on a slot no human can press~~ — done.
    P4 is rebound to F13–F19 and joins a match on a dispatched `F17`.
-3. Prove those keys drive a character through a real fight, not just menus.
+3. ~~Prove those keys drive a character through a real fight, not just menus~~ —
+   done. `scripts/prove-input.mjs` presses a key and reads the consequence out
+   of the entity pool: walk left −100 units, walk right +100, jump to height
+   −86, attack entering punch frames 65–67, defend entering frame 110. It waits
+   for the fighter to be actionable first, because a knocked-down character
+   ignores input and the first run failed for that reason alone.
 4. Validate the frame-data reflexes: does the blocker actually block.
 5. **Record the COM's own telemetry.** Free, and it produces the baseline. First
    recording taken: 75 s, four fighters, 19,581 tick rows.
