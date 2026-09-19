@@ -24,7 +24,7 @@ const DEFAULTS = {
   baseURL: 'https://api.typesafe.ai',
   model: 'jev-latest',
   /** Per-call ceiling. Beyond this the answer is worthless to a live fight. */
-  deadlineMs: 900,
+  deadlineMs: 1200,
 };
 
 /** Published price, used only to keep a running estimate in the telemetry. */

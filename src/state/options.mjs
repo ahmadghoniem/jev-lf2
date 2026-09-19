@@ -31,17 +31,21 @@ const SWING_STYLES = {
  * @param held       the weapon entity in hand, or null
  * @param nearby     weapon and drink entities on the ground, with distances
  * @param nearest    distance to the closest threat, in game units
+ * @param canDo      whether the executor can actually carry an option out
  */
-export function buildOptions({ profile, weapons, held, nearby = [], nearest = Infinity, mp = 0 }) {
+export function buildOptions({ profile, weapons, held, nearby = [], nearest = Infinity, mp = 0,
+                               canDo = () => true }) {
   const options = {};
 
   const affordable = (m) => m.mp <= mp || m.allowedWhenShort;
   const basic = profile.basicAttack;
 
   // --- what the character can throw from where it stands
-  for (const move of dedupe(profile.moves.filter((m) => m.kind === 'ranged' && affordable(m)), MAX_RANGED)) {
+  const rangedName = (m) => (basic && m.entry === basic.entry ? 'shoot' : `special_${label(m)}`);
+  const ranged = profile.moves.filter((m) => m.kind === 'ranged' && affordable(m) && canDo(rangedName(m)));
+  for (const move of dedupe(ranged, MAX_RANGED)) {
     const isBasic = basic && move.entry === basic.entry;
-    options[isBasic ? 'shoot' : `special_${label(move)}`] = [
+    options[rangedName(move)] = [
       'Attack from where you stand; it reaches any distance.',
       `Damage is ${move.damageTier}.`,
       move.mp === 0 ? 'Costs no MP.'
@@ -52,7 +56,17 @@ export function buildOptions({ profile, weapons, held, nearby = [], nearest = In
   }
 
   // --- what it can do with its hands, and whether anything is in reach
-  for (const move of dedupe(profile.moves.filter((m) => m.kind === 'melee' && !m.needsWeapon && affordable(m)), MAX_MELEE)) {
+  const melee = profile.moves.filter((m) => m.kind === 'melee' && !m.needsWeapon
+    && affordable(m) && canDo(label(m)));
+  // The ordinary attack always belongs on the list. It costs nothing, it is the
+  // archetype in one option, and the cap would otherwise spend all four slots on
+  // heavier variants and drop the one move that is always available.
+  // Compared by entry frame, not by identity: the profile comes back from JSON,
+  // so `basicAttack` and its twin in `moves` are separate objects.
+  const shortlist = dedupe(melee, MAX_MELEE);
+  const basicMove = basic ? melee.find((m) => m.entry === basic.entry) : null;
+  if (basicMove && !shortlist.some((m) => m.entry === basicMove.entry)) shortlist.push(basicMove);
+  for (const move of shortlist) {
     const inReach = nearest <= move.reach + REACH_SLACK;
     options[label(move)] = [
       `${describeMelee(move)}.`,
@@ -149,7 +163,7 @@ const FRIENDLY = {
   weapon5: 'baseball bat', weapon6: 'milk', weapon7: 'ice sword', weapon8: 'beer',
   weapon9: 'blade', weapon10: 'armour', weapon11: 'armour',
 };
-const plainName = (...names) => {
+export const plainName = (...names) => {
   for (const n of names) if (n && FRIENDLY[n]) return FRIENDLY[n];
   for (const n of names) if (n) return n;
   return 'item';
