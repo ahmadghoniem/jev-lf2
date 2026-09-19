@@ -22,8 +22,10 @@ The executor runs a hardcoded heuristic in Jev's place.
 4. Validate the frame-data reflexes: does the blocker actually block.
 5. **Record the COM's own telemetry.** Free, and it produces the baseline. First
    recording taken: 75 s, four fighters, 19,581 tick rows.
-6. Calibrate what is still unconfirmed: which entity field is HP, which is MP,
-   what milk and beer restore, how long a pickup takes.
+6. ~~Work out which entity field is HP, which is dark HP, which is MP~~ — done
+   from the first recording, no extra runs needed. `qe` HP, `$e` dark HP, `je`
+   MP, `Ke` HP max. See [05-live-state.md](05-live-state.md#entity-fields).
+7. Calibrate what milk and beer restore, and how long a pickup takes.
 
 Exit criteria: a character completes a stage phase under harness control, and
 `ticks.jsonl` holds one complete row per tick.

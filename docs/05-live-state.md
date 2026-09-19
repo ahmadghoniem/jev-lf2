@@ -85,21 +85,39 @@ depth**. `os` / `rs` / `ns` hold the same three as floats before rounding.
 its damage in `build/<character>.json`, and `wait - waiting` is exactly how many
 ticks remain before the next frame lands.
 
-### Probable, not yet confirmed
+### Confirmed against a recorded match
 
-| field | reading | why it is not settled |
+A 75-second recording of four fighters (19,581 ticks, one idle) settles these.
+Idle Deep is what makes it clean: it received damage and never spent anything,
+so the field that only fell is health and the field that only rose is MP.
+
+| field | meaning | evidence over the whole recording |
 |---|---|---|
-| `qe` | HP | John read `-28` while lying after a knockout; Henry read `500` at full health |
-| `Ke` | HP max | `500` on both, which is LF2's documented maximum |
-| `$e` | dark HP (the trailing bar) | `274` on the knocked-out fighter, `500` on the healthy one |
-| `je` | MP | `500` on Henry, but `501` on John, so it is not cleanly capped |
-| `bo` | knocked out | `true` only on the fighter who was lying |
-| `group` | team | `10` and `21` for two Independent fighters |
-| `f` | sprite index (`pic`) | small and changes with `Ts` |
+| `qe` | **HP** | falls only around a hit, worst single tick −85; regenerates about +1 every 400 ms; goes **negative** on a knockout (−44, −48, −43) and stops moving there |
+| `$e` | **dark HP** — the ceiling `qe` regenerates back toward | `$e >= qe` in all 19,581 rows, zero violations; it never rises for anyone, so it is the permanent share of the damage |
+| `je` | **MP** | idle Deep: 150 rises and **0 falls** with no input at all; the three COMs spend it in chunks, worst −225 on a Davis special, then it resumes climbing |
+| `Ke` | **HP max** | exactly `500` for all four fighters for the entire run, and it bounds both `qe` and `$e` |
+| `As` | **facing** | two states, flips with direction of travel; on idle Deep it only flips when knocked back |
+| `group` | team | `10` for the player slot, `21` / `22` / `23` for the three COMs |
+| `id` | character id | `1` Deep, `11` Davis, `6` Louis, `7` Firen — joins to `build/_index.json` |
+| `bo` | human-controlled | `true` for the player slot, `false` for every COM |
+| `f` | sprite index (`pic`) | small, changes with `Ts` |
 | `left` `right` `attack` | held inputs | named in clear, all `0` while idle |
 
-Settle these by taking damage and spending MP with the values logged, not by
-reasoning about them further.
+**MP has no max field in the pool.** `je` was seen as high as **505** while `Ke`
+is a hard `500`, so the two are not the same cap. Either the maximum is
+hardcoded in the engine or regeneration overshoots and clamps a tick later.
+Treat 500 as the practical cap and bucket MP rather than comparing it to `Ke`.
+
+Worked traces, and the script that produced them, are in
+[`bench/field-classification.md`](../bench/field-classification.md)
+(`scripts/classify-fields.mjs`, which runs over any recorded run directory).
+
+### Still unconfirmed
+
+- what milk and beer restore, and how long drinking takes
+- how long a weapon pickup takes
+- the `hit_*` input strings (D→F→A and so on), needed before combo macros
 
 ## The window has to be visible
 
