@@ -16,11 +16,17 @@ import { profileFor } from '../lf2data/tables.mjs';
 import { planAction } from './actions.mjs';
 import { reflexAction } from './reflex.mjs';
 import { offer } from './policies.mjs';
+import { bucketRange } from '../lf2data/profile.mjs';
 
-/** An answer about a fight a second old is about a different fight. */
-const STALE_TICKS = 30;
+/**
+ * An answer about a fight this old is about a different fight. Measured in
+ * milliseconds rather than ticks because the loop does not always hit its
+ * target rate — a run that paces at 22 Hz would otherwise get a 1.4-second
+ * staleness window while believing it had one second.
+ */
+const STALE_MS = 1300;
 
-export async function runLoop({ cdp, pool, kb, run, name, policy, hz = 30,
+export async function runLoop({ cdp, pool, kb, run, name, policy, overlay, hz = 30,
                                decideEveryMs = 500, seconds = 120, onTick } = {}) {
   const period = 1000 / hz;
   const until = Date.now() + seconds * 1000;
@@ -33,6 +39,8 @@ export async function runLoop({ cdp, pool, kb, run, name, policy, hz = 30,
   let pending = null;
   let lastAsk = 0;
   let recent = {};
+  let shown = { policy: policy.name };   // what the overlay is currently saying
+  let forceDraw = false;                 // set when an answer lands, cleared once drawn
   const counts = { ticks: 0, decisions: 0, misses: 0, reflexes: 0, stale: 0, bursts: 0, dead: 0 };
 
   const profile = profileFor(name);
@@ -49,6 +57,8 @@ export async function runLoop({ cdp, pool, kb, run, name, policy, hz = 30,
       counts.dead++;
       await kb.releaseAll();
       run?.tick({ tick, dead: true });
+      await overlay?.update({ ...shown, dead: true, action, source, counts,
+        hp: arena.me.hp, hpMax: arena.me.hpMax, mp: arena.me.mp, darkHp: arena.me.darkHp });
       await pace(t0, period);
       continue;
     }
@@ -59,13 +69,21 @@ export async function runLoop({ cdp, pool, kb, run, name, policy, hz = 30,
 
     // --- a decision that arrived since the last tick
     if (pending?.settled) {
-      const { result, askedAt } = pending;
+      const { result, askedAt, askedAtMs } = pending;
       pending = null;
-      if (tick - askedAt > STALE_TICKS) counts.stale++;
+      if (Date.now() - askedAtMs > STALE_MS) counts.stale++;
       else if (result?.action) {
         action = result.action; source = policy.name; stance = null;
         recent = { last_action: action, outcome: 'pending' };
       } else counts.misses++;
+      shown = {
+        ...shown,
+        latencyMs: result?.latencyMs ?? null,
+        confidence: result?.answers?.action?.confidence ?? null,
+        probabilities: result?.answers?.action?.probabilities ?? null,
+        commit: result?.answers?.commit?.noul ?? null,
+      };
+      forceDraw = true;
     }
 
     // --- ask for the next one, without waiting for it
@@ -75,7 +93,7 @@ export async function runLoop({ cdp, pool, kb, run, name, policy, hz = 30,
       // Hash the question set the policy will actually send, not a stand-in for it.
       const schema = run?.useSchema(policy.questions?.(options, arena) ?? { action: { type: 'choice', criteria: options } });
       const askedAt = tick;
-      const record = { settled: false, askedAt, result: null };
+      const record = { settled: false, askedAt, askedAtMs: Date.now(), result: null };
       pending = record;
       counts.decisions++;
       policy.decide({ arena, options, recent }).then((result) => {
@@ -120,6 +138,14 @@ export async function runLoop({ cdp, pool, kb, run, name, policy, hz = 30,
       reflex: reflex?.reason ?? null,
       keys: kb.stats.down,
     });
+    const near = arena.threats[0];
+    await overlay?.update({
+      ...shown, action, source, counts, reflex: reflex?.reason ?? null,
+      hp: arena.me.hp, darkHp: arena.me.darkHp, hpMax: arena.me.hpMax, mp: arena.me.mp,
+      nearest: near ? { name: near.name, distance: bucketRange(near.gap), doing: doing(near) } : null,
+    }, { force: forceDraw });
+    forceDraw = false;
+
     onTick?.({ tick, arena, action, source });
 
     await pace(t0, period);

@@ -16,11 +16,13 @@ heuristic` costs nothing and is the control arm.
 
 ## The decision is never awaited
 
-A Jev round trip is 300–900 ms and a tick is 33 ms. Awaiting one would drop ten
-frames and hand the fight to whoever is still moving. So a request goes out
-tagged with the tick it was asked at, the loop carries on, and the answer is
-adopted whenever it lands — unless more than **30 ticks** have passed, in which
-case it describes a fight that has moved on and is counted as `stale` instead.
+A Jev round trip is 300–1200 ms and a tick is 33 ms. Awaiting one would drop
+thirty frames and hand the fight to whoever is still moving. So a request goes
+out, the loop carries on, and the answer is adopted whenever it lands — unless
+more than **1300 ms** have passed, in which case it describes a fight that has
+moved on and is counted as `stale` instead. That bound is in milliseconds, not
+ticks: the loop does not always hit its target rate, and a run pacing at 22 Hz
+would otherwise get a 1.4-second window while believing it had one second.
 
 Between decisions the character keeps playing: the reflex layer still fires and
 the last chosen action still runs. A missed call degrades the policy; it never
@@ -62,6 +64,28 @@ layer can overrule a decision — if a hitbox is about to go live within reach i
 blocks, whatever was chosen — so without that field a good result could be the
 reflexes' work and get credited to the policy. The "reflexes off" ablation in
 [03-experiments.md](03-experiments.md) is what separates them properly.
+
+## The overlay
+
+`--overlay` is on by default; `--no-overlay` turns it off and `--keep-overlay`
+leaves it on screen after a run.
+
+The game's interface is DOM rather than canvas, so the panel is DOM too and
+lands in the same layer instead of fighting the renderer. It borrows the game's
+palette — the `rgb(16,32,108)` panel and `rgb(90,119,216)` border used
+throughout — and then breaks from it deliberately with an amber edge, an amber
+title and a monospace readout. The game uses neither anywhere, so nothing on
+screen can be mistaken for the game's own HUD.
+
+What it shows is the part of a decision a recording cannot show you while it is
+happening: the options that were on the table, how close the runner-up was,
+the confidence and the round trip, and whether the action on screen came from
+Jev or from the reflex layer overruling it. The badge names the source, so a
+block that the reflex layer forced never reads as Jev's idea.
+
+It is one-way and inert — `pointer-events: none`, no key handlers, and a draw
+failure disables the panel rather than interrupting the fight. Updates are
+throttled to 10 Hz, except a new decision, which always draws.
 
 ## Measured on the first live runs
 

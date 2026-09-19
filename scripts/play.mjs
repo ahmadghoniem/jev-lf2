@@ -22,6 +22,7 @@ import { profileFor } from '../src/lf2data/tables.mjs';
 import { openRun } from '../src/telemetry/log.mjs';
 import { createClient } from '../src/jev/client.mjs';
 import { startMatch } from '../src/executor/match.mjs';
+import { createOverlay } from '../src/executor/overlay.mjs';
 
 const arg = (n, d) => { const i = process.argv.indexOf(`--${n}`); return i === -1 ? d : process.argv[i + 1]; };
 
@@ -56,6 +57,9 @@ if (process.argv.includes('--fresh')) {
   console.log(`fresh match: ${alive.map((f) => f.name).join(', ')}`);
 }
 
+const overlay = createOverlay(cdp, { enabled: !process.argv.includes('--no-overlay') });
+await overlay.install();
+
 const run = openRun({ meta: { label: arg('label', `${kind}-${name}`), policy: kind, character: name,
                               archetype: profile.archetype, hz, decideEveryMs, seconds } });
 
@@ -66,6 +70,7 @@ let stopping = false;
 const stop = async () => {
   if (stopping) return; stopping = true;
   await kb.releaseAll();
+  await overlay.remove();
   await run.close();
   await cdp.close();
   process.exit(0);
@@ -74,7 +79,7 @@ process.on('SIGINT', stop);
 
 let lastShown = '';
 const counts = await runLoop({
-  cdp, pool, kb, run, name, policy, hz, decideEveryMs, seconds,
+  cdp, pool, kb, run, name, policy, overlay, hz, decideEveryMs, seconds,
   onTick: ({ arena, action, source }) => {
     const line = `${source.padEnd(9)} ${action.padEnd(24)} hp ${String(arena.me.hp).padStart(4)}  mp ${String(arena.me.mp).padStart(4)}  nearest ${Math.round(arena.nearest)}`;
     if (line !== lastShown) { console.log(line); lastShown = line; }
@@ -82,6 +87,7 @@ const counts = await runLoop({
 });
 
 await kb.releaseAll();
+if (!process.argv.includes('--keep-overlay')) await overlay.remove();
 const manifest = await run.close({ loop: counts });
 await cdp.close();
 

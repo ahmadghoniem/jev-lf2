@@ -26,10 +26,17 @@ const DRINK_TYPE = 6;
 const HELD_DX = 45;
 const HELD_DZ = 2;
 
-export function readArena(entities, { slot, name }) {
+/**
+ * `human` is the reliable way to find our own fighter, and the only one that
+ * survives Phase 1: Jev and a COM playing the *same character* means the name
+ * matches two entities. An explicit slot wins over it; the name is a last
+ * resort for a run where no slot is human-controlled.
+ */
+export function readArena(entities, { slot, name } = {}) {
   const fighters = entities.filter((e) => e.type === 0).map(readFighter);
-  const me = fighters.find((f) => (slot !== undefined && f.slot === slot)
-    || (name && f.name?.toLowerCase() === name.toLowerCase()));
+  const me = (slot !== undefined && fighters.find((f) => f.slot === slot))
+    || fighters.find((f) => f.human)
+    || (name && fighters.find((f) => f.name?.toLowerCase() === name.toLowerCase()));
   if (!me) return null;
 
   const others = fighters.filter((f) => f !== me && f.alive);
