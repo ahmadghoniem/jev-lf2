@@ -27,19 +27,51 @@ const HELD_DX = 45;
 const HELD_DZ = 2;
 
 /**
+ * The entity pool keeps fighters from a finished match. They still read as
+ * alive, at whatever health they ended on, and nothing in the entity marks them
+ * as retired — a summary screen after a 1v1 was found holding two fighters from
+ * the match before it, which the executor then counted as enemies and walked
+ * toward.
+ *
+ * What separates them from a real fighter is that nothing about them changes.
+ * A fighter in play always moves through frames, and `waiting` counts down on
+ * every one, so a signature that has not changed for a second belongs to an
+ * entity the game has stopped simulating.
+ *
+ * This is stateful, so the caller holds one per run and passes it in. Items are
+ * deliberately not checked: a weapon lying on the ground is motionless and
+ * still very much real.
+ */
+export function createLiveness({ staleMs = 1000 } = {}) {
+  const seen = new Map();
+  return (f) => {
+    const sig = `${f.frame}:${f.waiting}:${Math.round(f.x)}:${Math.round(f.y)}:${Math.round(f.z)}:${f.hp}`;
+    const prev = seen.get(f.slot);
+    const now = Date.now();
+    if (!prev || prev.sig !== sig) {
+      seen.set(f.slot, { sig, at: now });
+      return true;
+    }
+    return now - prev.at < staleMs;
+  };
+}
+
+/**
  * `human` is the reliable way to find our own fighter, and the only one that
  * survives Phase 1: Jev and a COM playing the *same character* means the name
  * matches two entities. An explicit slot wins over it; the name is a last
  * resort for a run where no slot is human-controlled.
  */
-export function readArena(entities, { slot, name } = {}) {
+export function readArena(entities, { slot, name, isLive } = {}) {
   const fighters = entities.filter((e) => e.type === 0).map(readFighter);
   const me = (slot !== undefined && fighters.find((f) => f.slot === slot))
     || fighters.find((f) => f.human)
     || (name && fighters.find((f) => f.name?.toLowerCase() === name.toLowerCase()));
   if (!me) return null;
 
-  const others = fighters.filter((f) => f !== me && f.alive);
+  // Our own fighter is never liveness-checked: lying dead is motionless, and
+  // dropping ourselves would end the run.
+  const others = fighters.filter((f) => f !== me && f.alive && (!isLive || isLive(f)));
   const geo = (e) => {
     const dx = e.x - me.x;
     const dz = e.z - me.z;

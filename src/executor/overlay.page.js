@@ -68,11 +68,20 @@
     #jev-overlay .jv-badge.heuristic { background: rgb(90, 119, 216); color: #fff; }
     #jev-overlay .jv-row {
       display: grid; grid-template-columns: 1fr auto; gap: .5vmin;
-      align-items: center; margin: .2vmin 0;
+      align-items: center; margin: .14vmin 0;
       font-family: Consolas, "Courier New", monospace;
-      font-size: 1.55vmin; color: rgb(190, 208, 255);
+      font-size: 1.45vmin; color: rgb(190, 208, 255);
     }
     #jev-overlay .jv-row.top { color: #fff; }
+    /* Everything Jev could have done is on the panel; the ones it all but ruled
+       out are dimmed rather than hidden, so the list reads as a shortlist
+       without pretending the rejected options were never offered. */
+    #jev-overlay .jv-row.cold { opacity: .45; }
+    #jev-overlay .jv-count {
+      font-family: Consolas, "Courier New", monospace; font-size: 1.2vmin;
+      color: rgb(126, 150, 230); margin: .45vmin 0 .25vmin;
+      display: flex; justify-content: space-between;
+    }
     #jev-overlay .jv-name {
       position: relative; padding: .12vmin .45vmin; border-radius: .3vmin;
       overflow: hidden; white-space: nowrap; text-overflow: ellipsis; isolation: isolate;
@@ -124,6 +133,7 @@
         <span class="jv-now" data-now>&mdash;</span>
         <span class="jv-badge" data-badge>IDLE</span>
       </div>
+      <div class="jv-count" data-count></div>
       <div data-options></div>
       <div class="jv-bars">
         <span>HP</span>
@@ -159,13 +169,25 @@
         : (d.policy || '');
 
     // The probabilities are the point of the panel: what else was considered,
-    // and by how much it lost.
-    const probs = Object.entries(d.probabilities || {}).sort((a, b) => b[1] - a[1]).slice(0, 4);
+    // and by how much it lost. All of them are drawn — a truncated list looks
+    // like a short menu, and then you cannot tell a move Jev rejected from one
+    // it was never offered.
+    const probs = Object.entries(d.probabilities || {}).sort((a, b) => b[1] - a[1]);
+    const offered = (d.options && d.options.length) || probs.length;
+    q('count').innerHTML = probs.length
+      ? '<span>' + offered + ' options offered</span><span>'
+        + (d.commit === true ? 'commit' : d.commit === false ? 'hold' : '') + '</span>'
+      : '<span>' + offered + ' options offered</span><span></span>';
     q('options').innerHTML = probs.map(([name, p], i) =>
-      '<div class="jv-row' + (i === 0 ? ' top' : '') + '">'
+      '<div class="jv-row' + (i === 0 ? ' top' : '') + (p < 0.05 ? ' cold' : '') + '">'
       + '<span class="jv-name"><span class="jv-fill" style="width:' + Math.round(p * 100) + '%"></span>'
       + name.replace(/_/g, ' ') + '</span>'
-      + '<span>' + Math.round(p * 100) + '%</span></div>').join('');
+      + '<span>' + Math.round(p * 100) + '%</span></div>').join('')
+      // Before the first answer there are no probabilities, but the options are
+      // already chosen; listing them shows what Jev is about to pick between.
+      || (d.options || []).map((name) =>
+        '<div class="jv-row cold"><span class="jv-name">' + name.replace(/_/g, ' ')
+        + '</span><span>&middot;</span></div>').join('');
 
     q('hp').style.width = pct(d.hp, d.hpMax);
     q('dark').style.width = pct(d.darkHp != null ? d.darkHp : d.hp, d.hpMax);

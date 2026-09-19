@@ -17,13 +17,14 @@ export function offer(arena, profile) {
   const options = buildOptions({
     profile,
     weapons,
-    canDo: (name) => planAction(name, { arena }) !== null,
+    canDo: (name) => planAction(name, { arena, profile }) !== null,
     held: arena.held,
     nearby: arena.items.slice(0, 3).map((i) => ({ ...i, distance: i.range })),
     nearest: arena.nearest,
     mp: arena.me.mp,
+    behind: arena.threats[0] ? !arena.threats[0].infront : false,
   });
-  return executableOptions(options, { arena });
+  return executableOptions(options, { arena, profile });
 }
 
 /**

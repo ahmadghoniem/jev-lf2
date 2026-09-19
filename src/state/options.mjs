@@ -34,7 +34,7 @@ const SWING_STYLES = {
  * @param canDo      whether the executor can actually carry an option out
  */
 export function buildOptions({ profile, weapons, held, nearby = [], nearest = Infinity, mp = 0,
-                               canDo = () => true }) {
+                               behind = false, canDo = () => true }) {
   const options = {};
 
   const affordable = (m) => m.mp <= mp || m.allowedWhenShort;
@@ -51,8 +51,9 @@ export function buildOptions({ profile, weapons, held, nearby = [], nearest = In
       move.mp === 0 ? 'Costs no MP.'
         : `Costs ${tierMp(move.mp)} MP${move.allowedWhenShort ? ', and still works when MP is short' : ''}.`,
       isBasic ? "This is this fighter's ordinary attack, so it is always available."
-        : 'This is a special move.',
-    ].join(' ');
+        : 'This is a signature special move, and the only way to hurt an enemy without walking into its range.',
+      behind ? 'You will turn to face the enemy first.' : '',
+    ].filter(Boolean).join(' ');
   }
 
   // --- what it can do with its hands, and whether anything is in reach
@@ -72,6 +73,7 @@ export function buildOptions({ profile, weapons, held, nearby = [], nearest = In
       `${describeMelee(move)}.`,
       `Damage is ${move.damageTier}.`,
       inReach ? 'The enemy is already inside its reach.' : 'The enemy is out of its reach, so this means closing in first.',
+      behind ? 'The enemy is behind you; you will turn first, which costs a moment.' : '',
       move.mp > 0 ? `Costs ${tierMp(move.mp)} MP.` : '',
     ].filter(Boolean).join(' ');
   }
@@ -100,21 +102,27 @@ export function buildOptions({ profile, weapons, held, nearby = [], nearest = In
     const where = bucketRange(item.distance);
     if (item.type === 6) {
       options[`drink_${plainName(item.name).replace(/ /g, "_")}`] =
-        `Go and drink the ${plainName(item.name)}, ${where} away. It restores health. You are defenceless while drinking.`;
+        `Walk over and drink the ${plainName(item.name)}, ${where} away. It restores health, `
+        + 'but you are defenceless the whole way there and while drinking.';
       continue;
     }
     if (!table) continue;
     const best = Math.max(...Object.values(table.attacks).map((r) => r.injury));
+    const farther = item.distance > nearest;
     options[`pick_up_${plainName(table.name, item.name).replace(/ /g, "_")}`] = [
-      `Go and pick up the ${plainName(table.name, item.name)}, ${where} away.`,
-      `Its best hit is ${tierDamage(best)}, against ${profile.bestMelee ? tierDamage(profile.bestMelee.damage) : 'nothing'} bare-handed.`,
-      held ? 'You would swap what you are holding for it.' : '',
+      `Walk over and pick up the ${plainName(table.name, item.name)}, ${where} away.`,
+      'You cannot attack or block while walking to it, and the enemy is free to hit you the whole way.',
+      `Its best swing is ${tierDamage(best)}, against ${profile.bestMelee ? tierDamage(profile.bestMelee.damage) : 'nothing'} bare-handed.`,
+      farther ? 'The enemy is closer to you than the weapon is, so it will reach you before you reach it.' : '',
+      held ? 'You would drop what you are already holding to take it.' : '',
       item.contested ? 'Someone else is closer to it than you are.' : '',
     ].filter(Boolean).join(' ');
   }
 
   // --- the things that are always available
-  options.close_distance = 'Move toward the enemy to get into range.';
+  options.close_distance = behind
+    ? 'Turn around and move toward the enemy to get into range.'
+    : 'Move toward the enemy to get into range.';
   options.open_distance = 'Move away from the enemy to get out of its range.';
   options.defend = 'Hold block. Safe, but it gives up the initiative and a heavy hit breaks it.';
   options.wait = 'Hold position and do nothing this instant.';
@@ -146,7 +154,7 @@ function dedupe(moves, limit) {
 }
 
 /** A readable option name: the frame's own name, else the input that reaches it. */
-const label = (move) => (move.name ?? `${move.input}_${move.entry}`).replace(/[^a-z0-9_]+/gi, '_');
+export const label = (move) => (move.name ?? `${move.input}_${move.entry}`).replace(/[^a-z0-9_]+/gi, '_');
 
 function describeMelee(move) {
   if (move.name === 'dash_attack') return 'Dash in and attack, which commits you to the movement';

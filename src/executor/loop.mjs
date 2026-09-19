@@ -11,7 +11,7 @@
  * `reflex` — because otherwise there is no way to tell whose result it is.
  */
 
-import { readArena, doing } from '../state/arena.mjs';
+import { readArena, doing, createLiveness } from '../state/arena.mjs';
 import { profileFor } from '../lf2data/tables.mjs';
 import { planAction } from './actions.mjs';
 import { reflexAction } from './reflex.mjs';
@@ -43,12 +43,16 @@ export async function runLoop({ cdp, pool, kb, run, name, policy, overlay, hz = 
   let forceDraw = false;                 // set when an answer lands, cleared once drawn
   const counts = { ticks: 0, decisions: 0, misses: 0, reflexes: 0, stale: 0, bursts: 0, dead: 0 };
 
+  // One tracker for the whole run, so fighters left over from an earlier match
+  // drop out of the threat list about a second in.
+  const isLive = createLiveness();
+
   const profile = profileFor(name);
   if (!profile) throw new Error(`no derived profile for ${name} — rebuild build/_profiles.json`);
 
   while (Date.now() < until) {
     const t0 = performance.now();
-    const arena = readArena(await pool.read(), { name });
+    const arena = readArena(await pool.read(), { name, isLive });
     tick++; counts.ticks++;
 
     if (!arena) { await kb.releaseAll(); await pace(t0, period); continue; }
@@ -90,6 +94,10 @@ export async function runLoop({ cdp, pool, kb, run, name, policy, overlay, hz = 
     if (!pending && !burst && Date.now() - lastAsk >= decideEveryMs) {
       lastAsk = Date.now();
       const options = offer(arena, profile);
+      // The panel names the options as they are chosen, so the list on screen is
+      // the list Jev was handed — not a redraw of the last answer's keys.
+      shown = { ...shown, options: Object.keys(options) };
+      forceDraw = true;
       // Hash the question set the policy will actually send, not a stand-in for it.
       const schema = run?.useSchema(policy.questions?.(options, arena) ?? { action: { type: 'choice', criteria: options } });
       const askedAt = tick;
@@ -112,7 +120,7 @@ export async function runLoop({ cdp, pool, kb, run, name, policy, overlay, hz = 
 
     // --- carry out whatever is current
     if (!burst) {
-      const plan = planAction(action, { arena });
+      const plan = planAction(action, { arena, profile });
       if (plan?.kind === 'burst') {
         counts.bursts++;
         burst = plan.run(kb).finally(() => { burst = null; });
