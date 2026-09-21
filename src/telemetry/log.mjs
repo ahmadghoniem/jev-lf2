@@ -129,20 +129,3 @@ const DYNAMIC_QUESTIONS = new Set(['action', 'target']);
 const PER_TICK = '<stored per judgement>';
 
 const stamp = () => new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-
-/**
- * The per-tick row the executor writes. Written as a function rather than a
- * comment so the shape stays in one place and cannot drift.
- */
-export const tickRow = ({ tick, me, threats, items, action, source, reflex }) => ({
-  tick,
-  me: { frame: me.frame, state: me.state, hp: me.hp, mp: me.mp, x: me.x, z: me.z,
-        facing: me.facing, holding: me.holding ?? null },
-  threats: threats.map((e) => ({ slot: e.slot, name: e.name, frame: e.frame, state: e.state,
-                                 hp: e.hp, dx: e.dx, dz: e.dz, incoming: e.incoming ?? false })),
-  items: items.map((i) => ({ slot: i.slot, name: i.name, dx: i.dx, dz: i.dz })),
-  action,
-  /** `jev`, `reflex`, or `fallback` — the only way to attribute performance. */
-  source,
-  reflex: reflex ?? null,
-});

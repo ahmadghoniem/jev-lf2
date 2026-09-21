@@ -195,9 +195,13 @@
     q('mp').style.width = pct(d.mp, d.mpMax || 500);
     q('mpn').textContent = Math.round(d.mp || 0);
 
-    q('near').textContent = d.nearest
+    q('near').textContent = (d.nearest
       ? d.nearest.distance + ' · ' + d.nearest.name + ' · ' + d.nearest.doing
-      : 'no enemy';
+        // ⚡ is a window that cannot answer, ✳ one that only looks like it.
+        + (d.nearest.vulnerable ? (d.nearest.helpless ? ' ⚡' : ' ✳') : '')
+      : 'no enemy')
+      // The thrown weapon is the damage that arrives with no swing to see.
+      + (d.threat ? '   ✈ ' + d.threat.name + ' ' + d.threat.distance : '');
     q('counts').textContent = d.counts
       ? d.counts.decisions + ' dec · ' + d.counts.misses + ' miss · ' + d.counts.stale + ' stale'
       : '';

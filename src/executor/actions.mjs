@@ -15,29 +15,32 @@
  */
 
 import { P4_KEYS } from './keyboard.mjs';
-import { DRINK_TYPE } from '../state/arena.mjs';
+import { DRINK_TYPE, Z_TOLERANCE } from '../state/arena.mjs';
+import { REACH_SLACK } from '../lf2data/frames.mjs';
 import { label } from '../state/options.mjs';
 
 /** Standing on top of an item is what picks it up; the hit box is generous. */
 const PICKUP_RANGE = 40;
-/** LF2 only connects when attacker and target share roughly the same depth. */
-const Z_TOLERANCE = 12;
 
 /**
- * Every special move in Little Fighter starts with Defend and then adds a
- * direction and a button — the `hit_*` field names in the data files are that
- * sequence written down. `hit_Fa` is Defend, Forward, Attack. `forward` means
- * whichever way the character is facing, which is why an attack faces its
- * target before it fires.
+ * The `hit_*` field names in the data files are the key sequence written down.
+ * An uppercase direction is a Defend-prefixed special — `hit_Fa` is Defend,
+ * Forward, Attack — while a lowercase letter is a plain button press from the
+ * frame (`hit_a` is just Attack). `forward` means whichever way the character
+ * is facing, which is why an attack faces its target before it fires.
+ *
+ * The Defend prefix lives in this table rather than being added by the caller,
+ * because adding it to a lowercase input sends Defend+Attack and the move never
+ * starts.
  */
 const SPECIAL_SEQUENCE = {
   a: ['attack'],
   j: ['jump'],
   d: ['defend'],
-  Fa: ['forward', 'attack'],
-  Ua: ['up', 'attack'],
-  Da: ['down', 'attack'],
-  Uj: ['up', 'jump'],
+  Fa: ['defend', 'forward', 'attack'],
+  Ua: ['defend', 'up', 'attack'],
+  Da: ['defend', 'down', 'attack'],
+  Uj: ['defend', 'up', 'jump'],
 };
 
 /** Press and gap for a special. Tuned by scripts/prove-specials.mjs. */
@@ -127,6 +130,18 @@ export function planAction(name, { arena, profile, keys = P4_KEYS } = {}) {
     }) : null;
   }
 
+  // punish a helpless enemy: close the distance, then hit once in range
+  if (name === 'rush_attack') {
+    if (!target) return null;
+    const reach = profile?.bestMelee?.reach ?? profile?.basicAttack?.reach ?? 45;
+    return stance((a) => {
+      const t = enemy(a);
+      if (!t) return { hold: [] };
+      if (t.gap <= reach + REACH_SLACK && t.zGap <= Z_TOLERANCE) return { hold: [], tap: [keys.attack] };
+      return { hold: toward(a, keys, t) };
+    });
+  }
+
   // go and get something: walk to it, then press attack on top of it
   if (name.startsWith('pick_up_') || name.startsWith('drink_')) {
     const wantDrink = name.startsWith('drink_');
@@ -148,12 +163,12 @@ const findSpecial = (profile, name) =>
   profile?.moves?.find((m) => `special_${label(m)}` === name) ?? null;
 
 /**
- * Defend, then the rest of the sequence. Each press is short and the gaps are
- * even, because the engine reads the sequence as discrete presses inside a
- * window rather than as a held combination.
+ * The sequence, in order. Each press is short and the gaps are even, because
+ * the engine reads the sequence as discrete presses inside a window rather than
+ * as a held combination.
  */
 async function fireSpecial(kb, keys, input, facingDir) {
-  const steps = ['defend', ...SPECIAL_SEQUENCE[input]];
+  const steps = SPECIAL_SEQUENCE[input];
   for (const step of steps) {
     const code = step === 'forward' ? keys[facingDir] : keys[step];
     await kb.tap(code, SPECIAL_PRESS_MS);
@@ -177,11 +192,19 @@ const enemy = (arena) => arena.threats[0] ?? null;
 
 const dirTo = (me, t) => (t && t.x >= me.x ? 'right' : 'left');
 
-/** Walk at something, closing the depth gap too since a hit needs it. */
+/**
+ * Walk at something, correcting depth as well as distance. A target that is
+ * level in `x` but a long way off in `z` is the common case for an item lying
+ * just above or below us, and pressing a sideways key at it only walks past —
+ * so the sideways key is dropped once the horizontal gap is closed and the
+ * depth keys do the rest.
+ */
 function toward(arena, keys, t) {
   if (!t) return [];
-  const out = [keys[dirTo(arena.me, t)]];
+  const out = [];
+  const dx = t.x - arena.me.x;
   const dz = t.z - arena.me.z;
+  if (Math.abs(dx) > Z_TOLERANCE) out.push(keys[dx >= 0 ? 'right' : 'left']);
   if (dz < -Z_TOLERANCE) out.push(keys.up);
   if (dz > Z_TOLERANCE) out.push(keys.down);
   return out;

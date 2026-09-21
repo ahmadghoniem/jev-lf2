@@ -13,7 +13,7 @@ import { readFighter } from '../state/fields.mjs';
 export const living = async (pool) =>
   fighters(await pool.read()).map(readFighter).filter((f) => f.alive);
 
-export async function startMatch(cdp, pool, { attack = 'F17', tries = 12, gapMs = 1500 } = {}) {
+export async function startMatch(cdp, pool, { attack = 'KeyK', tries = 12, gapMs = 1500 } = {}) {
   for (let i = 0; i <= tries; i++) {
     const alive = await living(pool);
     // A fresh match has our fighter and at least one opponent at full health.

@@ -7,10 +7,10 @@
  */
 
 import { buildOptions } from '../state/options.mjs';
-import { semanticState } from '../state/arena.mjs';
+import { semanticState, doing } from '../state/arena.mjs';
 import { weapons } from '../lf2data/tables.mjs';
 import { executableOptions, planAction } from './actions.mjs';
-import { wouldWhiff } from './reflex.mjs';
+import { wouldWhiff, incoming, inboundWeapon } from './reflex.mjs';
 
 /** Options the executor can actually carry out, described for a reader. */
 export function offer(arena, profile) {
@@ -19,10 +19,23 @@ export function offer(arena, profile) {
     weapons,
     canDo: (name) => planAction(name, { arena, profile }) !== null,
     held: arena.held,
-    nearby: arena.items.slice(0, 3).map((i) => ({ ...i, distance: i.range })),
+    // A weapon in flight is not a pickup — offering it as one invites a walk
+    // straight down the line the weapon is travelling along.
+    nearby: arena.items.filter((i) => !i.inFlight).slice(0, 3).map((i) => ({ ...i, distance: i.range })),
     nearest: arena.nearest,
     mp: arena.me.mp,
+    hp: arena.me.hp,
+    hpMax: arena.me.hpMax,
     behind: arena.threats[0] ? !arena.threats[0].infront : false,
+    vulnerable: arena.threats[0]?.vulnerable ?? false,
+    enemyDoing: arena.threats[0] ? doing(arena.threats[0]) : null,
+    aligned: arena.threats[0]?.aligned ?? true,
+    shootable: arena.threats[0]?.shootable ?? true,
+    hasTarget: arena.threats.length > 0,
+    mpLow: arena.me.mp < 100,
+    threatened: !!incoming(arena, { within: 12 }),
+    helpless: !!arena.threats[0]?.helpless,
+    weaponInbound: !!inboundWeapon(arena),
   });
   return executableOptions(options, { arena, profile });
 }
@@ -82,10 +95,32 @@ export function jevPolicy(client, profile, { deadlineMs = 900 } = {}) {
 
 /** Independent questions, evaluated in parallel by the service. */
 function questionSet(options, arena) {
+  const near = arena.threats[0];
   const questions = {
     action: {
       type: 'choice',
-      instructions: 'Choose what to do next in this fight. Every option listed is available right now.',
+      instructions: 'Choose what to do next in this fight. Every option listed is available right now.'
+        + (near?.helpless
+          ? ' An enemy is helpless right now — it cannot move or block — so a free hit is on the table.'
+          : '')
+        + (near?.vulnerable && !near.helpless
+          ? ' The enemy is at the tail end of an attack. It has nothing live, but it may have released a weapon a moment ago, so check the air before walking in.'
+          : '')
+        + (near && !near.aligned
+          ? ' You and the enemy are at different depths, so nothing fired from here will connect until you line up on its depth.'
+          : '')
+        + (near && near.aligned && !near.shootable
+          ? ' The enemy is down or airborne and off the height a straight attack travels at, so line up before you commit.'
+          : '')
+        + (inboundWeapon(arena)
+          ? ' A weapon that was thrown at you is still in the air and closing, so nothing you throw will stop it — block, or step off the line it is travelling along.'
+          : '')
+        + (incoming(arena, { within: 12 })
+          ? ' An enemy swing is already coming at you, so blocking or stepping back beats trading.'
+          : '')
+        + (arena.me.mp < 100
+          ? ' Your MP is nearly spent, so spend what is left only on a shot that will land.'
+          : ''),
       criteria: options,
     },
     commit: {

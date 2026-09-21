@@ -54,17 +54,11 @@ export const BASIC_ATTACKS = {
   dash_attack: { input: 'dash+a', label: 'dash_attack' },
 };
 
-/**
- * No character frame carries a weapon's damage — a swing's frames hold no itr
- * at all, and the hit comes from the weapon object's own `<wsl>` table. So what
- * a weapon is worth is only knowable once one is in hand, which is why weapon
- * options are built at run time from `build/_weapons.json` rather than baked
- * into a character's profile.
- */
-export const WEAPON_ATTACK_FRAMES = {
-  20: 'weapon_attack', 30: 'weapon_jump_attack', 35: 'weapon_run_attack',
-  40: 'weapon_dash_attack', 45: 'weapon_throw', 50: 'heavy_weapon_throw',
-};
+// No character frame carries a weapon's damage — a swing's frames hold no itr
+// at all, and the hit comes from the weapon object's own `<wsl>` table. So what
+// a weapon is worth is only knowable once one is in hand, which is why weapon
+// options are built at run time from `build/_weapons.json` rather than baked
+// into a character's profile.
 
 /**
  * itr kinds that actually hurt someone. `kind 0` is an ordinary attack and
@@ -140,6 +134,24 @@ function inspectMove(frames, entryId, maxDepth = 24) {
 }
 
 /**
+ * A `hit_*` field on a continuation frame is not a move you can start — it is
+ * the next link in a chain the engine is already running. Davis's energy ball is
+ * entered from standing by `hit_Fa` on frame 0; the rapid-fire tail `ball2..4`
+ * lives on `hit_a` fields deep inside that chain, and reading those as separate
+ * specials offers a move that can never be fired from neutral — its input is a
+ * plain attack press with no defend to start it, so the executor sends keys
+ * that do nothing and the option is a recorded no-op.
+ *
+ * So only transitions on frames reachable from neutral are entry moves: the
+ * standing loop (`state` absent), walking (1), running (2) and defending (7).
+ * Everything else — attacking (3), rowing (6), throwing (15), drinking (17) and
+ * the rest — is a continuation. Verified across all characters: no root frame
+ * carries a lowercase `hit_a`/`hit_j`/`hit_d`, so nothing legitimate is lost.
+ */
+const ENTRY_STATES = new Set([1, 2, 7]);
+const isEntryFrame = (frame) => frame.state === undefined || ENTRY_STATES.has(frame.state);
+
+/**
  * One character's profile.
  *
  * `objects` maps an object id to `{ type, damage, travels }` for everything a
@@ -152,6 +164,7 @@ export function buildProfile(name, frames, objects) {
   /** Special moves from `hit_*`, then the engine's named basic attacks. */
   const entries = [];
   for (const frame of frames.values()) {
+    if (!isEntryFrame(frame)) continue;
     for (const [input, target] of Object.entries(frame.transitions)) entries.push([input, target, 'special']);
   }
   for (const frame of frames.values()) {

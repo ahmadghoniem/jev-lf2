@@ -41,6 +41,8 @@ const options = buildOptions({
   held,
   nearest,
   mp: 500,
+  hp: Number(arg('hp', 500)),
+  hpMax: 500,
   nearby: [
     { id: 121, name: 'weapon5', type: 4, distance: 150, contested: false },
     { id: 122, name: 'weapon6', type: 6, distance: 620, contested: false },

@@ -3,13 +3,16 @@
  *
  * The remaster keeps them in `localStorage` as one delimited string, which is
  * better than the rebinding screen for our purposes: the harness can give its
- * player slot keys that no physical keyboard has (F13–F24) without a human
- * holding down anything, and without the settings UI getting a say in whether
- * those keys are allowed.
+ * player slot keys without the settings UI getting a say in whether those keys
+ * are allowed.
  *
  * Slot order per player is fixed: up, down, left, right, attack, jump, defend,
  * then three unused. Confirmed in game — P1's fifth entry is `Enter`, and Enter
  * is what joins a slot on the character-select screen.
+ *
+ * The harness reads these same entries back at start-up (`readBindings` in
+ * src/executor/keyboard.mjs), so it follows whatever is set here. There is no
+ * second copy of the key map to keep in sync.
  *
  *   node scripts/bind-keys.mjs --show
  *   node scripts/bind-keys.mjs --assign P4 --from F13 --reload

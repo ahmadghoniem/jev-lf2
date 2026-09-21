@@ -144,16 +144,24 @@ export const SCOPE_CANDIDATES = ['onerror', 'onresize', 'onunhandledrejection', 
 /** Only the codes the harness actually sends. */
 export const KEY_OF = {
   Enter: 'Enter', Escape: 'Escape', Space: ' ', Tab: 'Tab', Backquote: '`', Quote: "'",
-  ShiftRight: 'Shift', Period: '.',
+  ShiftRight: 'Shift', Period: '.', Comma: ',',
   ArrowUp: 'ArrowUp', ArrowDown: 'ArrowDown', ArrowLeft: 'ArrowLeft', ArrowRight: 'ArrowRight',
   KeyW: 'w', KeyA: 'a', KeyS: 's', KeyD: 'd', KeyI: 'i', KeyJ: 'j', KeyK: 'k', KeyL: 'l',
   F1: 'F1', F2: 'F2',
   F13: 'F13', F14: 'F14', F15: 'F15', F16: 'F16', F17: 'F17', F18: 'F18', F19: 'F19', F20: 'F20', F21: 'F21', F22: 'F22', F23: 'F23', F24: 'F24',
+  Numpad0: '0', Numpad1: '1', Numpad2: '2', Numpad3: '3', Numpad4: '4',
+  Numpad5: '5', Numpad6: '6', Numpad7: '7', Numpad8: '8', Numpad9: '9',
+  NumpadAdd: '+', NumpadSubtract: '-', NumpadMultiply: '*', NumpadDivide: '/',
+  NumpadDecimal: '.', NumpadEnter: 'Enter',
 };
 export const VK_OF = {
-  Enter: 13, Escape: 27, Space: 32, Tab: 9, ShiftRight: 16,
+  Enter: 13, Escape: 27, Space: 32, Tab: 9, ShiftRight: 16, Comma: 188, Period: 190,
   ArrowUp: 38, ArrowDown: 40, ArrowLeft: 37, ArrowRight: 39,
   KeyW: 87, KeyA: 65, KeyS: 83, KeyD: 68, KeyI: 73, KeyJ: 74, KeyK: 75, KeyL: 76,
   F1: 112, F2: 113,
   F13: 124, F14: 125, F15: 126, F16: 127, F17: 128, F18: 129, F19: 130, F20: 131, F21: 132, F22: 133, F23: 134, F24: 135,
+  Numpad0: 96, Numpad1: 97, Numpad2: 98, Numpad3: 99, Numpad4: 100,
+  Numpad5: 101, Numpad6: 102, Numpad7: 103, Numpad8: 104, Numpad9: 105,
+  NumpadMultiply: 106, NumpadAdd: 107, NumpadSubtract: 109, NumpadDecimal: 110,
+  NumpadDivide: 111, NumpadEnter: 13,
 };

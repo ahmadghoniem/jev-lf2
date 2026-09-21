@@ -10,7 +10,8 @@
 
 import { readFileSync, existsSync } from 'node:fs';
 import { resolve, join, dirname } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { REACH_SLACK } from '../src/lf2data/frames.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -25,8 +26,6 @@ const NON_ATTACK_ACTIONS = new Set([
   'drop_weapon',
 ]);
 
-/** Slack allowed on reach boundaries before classifying a move as a whiff. */
-const REACH_SLACK = 25;
 
 /**
  * Loads and extracts telemetry metrics from recorded run files.
@@ -765,9 +764,14 @@ function wrapList(items, indent = 2, maxWidth = 80) {
 }
 
 // --- CLI entrypoint
+// Guarded so the module can be imported for `analyzeRun` (as scratch tools do)
+// without printing a report as a side effect.
+const isMain = process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href;
 const args = process.argv.slice(2).filter((a) => !a.startsWith('--'));
 
-if (args.length === 1) {
+if (!isMain) {
+  // imported, not run
+} else if (args.length === 1) {
   const analysis = analyzeRun(args[0]);
   console.log(formatSingleRun(analysis));
 } else if (args.length >= 2) {

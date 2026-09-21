@@ -35,6 +35,3 @@ export const profileFor = (name) => profiles[name?.toLowerCase()] ?? null;
 
 /** Frame states that mean the fighter cannot act on input right now. */
 export const BUSY_STATES = new Set([11, 12, 14, 16]); // injured, falling, lying, dizzy
-
-/** Frame ids 0–15 are the standing, walking and running blocks. */
-export const isActionable = (frame) => frame <= 15;
