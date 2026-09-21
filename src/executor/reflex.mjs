@@ -71,9 +71,22 @@ export function inboundWeapon(arena, { within = PROJECTILE_RANGE } = {}) {
 /**
  * What the reflex layer wants, ahead of any decision. `null` means it has no
  * opinion and the policy's choice stands.
+ *
+ * A swing is blocked for the moment it is live, then left to the policy: an
+ * answer describing the fight from 300 ms ago is usually the better call, and
+ * letting every reflex override the policy is what starved Jev's attacks. A
+ * thrown weapon is the exception — it is already travelling and only the block
+ * stops it — so it is marked and allowed to hold against a late answer.
  */
 export function reflexAction(arena, opts = {}) {
   const threat = incoming(arena, opts);
   if (threat) return { action: 'defend', reason: `hit from slot ${threat.slot} in ${threat.ticks} ticks`, threat };
+  const thrown = inboundWeapon(arena);
+  if (thrown) {
+    const when = Number.isFinite(thrown.eta) ? `~${thrown.eta.toFixed(1)} ticks out` : 'closing';
+    return { action: 'defend',
+             reason: `a thrown weapon ${Math.round(thrown.range)} away, ${when} — block`,
+             threat: null, thrown: true };
+  }
   return null;
 }

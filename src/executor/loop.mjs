@@ -95,7 +95,9 @@ export async function runLoop({ cdp, pool, kb, run, name, policy, overlay, hz = 
       const { result, askedAt, askedAtMs } = pending;
       pending = null;
       if (Date.now() - askedAtMs > staleMs) counts.stale++;
-      else if (result?.action) {
+      // A thrown weapon is already in the air and only the block answers it, so
+      // that one reflex holds against a late answer; everything else steps aside.
+      else if (result?.action && !reflex?.thrown) {
         action = result.action; source = policy.name; stance = null;
         recent = { last_action: action, outcome: 'pending' };
       } else if (!result?.action) counts.misses++;
