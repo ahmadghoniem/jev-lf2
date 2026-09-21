@@ -14,23 +14,10 @@ import { Z_TOLERANCE, Y_TOLERANCE, PROJECTILE_RANGE, PROJECTILE_BLOCK_RANGE,
          PROJECTILE_ETA_TICKS } from '../state/arena.mjs';
 
 /**
- * How close a hit has to be before blocking beats walking out of its way. A
- * swing needs several ticks of wind-up before its hitbox goes live, and walking
- * out of range during that wind-up costs nothing; once the hitbox is nearly
- * live there is no time to leave and the block is the only answer left.
- */
-const BLOCK_WITHIN = 3;
-
-/**
  * The most urgent incoming attack, if one is close enough to matter.
  * `ticks` is how long until its hitbox goes live; 0 means it already is.
- *
- * The window is a little wider than a single Jev round trip (~330 ms, about
- * ten ticks at 30 Hz) so blocking does not depend on a decision landing in
- * time. Raising it costs nothing: a block that covers a swing that never comes
- * is just a moment of guard.
  */
-export function incoming(arena, { within = 10 } = {}) {
+export function incoming(arena, { within = 6 } = {}) {
   let worst = null;
   for (const t of arena.threats) {
     // Same depth and the same height: an attack from a platform above or a
@@ -84,35 +71,9 @@ export function inboundWeapon(arena, { within = PROJECTILE_RANGE } = {}) {
 /**
  * What the reflex layer wants, ahead of any decision. `null` means it has no
  * opinion and the policy's choice stands.
- *
- * There are two answers to an incoming swing, and which one is right depends on
- * how much time is left. A swing still winding up is answered by walking out of
- * its range — it costs nothing, keeps the initiative, and a block that never had
- * to happen cannot be guard-broken. A hitbox that is about to go live is
- * answered by blocking, because leaving is no longer possible.
- *
- * A thrown weapon gets the same two answers on the same rule, scaled by how far
- * away it is.
- *
- * When both are incoming, the live hitbox is decided first even though the
- * weapon may be nearer: blocking is the answer to both, whereas stepping out of
- * the weapon's line would still leave a hitbox that is about to go live.
  */
 export function reflexAction(arena, opts = {}) {
   const threat = incoming(arena, opts);
-  if (threat && threat.ticks <= BLOCK_WITHIN) {
-    return { action: 'defend', reason: `hit from slot ${threat.slot} lands in ${threat.ticks} ticks — block`, threat };
-  }
-  // A thrown weapon is blocked, never outrun: it travels at us, so stepping back
-  // keeps us on its line and spends the only ticks there were. There is no
-  // distance branch — the trigger above is already the arrival time.
-  const thrown = inboundWeapon(arena);
-  if (thrown) {
-    const when = Number.isFinite(thrown.eta) ? `~${thrown.eta.toFixed(1)} ticks out` : 'closing';
-    return { action: 'defend',
-             reason: `a thrown weapon ${Math.round(thrown.range)} away, ${when} — block`,
-             threat: null };
-  }
-  if (!threat) return null;
-  return { action: 'open_distance', reason: `hit from slot ${threat.slot} in ${threat.ticks} ticks — step out of its range`, threat };
+  if (threat) return { action: 'defend', reason: `hit from slot ${threat.slot} in ${threat.ticks} ticks`, threat };
+  return null;
 }

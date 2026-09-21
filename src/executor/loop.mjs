@@ -95,10 +95,7 @@ export async function runLoop({ cdp, pool, kb, run, name, policy, overlay, hz = 
       const { result, askedAt, askedAtMs } = pending;
       pending = null;
       if (Date.now() - askedAtMs > staleMs) counts.stale++;
-      // A live threat outranks the answer. The reflex runs at 30 Hz and knows a
-      // swing is already in the air; an answer describing a fight from 300 ms
-      // ago does not, and adopting it here is what turned blocks into trades.
-      else if (result?.action && !reflex) {
+      else if (result?.action) {
         action = result.action; source = policy.name; stance = null;
         recent = { last_action: action, outcome: 'pending' };
       } else if (!result?.action) counts.misses++;

@@ -48,31 +48,7 @@ export function buildOptions({ profile, weapons, held, nearby = [], nearest = In
   const affordable = (m) => m.mp <= mp || m.allowedWhenShort;
   const basic = profile.basicAttack;
 
-  // A hit needs the two fighters at the same depth, and a straight attack leaves
-  // at our own height, so a target further back, nearer the camera, lying down or
-  // airborne cannot be hit from here. Code does that arithmetic; the option is
-  // simply not offered while it is true, rather than offered and wasted.
-  const canShoot = hasTarget && shootable;
   const misaligned = hasTarget && !aligned;
-  // While the enemy is down or airborne, nothing thrown from here connects, so
-  // MP spent now is MP missing from the window that follows. Free moves stay on
-  // the list; anything that costs MP waits.
-  const bankMp = hasTarget && !shootable;
-
-  // A swing already in the air is answered by a block or a step back, never by
-  // an attack: the trade resolves on the enemy's frame data, not ours. The
-  // warning goes on every committing option, because labelling only the safe
-  // ones leaves the attacks reading as neutral and the policy picks the attack.
-  const tradeWarning = threatened
-    ? 'An enemy swing is already coming, so this would land second and you would take the hit.'
-    : '';
-  // A thrown weapon is a second, quieter threat: it is already travelling, so an
-  // answer has to be a block or a step out of its line, never a walk toward it.
-  const thrownWarning = weaponInbound
-    ? 'A thrown weapon is already in the air coming at you, and it hurts on contact.'
-    : '';
-  /** Anything that commits is the wrong answer to either kind of incoming danger. */
-  const commitWarning = [tradeWarning, thrownWarning].filter(Boolean).join(' ');
 
   // A free window is the one branch that opens because of the enemy rather than
   // for us: a fighter locked in a drink or a recovery cannot move or block, so
@@ -82,7 +58,7 @@ export function buildOptions({ profile, weapons, held, nearby = [], nearest = In
   // but a recovering one may have released a weapon a moment ago, and rushing in
   // to that is the trade the loss runs are full of. Committing on top of an
   // incoming swing or a weapon in the air is never a punish.
-  const window = vulnerable && !threatened && !weaponInbound ? (enemyDoing ?? 'stuck') : null;
+  const window = vulnerable ? (enemyDoing ?? 'stuck') : null;
   if (window) {
     options.rush_attack = helpless
       ? `The enemy is ${window} and cannot move or block for the moment. Close in and hit it before it recovers.`
@@ -103,7 +79,7 @@ export function buildOptions({ profile, weapons, held, nearby = [], nearest = In
   // --- what the character can throw from where it stands
   const rangedName = (m) => (basic && m.entry === basic.entry ? 'shoot' : `special_${label(m)}`);
   const ranged = profile.moves.filter((m) => m.kind === 'ranged' && affordable(m)
-    && canShoot && canDo(rangedName(m)));
+    && canDo(rangedName(m)));
   for (const move of dedupe(ranged, MAX_RANGED)) {
     const isBasic = basic && move.entry === basic.entry;
     options[rangedName(move)] = [
@@ -115,7 +91,6 @@ export function buildOptions({ profile, weapons, held, nearby = [], nearest = In
         : 'This is a signature special move, and the only way to hurt an enemy without walking into its range.',
       window ? 'The enemy is helpless right now, so this cannot be answered or blocked.' : '',
       behind ? 'You will turn to face the enemy first.' : '',
-      commitWarning,
       move.mp > 0 ? 'MP comes back slowly and this is spent even on a miss.' : '',
       mpLow && move.mp > 0 ? 'Your MP is nearly gone — save it for a moment you cannot otherwise answer.' : '',
     ].filter(Boolean).join(' ');
@@ -123,7 +98,7 @@ export function buildOptions({ profile, weapons, held, nearby = [], nearest = In
 
   // --- what it can do with its hands, and whether anything is in reach
   const melee = profile.moves.filter((m) => m.kind === 'melee' && !m.needsWeapon
-    && affordable(m) && (!bankMp || m.mp === 0) && canDo(label(m)));
+    && affordable(m) && canDo(label(m)));
   // The ordinary attack always belongs on the list. It costs nothing, it is the
   // archetype in one option, and the cap would otherwise spend all four slots on
   // heavier variants and drop the one move that is always available.
@@ -142,9 +117,7 @@ export function buildOptions({ profile, weapons, held, nearby = [], nearest = In
         : 'The enemy is out of its reach, so this means closing in first.',
       window ? 'The enemy is helpless right now, so this cannot be answered or blocked.' : '',
       behind ? 'The enemy is behind you; you will turn first, which costs a moment.' : '',
-      commitWarning,
       move.mp > 0 ? `Costs ${tierMp(move.mp)} MP.` : '',
-      bankMp ? 'The enemy is down or in the air, so MP-costing moves are held back until it is back on your line.' : '',
     ].filter(Boolean).join(' ');
   }
 
@@ -162,12 +135,10 @@ export function buildOptions({ profile, weapons, held, nearby = [], nearest = In
           `Damage is ${tierDamage(row.injury)}.`,
           `Risk is ${style.risk}.`,
           'This is available because the weapon is in your hands right now.',
-          commitWarning,
         ].filter(Boolean).join(' ');
       }
     }
-    options.throw_weapon = `Throw the ${weaponName} at the enemy. It travels, so distance does not matter, but you lose the weapon.`
-      + (commitWarning ? ` ${commitWarning}` : '');
+    options.throw_weapon = `Throw the ${weaponName} at the enemy. It travels, so distance does not matter, but you lose the weapon.`;
     options.drop_weapon = `Drop what you are holding and fight bare-handed.`;
   }
 
@@ -200,21 +171,12 @@ export function buildOptions({ profile, weapons, held, nearby = [], nearest = In
   }
 
   // --- the things that are always available
-  options.close_distance = (behind
+  options.close_distance = behind
     ? 'Turn around and move toward the enemy to get into range.'
-    : 'Move toward the enemy to get into range.')
-    + (tradeWarning ? ` ${tradeWarning}` : '');
-  options.open_distance = 'Move away from the enemy to get out of its range.'
-    + (threatened ? ' A swing is already coming, so stepping back now is what avoids it.' : '')
-    // Outrunning a thrown weapon does not work: it is travelling at you, so
-    // retreating keeps you on its line and spends the ticks a block needed.
-    + (weaponInbound ? ' This will not outrun a weapon that is already flying at you — block it instead.' : '');
-  options.defend = 'Hold block. Safe, but it gives up the initiative and a heavy hit breaks it.'
-    + (threatened ? ' An enemy is swinging at you right now, so this is the direct answer to it.' : '')
-    + (weaponInbound ? ' It also stops a thrown weapon, so this is the direct answer to that.' : '');
-  options.wait = 'Hold position and do nothing this instant.'
-    + (threatened ? ' Standing still will not avoid a swing that is already coming.' : '')
-    + (weaponInbound ? ' Standing still will not avoid a weapon already flying at you.' : '');
+    : 'Move toward the enemy to get into range.';
+  options.open_distance = 'Move away from the enemy to get out of its range.';
+  options.defend = 'Hold block. Safe, but it gives up the initiative and a heavy hit breaks it.';
+  options.wait = 'Hold position and do nothing this instant.';
 
   return options;
 }
