@@ -49,6 +49,10 @@ export function buildOptions({ profile, weapons, held, nearby = [], nearest = In
   const basic = profile.basicAttack;
 
   const misaligned = hasTarget && !aligned;
+  // A target on the floor or in the air cannot be hit by anything fired from
+  // where we stand, so an MP-costing move now is MP spent on nothing. The free
+  // moves stay on the list; only the ones that cost MP wait.
+  const targetDown = hasTarget && (enemyDoing === 'knocked_down' || enemyDoing === 'in_the_air');
 
   // A free window is the one branch that opens because of the enemy rather than
   // for us: a fighter locked in a drink or a recovery cannot move or block, so
@@ -79,7 +83,7 @@ export function buildOptions({ profile, weapons, held, nearby = [], nearest = In
   // --- what the character can throw from where it stands
   const rangedName = (m) => (basic && m.entry === basic.entry ? 'shoot' : `special_${label(m)}`);
   const ranged = profile.moves.filter((m) => m.kind === 'ranged' && affordable(m)
-    && canDo(rangedName(m)));
+    && (!targetDown || m.mp === 0) && canDo(rangedName(m)));
   for (const move of dedupe(ranged, MAX_RANGED)) {
     const isBasic = basic && move.entry === basic.entry;
     options[rangedName(move)] = [
@@ -98,7 +102,7 @@ export function buildOptions({ profile, weapons, held, nearby = [], nearest = In
 
   // --- what it can do with its hands, and whether anything is in reach
   const melee = profile.moves.filter((m) => m.kind === 'melee' && !m.needsWeapon
-    && affordable(m) && canDo(label(m)));
+    && affordable(m) && (!targetDown || m.mp === 0) && canDo(label(m)));
   // The ordinary attack always belongs on the list. It costs nothing, it is the
   // archetype in one option, and the cap would otherwise spend all four slots on
   // heavier variants and drop the one move that is always available.

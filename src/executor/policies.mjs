@@ -109,8 +109,8 @@ function questionSet(options, arena) {
         + (near && !near.aligned
           ? ' You and the enemy are at different depths, so nothing fired from here will connect until you line up on its depth.'
           : '')
-        + (near && near.aligned && !near.shootable
-          ? ' The enemy is down or airborne and off the height a straight attack travels at, so line up before you commit.'
+        + (near && (near.doing === 'knocked_down' || near.doing === 'in_the_air')
+          ? ' The enemy is on the floor or in the air, so nothing you fire can connect — spend no MP until it is back on its feet.'
           : '')
         + (inboundWeapon(arena)
           ? ' A weapon that was thrown at you is still in the air and closing, so nothing you throw will stop it — block, or step off the line it is travelling along.'
