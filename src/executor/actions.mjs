@@ -65,6 +65,14 @@ export function planAction(name, { arena, profile, keys = P4_KEYS } = {}) {
   if (name === 'close_distance') return target ? stance((a) => ({ hold: toward(a, keys, enemy(a)) })) : null;
   if (name === 'open_distance') return target ? stance((a) => ({ hold: away(a, keys, enemy(a)) })) : null;
 
+  // The decision that chose this move was made ~350 ms ago, so the enemy may
+  // have gone down since. Nothing refunds MP, so re-check at the moment of
+  // firing: an MP-costing move is not spent on a target that cannot be hit.
+  if (target && (target.doing === 'knocked_down' || target.doing === 'in_the_air')
+      && mpCost(profile, name) > 0) {
+    return stance(() => ({ hold: [] }));
+  }
+
   // plain attacks: face the target, then one tap
   if (name === 'shoot' || name === 'punch' || name.startsWith('swing_')) {
     return burst(async (kb) => {
@@ -156,6 +164,13 @@ export function planAction(name, { arena, profile, keys = P4_KEYS } = {}) {
   }
 
   return null; // anything unrecognised is not executable
+}
+
+/** The MP a named option costs, or 0 for the free moves. */
+function mpCost(profile, name) {
+  if (name === 'shoot') return profile?.basicAttack?.mp ?? 0;
+  if (name.startsWith('special_')) return findSpecial(profile, name)?.mp ?? 0;
+  return profile?.moves?.find((m) => label(m) === name)?.mp ?? 0;
 }
 
 /** The move an option name refers to, matched the way the name was built. */
