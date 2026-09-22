@@ -33,7 +33,12 @@ export async function proveInput({ cdp, pool, name, keys, profilePath = 'build/_
 
   const profile = JSON.parse(readFileSync(profilePath, 'utf8'))[wanted];
   if (!profile) throw new Error(`no profile for ${wanted} — rebuild ${profilePath}`);
-  const attackFrames = new Set(profile.moves.filter((m) => m.kind === 'melee').map((m) => m.entry));
+  // Both kinds count: the gate asks whether our key produced an attack
+  // animation, and for an archer the attack is a drawn bow, whose entry frames
+  // live in the ranged moves. Melee-only cost a whole run once — Henry's arrow
+  // frames were on screen, unrecognised, and the run was refused.
+  const attackFrames = new Set(profile.moves
+    .filter((m) => m.kind === 'melee' || m.kind === 'ranged').map((m) => m.entry));
 
   const delta = (s, field) => s.at(-1)[field] - s[0][field];
 
