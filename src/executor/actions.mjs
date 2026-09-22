@@ -43,6 +43,9 @@ const SPECIAL_SEQUENCE = {
   Ua: ['defend', 'up', 'attack'],
   Da: ['defend', 'down', 'attack'],
   Uj: ['defend', 'up', 'jump'],
+  Fj: ['defend', 'forward', 'jump'],
+  Dj: ['defend', 'down', 'jump'],
+  ja: ['defend', 'jump', 'attack'],
 };
 
 /** How long a turn is: a direction tap short enough not to walk anywhere. */

@@ -11,6 +11,7 @@
  *   node scripts/prove-specials.mjs                       # every special it can afford
  *   node scripts/prove-specials.mjs --press 60 --gap 90   # try a different window
  *   node scripts/prove-specials.mjs --sweep               # search for one that works
+ *   node scripts/prove-specials.mjs --only Fj,ja --wait-mp 60   # wait up to 60 s for the MP
  *
  * Needs a match running with the harness's fighter alive.
  */
@@ -25,6 +26,7 @@ import { arg, has } from '../src/cli.mjs';
 const SEQUENCE = {
   a: ['attack'], j: ['jump'], d: ['defend'],
   Fa: ['forward', 'attack'], Ua: ['up', 'attack'], Da: ['down', 'attack'], Uj: ['up', 'jump'],
+  Fj: ['forward', 'jump'], Dj: ['down', 'jump'], ja: ['jump', 'attack'],
 };
 
 const cdp = await connect();
@@ -39,7 +41,9 @@ const profile = profileFor(arena0.me.name);
 const frames = framesFor(arena0.me.id);
 console.log(`${arena0.me.name}, slot ${arena0.me.slot}, mp ${arena0.me.mp}\n`);
 
-const specials = profile.moves.filter((m) => SEQUENCE[m.input] && m.input !== 'a' && m.input !== 'j');
+const only = arg('only', '') ? new Set(arg('only').split(',')) : null;
+const specials = profile.moves.filter((m) => SEQUENCE[m.input] && m.input !== 'a' && m.input !== 'j'
+  && (!only || only.has(m.input)));
 if (specials.length === 0) { console.log('this character has no specials in hit_*'); await done(0); }
 
 const windows = has('sweep')
@@ -49,7 +53,12 @@ const windows = has('sweep')
 const results = [];
 for (const [press, gap] of windows) {
   for (const move of specials) {
-    const me = await ready();
+    let me = await ready();
+    // MP regenerates slowly; an expensive special can be waited for.
+    for (const until = Date.now() + Number(arg('wait-mp', 0)) * 1000; me && me.mp < move.mp && Date.now() < until;) {
+      await sleep(1000);
+      me = await ready();
+    }
     if (!me) { results.push({ press, gap, move, ok: false, note: 'never became actionable' }); continue; }
     if (me.mp < move.mp) { results.push({ press, gap, move, ok: false, note: `needs ${move.mp} mp, had ${me.mp}` }); continue; }
 

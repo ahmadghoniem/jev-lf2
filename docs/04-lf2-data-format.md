@@ -51,7 +51,7 @@ Header line fields (all optional except `pic`):
 | `dvx` / `dvy` | velocity applied on entering the frame |
 | `mp` | MP cost against a 500 bar. A **negative** value is the engine's marker for a move that stays usable when MP runs short — the amount spent is still its absolute value. Henry's arrow is `mp -12`. |
 | `hit_a` `hit_d` `hit_j` | combo transition on attack / defend / jump |
-| `hit_Fa` `hit_Ua` `hit_Da` `hit_Uj` | combo transition on Forward+Attack, Up+Attack, Down+Attack, Up+Jump |
+| `hit_Fa` `hit_Ua` `hit_Da` `hit_Uj` `hit_Fj` `hit_Dj` `hit_ja` | combo transition on Forward+Attack, Up+Attack, Down+Attack, Up+Jump, Forward+Jump, Down+Jump, Jump+Attack |
 | `sound` | mp3 path |
 
 The `hit_*` fields carry the **special** moves: input → target frame, with the
@@ -64,9 +64,17 @@ the data names: `punch`, `super_punch`, `jump_attack`, `run_attack`,
 walks both — the `hit_*` targets and the named entry frames — which is why
 profiles exist for all 23 fighters and not only the ones with specials.
 
-In LF2 these transitions fire on defend-prefixed combos — `hit_Fa` on D→F→A,
-`hit_Ua` on D→↑→A. Confirm the exact input strings in game before wiring the
-macros, since the remaster could have changed them.
+These transitions fire on defend-prefixed combos — `hit_Fa` on D→F→A,
+`hit_ja` on D→J→A — confirmed in game by `scripts/prove-specials.mjs`.
+`hit_Fj`, `hit_Dj` and `hit_ja` were missing from the parser until 2026-09-23,
+so Henry's super_arrow and 5_arrow were never offered.
+
+An `opoint` spawn is judged from the frame its `action` names, not from the
+whole object file: John's heal and his energy ball are one object entered at
+different frames, and Rudolf's transform smoke is Henry's wind entered at a
+harmless one. Judged by the whole file, both read as ranged attacks. A spawned
+character (Rudolf's clones) is a summon, not a projectile. The same fix moved
+Henry's arrow from 70 damage to 40, which is what the run logs show per hit.
 
 ## Derived fighting profiles
 

@@ -68,7 +68,7 @@ export const BASIC_ATTACKS = {
 const reachOf = (frame) => Math.round(Math.max(0, reachOfFrame(frame)));
 
 /** Walks a move's `next` chain, collecting reach, spawns and damage. */
-function inspectMove(frames, entryId, maxDepth = 24) {
+function inspectMove(frames, entryId, isProjectile, maxDepth = 24) {
   let id = entryId;
   let ticks = 0;
   let mp = 0;
@@ -84,14 +84,17 @@ function inspectMove(frames, entryId, maxDepth = 24) {
     if (!frame || visited.has(id)) break;
     visited.add(id);
     // A negative cost is the engine's marker for a move that stays available
-    // when MP runs short; the amount is still what it spends.
-    if (typeof frame.mp === 'number') {
+    // when MP runs short; the amount is still what it spends. Only the first
+    // cost counts: a later one is the price of repeating the move, like the
+    // 100 on 5_arrow's second frame, which `hit_a` loops back to (measured:
+    // one volley spent about 130, not the 250 a sum gives).
+    if (typeof frame.mp === 'number' && mp === 0) {
       mp += Math.abs(frame.mp);
       if (frame.mp < 0) allowedWhenShort = true;
     }
 
     for (const o of frame.opoint) {
-      spawns.push({ oid: o.oid, dvx: o.dvx ?? 0, dvy: o.dvy ?? 0 });
+      spawns.push({ oid: o.oid, action: o.action ?? 0, dvx: o.dvx ?? 0, dvy: o.dvy ?? 0 });
     }
     const hit = damagingItr(frame)[0];
     if (hit) {
@@ -100,7 +103,9 @@ function inspectMove(frames, entryId, maxDepth = 24) {
       landsOnFrame = id;
       break;
     }
-    if (spawns.some((s) => s.dvx !== 0 || s.dvy !== 0)) { landsOnFrame = id; break; }
+    // Only a spawn that hits ends the walk: Henry's blastpush puffs a harmless
+    // cloud one frame before the wind that does the damage.
+    if (spawns.some(isProjectile)) { landsOnFrame = id; break; }
 
     ticks += typeof frame.wait === 'number' ? frame.wait : 0;
     if (typeof frame.next !== 'number' || frame.next <= 0) break;
@@ -134,6 +139,15 @@ const isEntryFrame = (frame) => frame.state === undefined || ENTRY_STATES.has(fr
  * move can spawn, which is what makes a projectile recognisable.
  */
 export function buildProfile(name, frames, objects) {
+  // What a spawn does depends on the frame it starts on: John's heal and his
+  // energy ball are one object entered at different actions, and Rudolf's
+  // transform smoke is Henry's wind entered at a harmless frame. A spawned
+  // character (Rudolf's clones) is a summon, not a projectile.
+  const spawnInfo = (s) => {
+    const o = objects.get(s.oid);
+    return { ...s, ...(o ?? {}), ...(o?.at?.(s.action) ?? {}) };
+  };
+  const isProjectile = (s) => s.type !== 0 && s.damage > 0;
   const moves = [];
   const seen = new Set();
 
@@ -154,11 +168,10 @@ export function buildProfile(name, frames, objects) {
       if (seen.has(key)) continue;
       seen.add(key);
 
-      const m = inspectMove(frames, target);
-      const spawned = m.spawns.map((s) => ({ ...s, ...(objects.get(s.oid) ?? {}) }));
-      const projectiles = spawned.filter((s) => s.travels || s.dvx !== 0);
+      const m = inspectMove(frames, target, (s) => isProjectile(spawnInfo(s)));
+      const projectiles = m.spawns.map(spawnInfo).filter(isProjectile);
       const damage = m.injury ?? (projectiles.length ? Math.max(...projectiles.map((p) => p.damage ?? 0)) : null);
-      if (damage === null && projectiles.length === 0) continue;
+      if ((damage === null || damage === 0) && projectiles.length === 0) continue;
 
       moves.push({
         input,
@@ -209,6 +222,26 @@ export function buildProfile(name, frames, objects) {
   };
 }
 
+/**
+ * Damage and travel from one frame of an object onward, following `next`.
+ * An opoint names the frame a spawn starts on, and one object file often holds
+ * several unrelated things.
+ */
+function fromAction(frames, action, maxDepth = 40) {
+  let damage = 0;
+  let moving = false;
+  const seen = new Set();
+  for (let id = action, step = 0; step < maxDepth && frames.has(id) && !seen.has(id); step++) {
+    seen.add(id);
+    const f = frames.get(id);
+    for (const it of damagingItr(f)) damage = Math.max(damage, it.injury);
+    if (Math.abs(f.dvx ?? 0) > 0) moving = true;
+    if (typeof f.next !== 'number' || f.next <= 0 || f.next >= 999) break;
+    id = f.next;
+  }
+  return { damage, travels: moving && damage > 0 };
+}
+
 /** Everything a move can spawn, keyed by object id. */
 export function buildObjectIndex(parsedById) {
   const objects = new Map();
@@ -225,6 +258,8 @@ export function buildObjectIndex(parsedById) {
       damage,
       /** A projectile is an object that carries itself across the screen. */
       travels: moving && damage > 0,
+      /** Not serialized: the same facts from one starting frame. */
+      at: (action) => (frames.has(action) ? fromAction(frames, action) : null),
     });
   }
   return objects;

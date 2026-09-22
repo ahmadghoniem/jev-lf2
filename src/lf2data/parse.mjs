@@ -42,7 +42,7 @@ function parseTags(block) {
 }
 
 /** Input suffixes on `hit_*` fields, in the game's own notation. */
-const MOVE_INPUTS = ['a', 'd', 'j', 'Fa', 'Ua', 'Da', 'Uj'];
+const MOVE_INPUTS = ['a', 'd', 'j', 'Fa', 'Ua', 'Da', 'Uj', 'Fj', 'Dj', 'ja'];
 
 export function parseFrames(text) {
   const frames = new Map();
