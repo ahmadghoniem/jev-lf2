@@ -67,7 +67,7 @@ export function inboundWeapon(arena) {
   // closing per read, hit two reads later. Whatever the range, a weapon that is
   // in the air, not carried, and closing at our lane gets the same answer.
   for (const item of arena.items ?? []) {
-    if (!item.inFlight || item.carried) continue;
+    if (!item.hostile) continue;
     const eta = item.speed > 0 ? item.range / item.speed : Infinity;
     // Inside the CPU's 150, answer as it does. Beyond it, only when the weapon
     // is fast enough that waiting would leave no time to clear the lane: a

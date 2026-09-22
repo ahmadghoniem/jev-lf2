@@ -36,7 +36,7 @@ for (let t = 0; t < 8; t++) {
                     [{ x: 100, z: 200 }]);
   r2 += (m.carried ? 'C' : '.') + (m.inFlight ? 'F' : '-') + (m.closing ? 'c' : '.');
 }
-console.log('   real throw:', r2, '(expect F and c after the first read)');
+console.log('   real throw:', r2, '(expect F from launch, c from the read after it)');
 
 // --- 2. a weapon pausing mid-flight keeps closing (inclusive two-read test)
 const pause = createItemMotion();

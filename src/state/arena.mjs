@@ -68,19 +68,42 @@ const FLIGHT_STICKY = 10;
  * that, with room for the dodge to finish its step before arrival.
  */
 const PROJECTILE_RANGE = 200;
+/**
+ * Farther than any weapon travels between two reads. The game recycles pool
+ * slots, so a new arrow or shuriken appears in the slot of one that vanished
+ * elsewhere, and compared with that old position it reads as a weapon that just
+ * closed hundreds of units in one tick. Every Henry shot was read that way: his
+ * own arrow, leaving at 22 a read, came out as inbound at speed 385 and the
+ * dodge fired after every shot.
+ */
+const RESPAWN_JUMP = 120;
+/**
+ * The slowest a thrown weapon closes, in units per read; Rudolf's shuriken
+ * does 15-19 and an arrow 22. A weapon on the ground that the stage nudges, or
+ * one we are walking toward, closes at 2-5 and was being dodged "45 ticks out".
+ */
+const MIN_THROWN_SPEED = 8;
 
 export function createItemMotion({ slack = FLIGHT_SLACK, stickyTicks = FLIGHT_STICKY } = {}) {
   const prev = new Map();
   const prev2 = new Map();   // the position two reads back, for a stable `closing`
   const sticky = new Map();
   const prevOffset = new Map(); // this weapon's offset to the nearest fighter
+  const speeds = new Map();     // the last few closing speeds, for `pace`
   return (item, fighters = []) => {
     const now = { x: Math.round(item.x), z: Math.round(item.z), range: item.range };
-    const was = prev.get(item.slot);
-    const was2 = prev2.get(item.slot);
-    prev2.set(item.slot, prev.get(item.slot) ?? now);
-    prev.set(item.slot, now);
+    let was = prev.get(item.slot);
     const left = sticky.get(item.slot) ?? 0;
+    // Launched: it reappeared somewhere else, or it was lying still and is now
+    // moving. Either way the previous read says nothing about which way it is
+    // going — an arrow recycled into the slot of one lying 28 units further
+    // out read as closing on us at 28 a read.
+    const jump = was ? Math.hypot(now.x - was.x, now.z - was.z) : 0;
+    const launched = !!was && (jump > RESPAWN_JUMP || (left === 0 && jump > slack));
+    if (launched) { was = undefined; prevOffset.delete(item.slot); speeds.delete(item.slot); }
+    const was2 = launched ? undefined : prev2.get(item.slot);
+    prev2.set(item.slot, was ?? now);
+    prev.set(item.slot, now);
 
     // A weapon a fighter is holding moves exactly with that fighter: its offset
     // to the nearest one stays small and barely changes between reads. A thrown
@@ -102,10 +125,20 @@ export function createItemMotion({ slack = FLIGHT_SLACK, stickyTicks = FLIGHT_ST
     const carried = !!near && near.d < 60 && !!wasOffset
       && Math.abs(wasOffset.dx - near.dx) <= 8 && Math.abs(wasOffset.dz - near.dz) <= 8;
 
-    if (!was) return { inFlight: left > 0, closing: false, speed: 0, carried };
-    const moved = Math.hypot(now.x - was.x, now.z - was.z);
-    const fresh = moved > slack;
+    // A launched weapon is in the air, but which way it is going is only known
+    // from the next read. Our own arrow then reads as leaving and is never a
+    // threat; nothing else is needed to tell whose it is.
+    if (launched) {
+      sticky.set(item.slot, stickyTicks);
+      return { inFlight: !carried, closing: false, speed: 0, pace: 0, carried };
+    }
+    if (!was) return { inFlight: left > 0, closing: false, speed: 0, pace: 0, carried };
+    const fresh = jump > slack;
     sticky.set(item.slot, fresh ? stickyTicks : Math.max(0, left - 1));
+    // The fastest it has closed over the last three reads: a weapon pausing
+    // mid-flight keeps its pace, a weapon crawling never gets one.
+    const recent = [...(speeds.get(item.slot) ?? []), was.range - now.range].slice(-3);
+    speeds.set(item.slot, recent);
     return { inFlight: (fresh || sticky.get(item.slot) > 0) && !carried,
              // Closing across two reads, and inclusive: a weapon pausing
              // mid-flight (its range read the same twice in a row) is still
@@ -114,6 +147,7 @@ export function createItemMotion({ slack = FLIGHT_SLACK, stickyTicks = FLIGHT_ST
              closing: now.range <= was.range || now.range <= (was2?.range ?? now.range),
              // Units closed per read, which is what turns distance into time.
              speed: was.range - now.range,
+             pace: Math.max(...recent),
              carried };
   };
 }
@@ -238,7 +272,11 @@ export function readArena(entities, { slot, name, isLive, heldTracker, motionTra
     // moved with the fighter standing next to it".
     .map((i) => ({ ...i, ...(motionTracker
       ? motionTracker(i, [me, ...others])
-      : { inFlight: false, closing: false, carried: false }) }));
+      : { inFlight: false, closing: false, carried: false }) }))
+    // In the air, loose and coming our way at a thrown weapon's speed: the one
+    // test every consumer means by "a thrown weapon".
+    .map((i) => ({ ...i, hostile: i.inFlight && !i.carried && i.closing
+      && (i.pace ?? 0) >= MIN_THROWN_SPEED }));
 
   const inHand = items.filter((i) => i.gap <= HELD_DX && i.zGap <= HELD_DZ);
   const held = (heldTracker ? inHand.find((i) => heldTracker(me, i)) : inHand[0]) ?? null;
@@ -250,8 +288,7 @@ export function readArena(entities, { slot, name, isLive, heldTracker, motionTra
   // thing to ignore either: it is the attack that lands most often. A weapon
   // carried in a hand is neither, whatever its idle sway looks like in the
   // motion read.
-  const flying = ground.filter((i) => i.inFlight && !i.carried && i.closing
-    && i.range <= PROJECTILE_RANGE);
+  const flying = ground.filter((i) => i.hostile && i.range <= PROJECTILE_RANGE);
 
   return { me, threats, allies, held, items: ground, flying,
            nearest: threats[0]?.gap ?? Infinity };

@@ -19,7 +19,8 @@ for (const run of runs) {
   const episodes = [];
   let cur = null;
   for (const r of rows) {
-    const f = (r.items ?? []).find((i) => i.inFlight && i.closing && i.range <= 200);
+    // Runs before the `hostile` flag logged our own arrows as inbound too.
+    const f = (r.items ?? []).find((i) => (i.hostile ?? (i.inFlight && i.closing)) && i.range <= 200);
     if (f) {
       if (!cur || cur.slot !== f.slot) { if (cur) episodes.push(cur); cur = { slot: f.slot, name: f.name, ticks: [] }; }
       cur.ticks.push({ tick: r.tick, range: Math.round(f.range), dz: Math.round(f.dz), speed: f.speed ?? 0,

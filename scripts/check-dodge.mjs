@@ -20,11 +20,22 @@ const mk = (range) => ({ x: range, y: 0, z: 0, range });
 const seq = [188, 174, 160, 150, 46, 57, 46, 54, 58, 2, 10, 54];
 const flags = seq.map((r) => { const m = motion(mk(r)); return `${m.inFlight ? 'F' : '-'}${m.closing ? 'c' : '.'}`; });
 console.log('sticky flight over an oscillating weapon:', flags.join(' '));
-console.log('  (expect F from the first movement and no gaps after)');
+console.log('  (expect F from the first movement, c from the read after it, no F gaps)');
+
+// --- 1b. a recycled slot: an arrow that vanished far away reappears at our
+// feet. It must not read as a weapon that closed 300 in one read.
+{
+  const m2 = createItemMotion();
+  const at = (x) => ({ slot: 52, x, y: 0, z: 0, range: Math.abs(x) });
+  const rows = [at(400), at(400), at(56), at(78), at(100)].map((i) => m2(i));
+  console.log('recycled slot, our arrow leaving:', rows.map((m) =>
+    `${m.inFlight ? 'F' : '-'}${m.closing ? 'c' : '.'}`).join(' '));
+  console.log('  (expect F from the reappearance and never c after it)');
+}
 
 // --- 2. trigger range: inbound at 150, silent at 160
 const itemAt = (range, dz) => ({ name: 'weapon4', slot: 50, range, dz, zGap: Math.abs(dz),
-  gap: range, dx: range, inFlight: true, closing: true, speed: 8 });
+  gap: range, dx: range, inFlight: true, closing: true, hostile: true, speed: 8 });
 const withItems = (a) => ({ ...a, items: a.flying });
 console.log('inboundWeapon at r150 z5 :', !!inboundWeapon(withItems({ flying: [itemAt(150, 5)] })));
 console.log('inboundWeapon at r160 z5 :', inboundWeapon(withItems({ flying: [itemAt(160, 5)] })));
