@@ -102,7 +102,8 @@ async function fire(input, press, gap) {
   const me = await me2();
   const facing = me?.facing === 'left' ? 'left' : 'right';
   for (const step of ['defend', ...SEQUENCE[input]]) {
-    await kb.tap(step === 'forward' ? P4_KEYS[facing] : P4_KEYS[step], press);
+    // Marked intended, or the keyboard's special guard would defuse it.
+    await kb.tap(step === 'forward' ? P4_KEYS[facing] : P4_KEYS[step], press, { intended: true });
     await sleep(gap);
   }
 }

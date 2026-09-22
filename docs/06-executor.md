@@ -44,6 +44,22 @@ tick says what *should* be held rather than issuing a press, and only the seven
 keys bound to the harness's slot are ever dispatched, so a bug here cannot reach
 the humans' slots.
 
+The keyboard also keeps the game's special-move reader in view. In px.js a
+Defend press arms it, the next direction (or Jump) advances it, and an Attack or
+Jump after that fires the special; only another key press resets it, never
+time. The harness blocks, turns and steps constantly, so it was typing
+specials by accident — Henry's 350-MP flute in the middle of a dodge, a
+blastpush off a turn tap before a shot. Before a press that would complete the
+sequence, the keyboard taps a direction the reader is not waiting for, one
+frame earlier. Presses that belong to a chosen special are marked `intended`
+and pass through.
+
+## A run ends when the match does
+
+The loop stops three seconds after the enemy is gone or our fighter is
+confirmed dead, and records `won` or `lost` (otherwise `time`). Before this,
+two of three runs spent over half their Jev calls on an empty stage.
+
 ## Only executable options are offered
 
 Offering an option that cannot be carried out would quietly corrupt the

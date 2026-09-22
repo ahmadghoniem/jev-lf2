@@ -73,15 +73,84 @@ export async function readBindings(cdp, player = 'P4') {
 
 /** A tap shorter than a game frame can fall between two samples. */
 const TAP_MS = 100;
+/** Long enough for the game to read a press in an earlier frame than the next one. */
+const FRAME_MS = 50;
+
+/**
+ * The game's special-move reader, as px.js writes it (`sg`, `hg` and their
+ * siblings). A Defend press arms it; the next press, if it is a direction or
+ * Jump, advances it; an Attack or Jump after that fires the special. Any other
+ * press in between resets it, and nothing else does: there is no timeout, so a
+ * Defend from a block two seconds ago is still armed (measured: Defend, 2 s,
+ * Forward, Attack fired Henry's blastpush).
+ *
+ * The harness presses Defend constantly (every block) and then a direction (a
+ * turn, a dodge step) and then Attack or Jump, which is exactly that sequence.
+ * The runs paid for it: 150-350 MP at a time spent on specials nobody chose,
+ * one of them Henry's 350-MP flute in the middle of a dodge.
+ */
+export function comboReader() {
+  // Starts armed: whatever pressed keys before the harness took over (the input
+  // check ends on Defend) is unknown, and the first run with the guard fired a
+  // blastpush off exactly that press.
+  let stage = 1;
+  let via = null;
+  let last = null; // the previous press, for two landing in one frame
+  return {
+    /** Whether pressing `slot` now would fire a special. */
+    completes: (slot) => stage === 2
+      && (slot === 'attack' || (slot === 'jump' && via !== 'jump')),
+    via: () => via,
+    press(slot, at = Date.now()) {
+      const sameFrame = last && at - last.at < FRAME_MS;
+      const before = last;
+      last = { slot, at };
+      if (slot === 'defend') {
+        // A direction read in the same frame as Defend advances the reader
+        // too: the game arms and advances in one pass.
+        if (sameFrame && before.slot !== 'attack' && before.slot !== 'defend') { stage = 2; via = before.slot; }
+        else { stage = 1; via = null; }
+        return;
+      }
+      if (stage === 1 && slot !== 'attack') { stage = 2; via = slot; return; }
+      // Two directions landing in the frame that advanced the reader do not
+      // reset it: the game advances and then only resets on a press newer
+      // than that frame. Walking diagonally after a block fired one this way.
+      if (stage === 2 && sameFrame && slot !== 'attack' && slot !== 'jump') return;
+      stage = 0; via = null;
+    },
+  };
+}
 
 export function keyboard(cdp, bindings = P4_KEYS) {
   const allowed = new Set(Object.values(bindings));
+  const slotOf = new Map(Object.entries(bindings).map(([slot, code]) => [code, slot]));
   const down = new Set();
   const releasing = new Map(); // code -> timer, for taps in flight
+  const combo = comboReader();
   let dispatched = 0;
+  let defused = 0;
 
-  async function press(code) {
+  /**
+   * Resets an armed special reader with one press of a direction it is not
+   * waiting for, a frame ahead of the press that would have fired it.
+   */
+  async function defuse() {
+    const horizontal = ['left', 'right'].includes(combo.via());
+    const order = horizontal ? ['up', 'down', 'left', 'right'] : ['left', 'right', 'up', 'down'];
+    const slot = order.find((s) => s !== combo.via() && bindings[s] && !down.has(bindings[s]));
+    if (!slot) return;
+    defused++;
+    await press(bindings[slot], { intended: true });
+    await sleep(FRAME_MS);
+    await release(bindings[slot]);
+  }
+
+  async function press(code, { intended = false } = {}) {
     if (!allowed.has(code) || down.has(code)) return;
+    const slot = slotOf.get(code);
+    if (!intended && combo.completes(slot)) await defuse();
+    combo.press(slot);
     down.add(code); dispatched++;
     await cdp.keyEvent('keyDown', code);
   }
@@ -102,10 +171,13 @@ export function keyboard(cdp, bindings = P4_KEYS) {
       await Promise.all(work);
     },
 
-    /** A momentary press, released on its own. Ignored while one is in flight. */
-    async tap(code, ms = TAP_MS) {
+    /**
+     * A momentary press, released on its own. Ignored while one is in flight.
+     * `intended` marks a press that is part of a special on purpose.
+     */
+    async tap(code, ms = TAP_MS, { intended = false } = {}) {
       if (releasing.has(code)) return;
-      await press(code);
+      await press(code, { intended });
       releasing.set(code, setTimeout(() => { releasing.delete(code); release(code); }, ms));
     },
 
@@ -124,7 +196,7 @@ export function keyboard(cdp, bindings = P4_KEYS) {
       await Promise.all([...down].map(release));
     },
 
-    get stats() { return { dispatched, down: [...down] }; },
+    get stats() { return { dispatched, defused, down: [...down] }; },
   };
 }
 

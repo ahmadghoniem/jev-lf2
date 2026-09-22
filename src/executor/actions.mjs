@@ -49,8 +49,6 @@ const SPECIAL_SEQUENCE = {
 const TURN_MS = 110;
 /** How long a run burst keeps holding the direction after the double-tap. */
 const RUN_MS = 520;
-/** A weapon arriving within this many ticks gets jumped over, not walked past. */
-const JUMP_ETA_TICKS = 5;
 /**
  * The CPU flinches: it drops a movement key for a tick now and then so its walk
  * is not a metronome. Copied at the CPU's own rate, and deterministic so a run
@@ -113,7 +111,7 @@ function aimedAttack(keys, { tight, seq = ['attack'], needReach = false, reach =
         const press = seq[step / 5];
         const code = press === 'forward' ? keys[dirTo(a.me, t)] : keys[press];
         step++;
-        return { hold: [], tap: [code] };
+        return { hold: [], tap: [code], special: seq.length > 1 };
       }
       step++;
       return { hold: [] };
@@ -203,15 +201,11 @@ export function planAction(name, { arena, profile, keys = P4_KEYS } = {}) {
       if (Math.abs(item.dz) >= BOT.DODGE_Z) return { hold: [] };
       // `up` decreases z, so if the weapon sits above us in depth, stepping up
       // widens the gap. Same one tick later for the other side.
-      // A weapon arriving inside a few ticks cannot be walked out of the way:
-      // the lane step gains ~3.5 units a read, and a shuriken closing at 17 was
-      // hitting us from r30 before the step was half done. A projectile flies at
-      // one height, so the fast answer is not depth at all — it is the jump,
-      // which carries the body clear in a handful of frames. Repeatedly holding
-      // it is harmless: once airborne there is nothing to re-initiate, and a
-      // second weapon thrown mid-air still passes underneath.
-      const eta = item.speed > 0 ? item.range / item.speed : Infinity;
-      if (eta <= JUMP_ETA_TICKS) return { hold: [keys.jump] };
+      // Always the step, never the jump. A jump for a weapon a few ticks out
+      // looked faster on paper, but Rudolf's shuriken hits an airborne body: in
+      // three runs, 45 of 65 jump dodges were hit within 25 ticks against 34 of
+      // 77 depth steps, and several jumps cut short a step that would have
+      // cleared the lane.
       return { hold: [item.dz > 0 ? keys.up : keys.down] };
     });
   }
@@ -388,8 +382,8 @@ function toward(arena, keys, t, { stopAt = 0, xDead = BOT.X_DEADZONE, zDead = BO
  * nor step — 45 hp, taken staggered.
  */
 const weaponOnLane = (arena) =>
-  (arena.items ?? []).find((i) => i.inFlight && !i.carried
-    && i.closing && i.zGap <= BOT.DODGE_Z && i.range <= BOT.DODGE_X) ?? null;
+  (arena.items ?? []).find((i) => i.hostile
+    && i.zGap <= BOT.DODGE_Z && i.range <= BOT.DODGE_X) ?? null;
 
 /** Options that press attack and cannot be cancelled once started. */
 export const isAttackOption = (name) => name === 'shoot' || name === 'punch'

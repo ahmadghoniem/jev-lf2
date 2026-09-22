@@ -30,6 +30,13 @@ const STALE_MS = 1500;
 // (spawn, certain hit states), which used to log a false death at t≈0. A fighter
 // only counts as dead once it has read not-alive for this many ticks in a row.
 const DEAD_CONFIRM_TICKS = 15;
+/**
+ * How long a decided match keeps running before the loop stops. Past this the
+ * run only logs a corpse or an empty stage and pays for Jev calls about
+ * nothing: two of three recent runs spent over half their decisions after the
+ * enemy was dead.
+ */
+const DECIDED_TICKS = 90;
 
 export async function runLoop({ cdp, pool, kb, run, name, policy, overlay, hz = 30,
                                decideEveryMs = 500, seconds = 120, onTick, keys,
@@ -51,7 +58,9 @@ export async function runLoop({ cdp, pool, kb, run, name, policy, overlay, hz = 
   let forceDraw = false;                 // set when an answer lands, cleared once drawn
   let deadStreak = 0;                    // consecutive not-alive reads (debounce)
   let confirmedDead = false;             // once true, every later tick logs as dead
-  const counts = { ticks: 0, decisions: 0, misses: 0, reflexes: 0, stale: 0, bursts: 0, dead: 0 };
+  let noEnemyStreak = 0;
+  const counts = { ticks: 0, decisions: 0, misses: 0, reflexes: 0, stale: 0, bursts: 0, dead: 0,
+                   defused: 0, outcome: 'time' };
 
   // One tracker for the whole run, so fighters left over from an earlier match
   // drop out of the threat list about a second in.
@@ -82,6 +91,7 @@ export async function runLoop({ cdp, pool, kb, run, name, policy, overlay, hz = 
       if (deadStreak >= DEAD_CONFIRM_TICKS || confirmedDead) {
         confirmedDead = true;
         counts.dead++;
+        if (counts.dead >= DECIDED_TICKS) { counts.outcome = 'lost'; break; }
         run?.tick({ tick, dead: true });
         await overlay?.update({ ...shown, dead: true, action, source, counts,
           hp: arena.me.hp, hpMax: arena.me.hpMax, mp: arena.me.mp, darkHp: arena.me.darkHp });
@@ -90,6 +100,8 @@ export async function runLoop({ cdp, pool, kb, run, name, policy, overlay, hz = 
       continue;
     }
     deadStreak = 0;
+    noEnemyStreak = arena.threats.length ? 0 : noEnemyStreak + 1;
+    if (noEnemyStreak >= DECIDED_TICKS) { counts.outcome = 'won'; break; }
 
     // --- the layer that cannot wait for a network call
     const reflex = reflexFor(arena);
@@ -172,7 +184,7 @@ export async function runLoop({ cdp, pool, kb, run, name, policy, overlay, hz = 
         stance = plan.step;
         const step = stance(arena);
         await kb.hold(step.hold ?? []);
-        for (const code of step.tap ?? []) await kb.tap(code);
+        for (const code of step.tap ?? []) await kb.tap(code, undefined, { intended: !!step.special });
       } else {
         await kb.hold([]);
       }
@@ -195,7 +207,7 @@ export async function runLoop({ cdp, pool, kb, run, name, policy, overlay, hz = 
       // rate, which is what the dodge's reaction maths is built on.
       items: arena.items.slice(0, 3).map((i) => ({ slot: i.slot, name: i.name, range: Math.round(i.range),
         dx: Math.round(i.dx), dz: Math.round(i.dz), inFlight: !!i.inFlight, closing: !!i.closing,
-        speed: Math.round(i.speed ?? 0) })),
+        hostile: !!i.hostile, speed: Math.round(i.speed ?? 0) })),
       action, source,
       reflex: reflex?.reason ?? null,
       keys: kb.stats.down,
@@ -218,6 +230,7 @@ export async function runLoop({ cdp, pool, kb, run, name, policy, overlay, hz = 
   }
 
   await kb.releaseAll();
+  counts.defused = kb.stats.defused ?? 0;
   return counts;
 }
 

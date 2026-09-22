@@ -108,5 +108,6 @@ const manifest = await run.close({ loop: counts });
 await cdp.close();
 
 console.log(`\n${counts.ticks} ticks, ${counts.decisions} decisions, ${counts.misses} missed, `
-  + `${counts.stale} stale, ${counts.reflexes} reflex ticks, ${counts.bursts} bursts, ${counts.dead} dead ticks`);
+  + `${counts.stale} stale, ${counts.reflexes} reflex ticks, ${counts.bursts} bursts, ${counts.dead} dead ticks, `
+  + `${counts.defused} specials defused — ${counts.outcome}`);
 console.log(`run: ${run.dir} (${manifest.counts.judgements} judgement rows)`);
