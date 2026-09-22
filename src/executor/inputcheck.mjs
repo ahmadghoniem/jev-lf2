@@ -20,7 +20,7 @@
 
 import { fighters } from '../state/entities.mjs';
 import { F } from '../state/fields.mjs';
-import { profileFor } from '../lf2data/tables.mjs';
+import { framesFor } from '../lf2data/tables.mjs';
 
 /** Frames 0-15 are the standing, walking and running blocks. */
 const ACTIONABLE_MAX_FRAME = 15;
@@ -32,14 +32,13 @@ export async function proveInput({ cdp, pool, name, keys }) {
   const start = await me();
   if (!start) throw new Error(`${name} is not in play — start a match with that fighter first`);
 
-  const profile = profileFor(wanted);
-  if (!profile) throw new Error(`no profile for ${wanted} — rebuild build/_profiles.json`);
-  // Both kinds count: the gate asks whether our key produced an attack
-  // animation, and for an archer the attack is a drawn bow, whose entry frames
-  // live in the ranged moves. Melee-only cost a whole run once — Henry's arrow
-  // frames were on screen, unrecognised, and the run was refused.
-  const attackFrames = new Set(profile.moves
-    .filter((m) => m.kind === 'melee' || m.kind === 'ranged').map((m) => m.entry));
+  // Any frame the character's own data marks as attacking (state 3) counts. A
+  // COM hit can move us or knock us up, but it cannot put us in state 3; only
+  // our key can. Matching a move's *entry* frame instead failed a working run:
+  // Henry's second punch starts at 65, not 60, and the sampler caught 65-61-62.
+  const frames = framesFor(start.id);
+  if (!frames) throw new Error(`no frame data for ${name} (data id ${start.id}) — rebuild build/`);
+  const attacking = (f) => frames[f[F.frame]]?.state === 3;
 
   const delta = (s, field) => s.at(-1)[field] - s[0][field];
 
@@ -82,7 +81,7 @@ export async function proveInput({ cdp, pool, name, keys }) {
       pass: (s) => Math.min(...s.map((f) => f.y)) < -5,
       detail: (s) => `peak height ${Math.min(...s.map((f) => f.y)).toFixed(0)}` }),
     await check({ name: 'attack', slot: 'attack', holdMs: 400, gate: true,
-      pass: (s) => s.some((f) => attackFrames.has(f[F.frame])),
+      pass: (s) => s.some(attacking),
       detail: (s) => `frames ${[...new Set(s.map((f) => f[F.frame]))].join(',')}` }),
     await check({ name: 'defend', slot: 'defend', holdMs: 400,
       pass: (s) => s.some((f) => f[F.frame] !== start[F.frame]),
