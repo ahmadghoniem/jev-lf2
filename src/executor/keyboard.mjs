@@ -10,7 +10,7 @@
  * humans' slots.
  */
 
-import { KEY_OF, VK_OF } from '../cdp/client.mjs';
+import { setTimeout as sleep } from 'node:timers/promises';
 
 /**
  * Fallback only. The slot's real keys live in the game's own settings and are
@@ -23,8 +23,42 @@ export const P4_KEYS = {
   attack: 'KeyK', jump: 'Space', defend: 'Period',
 };
 
-const SLOTS = ['up', 'down', 'left', 'right', 'attack', 'jump', 'defend'];
-const SEP = '\u00a9'; // © — same delimiter scripts/bind-keys.mjs reads.
+/**
+ * Per player, the game stores ten key codes in this order; the last three are
+ * unused. Confirmed in game — P1's fifth entry is `Enter`, which is what joins a
+ * slot on the character-select screen.
+ */
+export const BINDING_SLOTS = ['up', 'down', 'left', 'right', 'attack', 'jump', 'defend', 'x1', 'x2', 'x3'];
+const SEP = String.fromCharCode(0xa9); // ©
+
+/**
+ * The game's key-binding entry in `localStorage`. Its key is obfuscated, so it
+ * is found by its value, which always starts with `P1©`.
+ */
+export async function bindingStore(cdp) {
+  const storageKey = JSON.parse(await cdp.evaluate(
+    `JSON.stringify(Object.keys(localStorage).find(k => (localStorage.getItem(k)||'').startsWith('P1${SEP}')) ?? null)`));
+  if (!storageKey) throw new Error('no key-binding entry in localStorage');
+  const at = JSON.stringify(storageKey);
+  return {
+    storageKey,
+    read: async () => JSON.parse(await cdp.evaluate(`JSON.stringify(localStorage.getItem(${at}))`)),
+    write: (value) => cdp.evaluate(`localStorage.setItem(${at}, ${JSON.stringify(value)})`),
+  };
+}
+
+/** `P1©ArrowUp©…©P2©…` as `{ P1: { up: 'ArrowUp', … }, … }`, and back. */
+export function decodeBindings(raw) {
+  const parts = raw.split(SEP);
+  const out = {};
+  for (let i = 0; i < parts.length; i += BINDING_SLOTS.length + 1) {
+    const player = parts[i];
+    if (player) out[player] = Object.fromEntries(BINDING_SLOTS.map((s, j) => [s, parts[i + 1 + j]]));
+  }
+  return out;
+}
+export const encodeBindings = (cfg) => Object.entries(cfg)
+  .flatMap(([p, keys]) => [p, ...BINDING_SLOTS.map((s) => keys[s] ?? 'None')]).join(SEP);
 
 /**
  * The keys the game will actually listen for, read from its `localStorage`
@@ -32,14 +66,9 @@ const SEP = '\u00a9'; // © — same delimiter scripts/bind-keys.mjs reads.
  * dispatched, nothing moves, and the telemetry still shows the intended action.
  */
 export async function readBindings(cdp, player = 'P4') {
-  const storageKey = JSON.parse(await cdp.evaluate(
-    `JSON.stringify(Object.keys(localStorage).find(k => (localStorage.getItem(k)||'').startsWith('P1\u00a9')) ?? null)`));
-  if (!storageKey) throw new Error('no key-binding entry in localStorage');
-  const raw = JSON.parse(await cdp.evaluate(`JSON.stringify(localStorage.getItem(${JSON.stringify(storageKey)}))`));
-  const parts = raw.split(SEP);
-  const at = parts.indexOf(player);
-  if (at === -1) throw new Error(`no bindings for ${player}`);
-  return Object.fromEntries(SLOTS.map((s, i) => [s, parts[at + 1 + i]]));
+  const keys = decodeBindings(await (await bindingStore(cdp)).read())[player];
+  if (!keys) throw new Error(`no bindings for ${player}`);
+  return Object.fromEntries(BINDING_SLOTS.slice(0, 7).map((s) => [s, keys[s]]));
 }
 
 /** A tap shorter than a game frame can fall between two samples. */
@@ -51,20 +80,16 @@ export function keyboard(cdp, bindings = P4_KEYS) {
   const releasing = new Map(); // code -> timer, for taps in flight
   let dispatched = 0;
 
-  const event = (type, code) => cdp.send('Input.dispatchKeyEvent', {
-    type, code, key: KEY_OF[code] ?? code, windowsVirtualKeyCode: VK_OF[code] ?? 0,
-  });
-
   async function press(code) {
     if (!allowed.has(code) || down.has(code)) return;
     down.add(code); dispatched++;
-    await event('keyDown', code);
+    await cdp.keyEvent('keyDown', code);
   }
 
   async function release(code) {
     if (!down.has(code)) return;
     down.delete(code); dispatched++;
-    await event('keyUp', code);
+    await cdp.keyEvent('keyUp', code);
   }
 
   return {
@@ -103,4 +128,3 @@ export function keyboard(cdp, bindings = P4_KEYS) {
   };
 }
 
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));

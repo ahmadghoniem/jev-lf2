@@ -8,23 +8,13 @@
  * option coverage, and latency distributions).
  */
 
-import { readFileSync, existsSync } from 'node:fs';
-import { resolve, join, dirname } from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { readFileSync } from 'node:fs';
+import { resolve, join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { REACH_SLACK } from '../src/lf2data/frames.mjs';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
-const REPO_ROOT = resolve(__dirname, '..');
-
-/** Non-attack actions used to identify when an attack begins. */
-const NON_ATTACK_ACTIONS = new Set([
-  'wait',
-  'defend',
-  'close_distance',
-  'open_distance',
-  'drop_weapon',
-]);
+import { profiles } from '../src/lf2data/tables.mjs';
+import { isAttackOption } from '../src/executor/actions.mjs';
+import { readJsonl } from '../src/cli.mjs';
 
 
 /**
@@ -42,25 +32,7 @@ export function analyzeRun(runDir) {
 
   // --- Load manifest
   let manifest = {};
-  const manifestPath = join(fullDir, 'manifest.json');
-  if (existsSync(manifestPath)) {
-    try {
-      manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
-    } catch {
-      manifest = {};
-    }
-  }
-
-  // --- Load profiles
-  let profiles = {};
-  const profilesPath = join(REPO_ROOT, 'build', '_profiles.json');
-  if (existsSync(profilesPath)) {
-    try {
-      profiles = JSON.parse(readFileSync(profilesPath, 'utf8'));
-    } catch {
-      profiles = {};
-    }
-  }
+  try { manifest = JSON.parse(readFileSync(join(fullDir, 'manifest.json'), 'utf8')); } catch { /* none */ }
 
   const charName = manifest.character ?? 'Deep';
   const profile = profiles[charName.toLowerCase()] ?? null;
@@ -72,37 +44,8 @@ export function analyzeRun(runDir) {
     ? Infinity
     : basicReach + REACH_SLACK;
 
-  // --- Load ticks
-  const ticks = [];
-  const ticksPath = join(fullDir, 'ticks.jsonl');
-  if (existsSync(ticksPath)) {
-    const raw = readFileSync(ticksPath, 'utf8');
-    for (const line of raw.split('\n')) {
-      const trimmed = line.trim();
-      if (!trimmed) continue;
-      try {
-        ticks.push(JSON.parse(trimmed));
-      } catch {
-        // tolerate corrupt line
-      }
-    }
-  }
-
-  // --- Load judgements
-  const judgements = [];
-  const judgementsPath = join(fullDir, 'judgements.jsonl');
-  if (existsSync(judgementsPath)) {
-    const raw = readFileSync(judgementsPath, 'utf8');
-    for (const line of raw.split('\n')) {
-      const trimmed = line.trim();
-      if (!trimmed) continue;
-      try {
-        judgements.push(JSON.parse(trimmed));
-      } catch {
-        // tolerate corrupt line
-      }
-    }
-  }
+  const ticks = readJsonl(join(fullDir, 'ticks.jsonl'));
+  const judgements = readJsonl(join(fullDir, 'judgements.jsonl'));
 
   // --- 1. Survival
   const totalTicks = ticks.length;
@@ -396,10 +339,7 @@ export function analyzeRun(runDir) {
  * @returns {boolean} True if action is an attack
  */
 function isAttack(action) {
-  if (!action) return false;
-  if (NON_ATTACK_ACTIONS.has(action)) return false;
-  if (action.startsWith('pick_up_') || action.startsWith('drink_')) return false;
-  return true;
+  return !!action && isAttackOption(action);
 }
 
 /**

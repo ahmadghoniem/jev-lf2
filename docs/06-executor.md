@@ -19,7 +19,7 @@ heuristic` costs nothing and is the control arm.
 A Jev round trip is 300–1200 ms and a tick is 33 ms. Awaiting one would drop
 thirty frames and hand the fight to whoever is still moving. So a request goes
 out, the loop carries on, and the answer is adopted whenever it lands — unless
-more than **1300 ms** have passed, in which case it describes a fight that has
+more than **1500 ms** have passed, in which case it describes a fight that has
 moved on and is counted as `stale` instead. That bound is in milliseconds, not
 ticks: the loop does not always hit its target rate, and a run pacing at 22 Hz
 would otherwise get a 1.4-second window while believing it had one second.
@@ -99,6 +99,6 @@ throttled to 10 Hz, except a new decision, which always draws.
 | input tokens per call | ~1,160 |
 | schema files per run | 1 |
 
-The cold round trip is why the per-call deadline is **1200 ms** and not 900: at
+The cold round trip is why the per-call deadline is **1400 ms** and not 900: at
 900 the first three calls of a run all missed, and then latency settled to a
 third of that once the connection was warm.

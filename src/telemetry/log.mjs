@@ -6,12 +6,14 @@
  * what happened next. Those replay offline against a revised question schema,
  * which is the whole reason a $5 credit can cover real iteration.
  *
- * Three streams, because they run at different rates and get read for
+ * Two streams, because they run at different rates and get read for
  * different reasons:
  *
  *   ticks.jsonl        30 Hz   what the arena looked like — the raw record
- *   judgements.jsonl   ~2 Hz   what Jev was asked, answered, and what followed
- *   events.jsonl       sparse  discrete facts: damage, pickups, deaths
+ *   judgements.jsonl   ~2 Hz   what Jev was asked and answered
+ *
+ * Outcomes — damage, deaths, what followed a decision — are derived from the
+ * tick stream afterwards (scripts/breakdown.mjs, scripts/report-run.mjs).
  *
  * The question schema is written once per run rather than repeated on every
  * judgement row. Only the stable part of it, though: the `action` and `target`
@@ -33,13 +35,12 @@ export function openRun({ dir = 'runs', id = stamp(), meta = {} } = {}) {
   const streams = {
     ticks: createWriteStream(join(runDir, 'ticks.jsonl'), { flags: 'a' }),
     judgements: createWriteStream(join(runDir, 'judgements.jsonl'), { flags: 'a' }),
-    events: createWriteStream(join(runDir, 'events.jsonl'), { flags: 'a' }),
   };
   const write = (stream, row) => streams[stream].write(`${JSON.stringify(row)}\n`);
 
   const started = Date.now();
   const schemas = new Map();
-  const counts = { ticks: 0, judgements: 0, events: 0, jevAnswers: 0, jevMisses: 0 };
+  const counts = { ticks: 0, judgements: 0, jevAnswers: 0, jevMisses: 0 };
 
   /**
    * Registers a question set and returns the id to reference it by.
@@ -59,16 +60,10 @@ export function openRun({ dir = 'runs', id = stamp(), meta = {} } = {}) {
     return id;
   }
 
-  /** The criteria of a dynamic question, pulled out to ride on the row. */
-  const liveCriteria = (questions, dynamic = DYNAMIC_QUESTIONS) => Object.fromEntries(
-    Object.entries(questions).filter(([qid]) => dynamic.has(qid))
-      .map(([qid, q]) => [qid, q.criteria]));
-
   return {
     id,
     dir: runDir,
     useSchema,
-    liveCriteria,
 
     /** One row per executor tick. Keep it flat and small; this is the high-rate stream. */
     tick(row) {
@@ -88,21 +83,6 @@ export function openRun({ dir = 'runs', id = stamp(), meta = {} } = {}) {
         latencyMs, usage, requestId, source, action,
         error: error ? String(error.message ?? error) : undefined,
       });
-    },
-
-    /**
-     * What happened after a judgement, written as a follow-up keyed by tick so
-     * the outcome is attached without holding the row open.
-     */
-    outcome({ tick, windowMs, dmgDealt, dmgTaken, hpDelta, mpDelta, note }) {
-      write('events', { t: Date.now() - started, kind: 'outcome', tick, windowMs, dmgDealt, dmgTaken, hpDelta, mpDelta, note });
-      counts.events++;
-    },
-
-    /** Discrete facts worth counting later: a hit, a pickup, a death. */
-    event(kind, fields = {}) {
-      counts.events++;
-      write('events', { t: Date.now() - started, kind, ...fields });
     },
 
     /** Closes the streams and writes the manifest that describes the run. */

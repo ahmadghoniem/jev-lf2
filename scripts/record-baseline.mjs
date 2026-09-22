@@ -17,11 +17,7 @@
 import { connect } from '../src/cdp/client.mjs';
 import { openEntityPool, fighters } from '../src/state/entities.mjs';
 import { openRun } from '../src/telemetry/log.mjs';
-
-const arg = (name, fallback) => {
-  const i = process.argv.indexOf(`--${name}`);
-  return i === -1 ? fallback : process.argv[i + 1];
-};
+import { arg } from '../src/cli.mjs';
 
 const seconds = Number(arg('seconds', 60));
 // A pool read costs 3 ms, so an unlimited loop samples at ~260 Hz and writes

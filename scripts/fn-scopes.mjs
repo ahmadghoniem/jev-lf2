@@ -9,8 +9,8 @@ import { connect } from '../src/cdp/client.mjs';
 
 const path = process.argv.slice(2);
 const cdp = await connect();
-const scope = await cdp.scriptScope();
-let props = (await cdp.getProps(scope.objectId)).result ?? [];
+const scope = await cdp.scopeVars();
+const props = scope.vars;
 let here = props.find((p) => p.name === path[0])?.value;
 if (!here) { console.error(`${path[0]} not in scope`); process.exit(1); }
 

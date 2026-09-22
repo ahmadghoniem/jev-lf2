@@ -14,8 +14,9 @@
  * them and re-deciding halfway would just cancel it.
  */
 
+import { setTimeout as sleep } from 'node:timers/promises';
 import { P4_KEYS } from './keyboard.mjs';
-import { DRINK_TYPE, Z_TOLERANCE } from '../state/arena.mjs';
+import { DRINK_TYPE, Z_TOLERANCE, isDown } from '../state/arena.mjs';
 import { REACH_SLACK } from '../lf2data/frames.mjs';
 import { label } from '../state/options.mjs';
 import { BOT, STANDOFF_X, createNoise, hesitation } from '../state/bot.mjs';
@@ -44,9 +45,6 @@ const SPECIAL_SEQUENCE = {
   Uj: ['defend', 'up', 'jump'],
 };
 
-/** Press and gap for a special. Tuned by scripts/prove-specials.mjs. */
-const SPECIAL_PRESS_MS = 60;
-const SPECIAL_GAP_MS = 90;
 /** How long a turn is: a direction tap short enough not to walk anywhere. */
 const TURN_MS = 110;
 /** How long a run burst keeps holding the direction after the double-tap. */
@@ -60,9 +58,6 @@ const JUMP_ETA_TICKS = 5;
  */
 const moveNoise = createNoise(7);
 
-/** Whether this fighter has anything it can fire, and so a range to hold. */
-export const canShoot = (profile) => !!profile?.moves?.some((m) => m.kind === 'ranged');
-
 /**
  * Where this fighter should stop closing.
  *
@@ -74,7 +69,10 @@ export const canShoot = (profile) => !!profile?.moves?.some((m) => m.kind === 'r
  * affordable; below that the stand-off is zero and this walks all the way in.
  */
 export const standoffFor = (profile, mp = Infinity) =>
-  (canShoot(profile) && mp >= (profile?.cheapestRangedMp ?? 0) ? STANDOFF_X : 0);
+  (profile?.hasRanged && mp >= (profile.cheapestRangedMp ?? 0) ? STANDOFF_X : 0);
+
+/** How far a bare-handed hit reaches, for deciding when to press attack. */
+const meleeReach = (profile) => profile?.bestMelee?.reach ?? profile?.basicAttack?.reach ?? 45;
 
 /**
  * A committed attack that waits until it is worth firing.
@@ -108,7 +106,8 @@ function aimedAttack(keys, { tight, seq = ['attack'], needReach = false, reach =
     if (needReach && t.gap > reach + REACH_SLACK) return { hold: toward(a, keys, t) };
     if (!t.infront) return { hold: [], tap: [keys[dirTo(a.me, t)]] };
     // One press every fifth tick: ~166 ms between press starts, which keeps
-    // the presses distinct the way the tuned 60 ms press + 90 ms gap did.
+    // the presses distinct the way the 60 ms press + 90 ms gap tuned by
+    // scripts/prove-specials.mjs did.
     if (step < seq.length * 5) {
       if (step % 5 === 0) {
         const press = seq[step / 5];
@@ -124,7 +123,7 @@ function aimedAttack(keys, { tight, seq = ['attack'], needReach = false, reach =
 }
 
 export function planAction(name, { arena, profile, keys = P4_KEYS } = {}) {
-  const { me, threats, items, held } = arena;
+  const { me, threats, held } = arena;
   const target = threats[0];
 
   if (name === 'wait') return stance(() => ({ hold: [] }));
@@ -220,15 +219,14 @@ export function planAction(name, { arena, profile, keys = P4_KEYS } = {}) {
   // The decision that chose this move was made ~350 ms ago, so the enemy may
   // have gone down since. Nothing refunds MP, so re-check at the moment of
   // firing: an MP-costing move is not spent on a target that cannot be hit.
-  if (target && (target.doing === 'knocked_down' || target.doing === 'in_the_air')
-      && mpCost(profile, name) > 0) {
+  if (target && isDown(target.doing) && mpCost(profile, name) > 0) {
     return stance(() => ({ hold: [] }));
   }
 
   // No attack starts while a weapon is already on its way through our lane:
   // the dodge owns that lane until it is clear, and an attack started now would
   // still be in its recovery when the weapon arrives.
-  if (COMMITTED(name) && weaponOnLane(arena)) return null;
+  if (isAttackOption(name) && weaponOnLane(arena)) return null;
 
   // plain attacks: line up in the lane, face the target, then one tap. A melee
   // hit needs the CPU's tight 5 of depth; a fired shot is fine within the
@@ -236,9 +234,8 @@ export function planAction(name, { arena, profile, keys = P4_KEYS } = {}) {
   // stops whiffing from out of range.
   if (name === 'shoot' || name === 'punch' || name.startsWith('swing_')) {
     const melee = name !== 'shoot';
-    const reach = profile?.bestMelee?.reach ?? profile?.basicAttack?.reach ?? 45;
     return stance(aimedAttack(keys, { tight: melee ? BOT.ALIGN_Z_TIGHT : Z_TOLERANCE,
-                                       needReach: melee, reach }));
+                                       needReach: melee, reach: meleeReach(profile) }));
   }
 
   if (name === 'jump_attack' || name.startsWith('jump_swing_')) {
@@ -298,7 +295,7 @@ export function planAction(name, { arena, profile, keys = P4_KEYS } = {}) {
   // punish a helpless enemy: close the distance, then hit once in range
   if (name === 'rush_attack') {
     if (!target) return null;
-    const reach = profile?.bestMelee?.reach ?? profile?.basicAttack?.reach ?? 45;
+    const reach = meleeReach(profile);
     return stance((a) => {
       const t = enemy(a);
       if (!t) return { hold: [] };
@@ -333,20 +330,6 @@ function mpCost(profile, name) {
 /** The move an option name refers to, matched the way the name was built. */
 const findSpecial = (profile, name) =>
   profile?.moves?.find((m) => `special_${label(m)}` === name) ?? null;
-
-/**
- * The sequence, in order. Each press is short and the gaps are even, because
- * the engine reads the sequence as discrete presses inside a window rather than
- * as a held combination.
- */
-async function fireSpecial(kb, keys, input, facingDir) {
-  const steps = SPECIAL_SEQUENCE[input];
-  for (const step of steps) {
-    const code = step === 'forward' ? keys[facingDir] : keys[step];
-    await kb.tap(code, SPECIAL_PRESS_MS);
-    await sleep(SPECIAL_GAP_MS);
-  }
-}
 
 /**
  * An attack aimed the wrong way is a wasted commitment, and a fighter that
@@ -409,7 +392,7 @@ const weaponOnLane = (arena) =>
     && i.closing && i.zGap <= BOT.DODGE_Z && i.range <= BOT.DODGE_X) ?? null;
 
 /** Options that press attack and cannot be cancelled once started. */
-const COMMITTED = (name) => name === 'shoot' || name === 'punch'
+export const isAttackOption = (name) => name === 'shoot' || name === 'punch'
   || name.startsWith('swing_') || name.startsWith('jump_swing_') || name === 'jump_attack'
   || name.startsWith('run_swing_') || name === 'run_attack'
   || name.startsWith('dash_swing_') || name === 'dash_attack'
@@ -422,7 +405,6 @@ function away(arena, keys, t) {
 
 const stance = (step) => ({ kind: 'stance', step });
 const burst = (run) => ({ kind: 'burst', run });
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 /** Which of the offered options the executor can actually carry out. */
 export function executableOptions(options, ctx) {

@@ -106,14 +106,13 @@ harness logs every tick, and that is where the feedback loop lives.
 
 ## What gets logged
 
-`src/telemetry/log.mjs` writes one directory per run, three streams because they
+`src/telemetry/log.mjs` writes one directory per run, two streams because they
 run at different rates and get read for different reasons:
 
 | file | rate | contents |
 |---|---|---|
 | `ticks.jsonl` | 30 Hz | the arena: own frame/state/hp/mp/position, each threat's frame and offset, items, the action taken and its `source` |
 | `judgements.jsonl` | ~2 Hz | the exact `state` sent, the schema id, the full answer with probabilities and confidence, latency, `usage`, request id — and the misses, because a miss is data |
-| `events.jsonl` | sparse | damage, pickups, drinks, knockdowns, deaths, and outcome windows attached by tick |
 
 The question schema is written once per run as `schema-<hash>.json`, but only
 its stable part: the `action` and `target` options are rebuilt every tick from

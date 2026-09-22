@@ -6,14 +6,10 @@
  *   node scripts/damage-source.mjs                 # the newest run
  *   node scripts/damage-source.mjs runs/<run>
  */
-import { readdirSync, existsSync, readFileSync } from 'node:fs';
+import { latestRun, readJsonl } from '../src/cli.mjs';
 
-const latestRun = () => readdirSync('runs').filter((d) => /^\d{4}-/.test(d)
-  && existsSync(`runs/${d}/ticks.jsonl`)).sort().at(-1);
-
-const run = process.argv[2] ?? `runs/${latestRun()}`;
-const rows = readFileSync(`${run}/ticks.jsonl`, 'utf8')
-  .split('\n').filter(Boolean).map((l) => JSON.parse(l));
+const run = process.argv[2] ?? latestRun();
+const rows = readJsonl(`${run}/ticks.jsonl`);
 
 const drops = [];
 for (let i = 1; i < rows.length; i++) {

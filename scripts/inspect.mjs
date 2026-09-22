@@ -13,8 +13,8 @@ const [name, ...path] = process.argv.slice(2);
 if (!name) { console.error('usage: node scripts/inspect.mjs VAR [key ...]'); process.exit(1); }
 
 const cdp = await connect();
-const scope = await cdp.scriptScope();
-let props = (await cdp.getProps(scope.objectId)).result ?? [];
+const scope = await cdp.scopeVars();
+const props = scope.vars;
 let here = props.find((p) => p.name === name)?.value;
 if (!here) { console.error(`${name} not in scope (via ${scope.via})`); process.exit(1); }
 

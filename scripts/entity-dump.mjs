@@ -6,6 +6,7 @@
  */
 import { connect } from '../src/cdp/client.mjs';
 import { openEntityPool, fighters } from '../src/state/entities.mjs';
+import { has } from '../src/cli.mjs';
 
 const cdp = await connect();
 const pool = await openEntityPool(cdp);
@@ -16,7 +17,7 @@ for (const e of live) {
   console.log(`slot ${String(e.slot).padStart(3)}  ${String(e.name).padEnd(16)} id ${String(e.id).padEnd(4)} type ${e.type}  (${Math.round(e.x)},${Math.round(e.y)},${Math.round(e.z)})`);
 }
 
-if (process.argv.includes('--full')) {
+if (has('full')) {
   for (const f of fighters(live)) {
     console.log(`\n=== ${f.name} (slot ${f.slot}) ===`);
     const entries = Object.entries(f).filter(([k]) => !['name', 'filename', 'id', 'type', 'slot'].includes(k));

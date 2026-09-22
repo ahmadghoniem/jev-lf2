@@ -7,7 +7,13 @@
  * while the Jev call is still in flight.
  */
 
-/** itr kinds 0 and 6 hurt. Kind 2 is the pick-up box, kind 5 is weapon strength. */
+/**
+ * itr kinds that actually hurt someone. `kind 0` is an ordinary attack and
+ * `kind 6` a super punch; `kind 2` is the pick-up box and `kind 5` marks a
+ * weapon's in-hand strength, whose `injury 789` is a placeholder the engine
+ * replaces from the weapon's `<wsl>` table. Counting those as damage reads an
+ * arrow as an 789-point attack.
+ */
 const HURTS = new Set([0, 6]);
 
 /**
@@ -31,7 +37,7 @@ export function reachOfFrame(frame) {
   const hits = damagingItr(frame);
   if (hits.length === 0) return 0;
   const centre = frame.centerx ?? (frame.bdy?.[0] ? frame.bdy[0].x + frame.bdy[0].w / 2 : 0);
-  return Math.max(...hits.map((it) => it.x + it.w - centre));
+  return Math.max(...hits.map((it) => (it.x ?? 0) + (it.w ?? 0) - centre));
 }
 
 /**

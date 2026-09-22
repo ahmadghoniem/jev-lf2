@@ -16,7 +16,7 @@ import { plainName } from './options.mjs';
 
 /** Data-file types that can be picked up. 6 is milk and beer. */
 const ITEM_TYPES = new Set([1, 2, 4, 6]);
-const DRINK_TYPE = 6;
+export const DRINK_TYPE = 6;
 
 /**
  * A hit only connects when attacker and target share roughly the same depth,
@@ -67,20 +67,7 @@ const FLIGHT_STICKY = 10;
  * The CPU steps when a projectile is 150 away; the horizon has to be at least
  * that, with room for the dodge to finish its step before arrival.
  */
-export const PROJECTILE_RANGE = 200;
-
-/**
- * How a thrown weapon is answered is a question of time, not distance.
- *
- * A distance threshold asks "is it inside 45 yet", which has no answer for a
- * weapon crossing that line between two reads: at 50 the block does not start,
- * and by the next read it has already landed. What matters is how many ticks are
- * left before it arrives, so the trigger is the arrival time and the distance is
- * only a fallback for the first sighting, before a speed has been measured.
- */
-export const PROJECTILE_ETA_TICKS = 6;
-/** Fallback when the weapon has only been seen once and has no measured speed. */
-export const PROJECTILE_BLOCK_RANGE = 45;
+const PROJECTILE_RANGE = 200;
 
 export function createItemMotion({ slack = FLIGHT_SLACK, stickyTicks = FLIGHT_STICKY } = {}) {
   const prev = new Map();
@@ -241,9 +228,6 @@ export function readArena(entities, { slot, name, isLive, heldTracker, motionTra
     t.vulnerable = VULNERABLE.has(t.doing);
     // Whether the window is free or merely looks free: see HELPLESS.
     t.helpless = HELPLESS.has(t.doing);
-    // Even level with us, a target lying on the floor or up in the air is below
-    // or above a straight shot, so firing at it is MP spent on nothing.
-    t.shootable = t.aligned && t.doing !== 'knocked_down' && t.doing !== 'in_the_air';
   }
   const allies = others.filter((f) => f.team === me.team).map(geo);
 
@@ -298,10 +282,16 @@ const LOCKED_STATES = {
  * damage arriving from the weapon while the fighter reads as recovering. Walking
  * in on that is a trade, not a punish, which is the distinction this set draws.
  */
-export const HELPLESS = new Set(Object.values(LOCKED_STATES));
+const HELPLESS = new Set(Object.values(LOCKED_STATES));
 
 /** Doing values that mean the next moment is a free hit, or close to it. */
-export const VULNERABLE = new Set([...HELPLESS, 'recovering']);
+const VULNERABLE = new Set([...HELPLESS, 'recovering']);
+
+/**
+ * A fighter on the floor or up in the air is below or above anything fired or
+ * swung from standing, so an attack at it is spent on nothing.
+ */
+export const isDown = (doingValue) => doingValue === 'knocked_down' || doingValue === 'in_the_air';
 
 /** What a fighter is doing, read off its current frame rather than inferred. */
 export function doing(f) {
@@ -322,6 +312,9 @@ export function doing(f) {
   if (frame.state === 4) return 'in_the_air';
   return 'neutral';
 }
+
+/** Where something sits in depth relative to us, in words. */
+const depthOf = (e, level, nearer, further) => (e.aligned ? level : e.dz > 0 ? nearer : further);
 
 const health = (f) => {
   const r = f.hp / (f.hpMax || 500);
@@ -354,7 +347,7 @@ export function semanticState({ arena, profile, recent = {} }) {
       id: `e${t.slot}`,
       distance: bucketRange(t.gap),
       side: t.infront ? 'front' : 'behind',
-      line: t.aligned ? 'level with you' : (t.dz > 0 ? 'closer to the camera than you' : 'further back than you'),
+      line: depthOf(t, 'level with you', 'closer to the camera than you', 'further back than you'),
       doing: t.doing,
       vulnerable: t.vulnerable,
       hp: health(t),
@@ -368,7 +361,7 @@ export function semanticState({ arena, profile, recent = {} }) {
       what: plainName(i.name),
       kind: i.type === DRINK_TYPE ? 'drink' : 'weapon',
       distance: bucketRange(i.range),
-      line: i.aligned ? 'level with you' : (i.dz > 0 ? 'closer to the camera than you' : 'further back than you'),
+      line: depthOf(i, 'level with you', 'closer to the camera than you', 'further back than you'),
       contested: i.contested,
     })),
     // The things already travelling at us, which no amount of walking toward
@@ -376,7 +369,7 @@ export function semanticState({ arena, profile, recent = {} }) {
     danger: flying.slice(0, 2).map((i) => ({
       what: plainName(i.name),
       distance: bucketRange(i.range),
-      line: i.aligned ? 'on your line' : (i.dz > 0 ? 'crossing in front of you' : 'crossing behind you'),
+      line: depthOf(i, 'on your line', 'crossing in front of you', 'crossing behind you'),
     })),
     phase: {
       enemies_left: threats.length,
@@ -386,5 +379,3 @@ export function semanticState({ arena, profile, recent = {} }) {
     recent,
   };
 }
-
-export { DRINK_TYPE };

@@ -7,25 +7,12 @@
  *   node scripts/ask-jev.mjs --character bandit
  *   node scripts/ask-jev.mjs --held 121           # holding the baseball bat
  */
-import { readFileSync } from 'node:fs';
-import { join, dirname } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { createClient, choice, noul } from '../src/jev/client.mjs';
 import { buildOptions } from '../src/state/options.mjs';
+import { profiles, weapons } from '../src/lf2data/tables.mjs';
+import { arg, loadApiKey } from '../src/cli.mjs';
 
-const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
-const arg = (name, fallback) => {
-  const i = process.argv.indexOf(`--${name}`);
-  return i === -1 ? fallback : process.argv[i + 1];
-};
-
-if (!process.env.TYPESAFE_API_KEY) {
-  const env = readFileSync(join(ROOT, '.env'), 'utf8').match(/TYPESAFE_API_KEY=(.+)/);
-  if (env) process.env.TYPESAFE_API_KEY = env[1].trim();
-}
-
-const profiles = JSON.parse(readFileSync(join(ROOT, 'build/_profiles.json'), 'utf8'));
-const weapons = JSON.parse(readFileSync(join(ROOT, 'build/_weapons.json'), 'utf8'));
+loadApiKey();
 
 const character = arg('character', 'henry');
 const profile = profiles[character];

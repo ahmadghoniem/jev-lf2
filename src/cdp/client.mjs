@@ -92,12 +92,16 @@ export async function connect({ port = 9222, waitMs = 30000, quiet = true, keepA
     return { ...scope, vars: (await getProps(scope.objectId)).result ?? [] };
   }
 
-  /** Synthetic key that the game sees as isTrusted (verified in Phase 0). */
+  /** One synthetic key event, which the game sees as isTrusted (verified in Phase 0). */
+  const keyEvent = (type, code) => send('Input.dispatchKeyEvent', {
+    type, code, key: KEY_OF[code] ?? code, windowsVirtualKeyCode: VK_OF[code] ?? 0,
+  });
+
+  /** A press and release in one await — right for a menu, wrong for a fight. */
   async function key(code, { down = true, up = true, holdMs = 150 } = {}) {
-    const base = { code, key: KEY_OF[code] ?? code, windowsVirtualKeyCode: VK_OF[code] ?? 0 };
-    if (down) await send('Input.dispatchKeyEvent', { type: 'keyDown', ...base });
+    if (down) await keyEvent('keyDown', code);
     if (down && up) await sleep(holdMs);
-    if (up) await send('Input.dispatchKeyEvent', { type: 'keyUp', ...base });
+    if (up) await keyEvent('keyUp', code);
   }
 
   /**
@@ -115,7 +119,7 @@ export async function connect({ port = 9222, waitMs = 30000, quiet = true, keepA
   const close = () => ws.close();
 
   if (!quiet) console.error(`cdp: attached to ${page.title || page.url}`);
-  return { send, evaluate, evalHandle, getProps, scriptScope, scopeVars, key, on, close, page };
+  return { send, evaluate, evalHandle, getProps, scriptScope, scopeVars, key, keyEvent, on, close, page };
 }
 
 async function waitForPage(port, waitMs) {
@@ -139,10 +143,10 @@ async function waitForPage(port, waitMs) {
  * Global functions worth probing for the script scope. `onerror` and friends are
  * assigned by the bundle itself, so they carry the same closure as the game code.
  */
-export const SCOPE_CANDIDATES = ['onerror', 'onresize', 'onunhandledrejection', 'globalQuitGame', 'resizeApp'];
+const SCOPE_CANDIDATES = ['onerror', 'onresize', 'onunhandledrejection', 'globalQuitGame', 'resizeApp'];
 
 /** Only the codes the harness actually sends. */
-export const KEY_OF = {
+const KEY_OF = {
   Enter: 'Enter', Escape: 'Escape', Space: ' ', Tab: 'Tab', Backquote: '`', Quote: "'",
   ShiftRight: 'Shift', Period: '.', Comma: ',',
   ArrowUp: 'ArrowUp', ArrowDown: 'ArrowDown', ArrowLeft: 'ArrowLeft', ArrowRight: 'ArrowRight',
@@ -154,7 +158,7 @@ export const KEY_OF = {
   NumpadAdd: '+', NumpadSubtract: '-', NumpadMultiply: '*', NumpadDivide: '/',
   NumpadDecimal: '.', NumpadEnter: 'Enter',
 };
-export const VK_OF = {
+const VK_OF = {
   Enter: 13, Escape: 27, Space: 32, Tab: 9, ShiftRight: 16, Comma: 188, Period: 190,
   ArrowUp: 38, ArrowDown: 40, ArrowLeft: 37, ArrowRight: 39,
   KeyW: 87, KeyA: 65, KeyS: 83, KeyD: 68, KeyI: 73, KeyJ: 74, KeyK: 75, KeyL: 76,

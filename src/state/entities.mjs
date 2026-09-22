@@ -30,9 +30,8 @@ const IDENTITY = ['name', 'filename', 'id', 'type'];
 
 /** Resolves a class name in the script scope to its prototype's objectId. */
 export async function classPrototype(cdp, className) {
-  const scope = await cdp.scriptScope();
-  const props = (await cdp.getProps(scope.objectId)).result ?? [];
-  const cls = props.find((p) => p.name === className)?.value;
+  const { vars } = await cdp.scopeVars();
+  const cls = vars.find((p) => p.name === className)?.value;
   if (!cls?.objectId) throw new Error(`class ${className} not in script scope`);
   const own = (await cdp.getProps(cls.objectId)).result ?? [];
   const proto = own.find((p) => p.name === 'prototype')?.value;

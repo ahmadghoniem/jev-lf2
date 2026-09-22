@@ -139,8 +139,3 @@ export function createReflex({ maxBlockTicks = BOT.BLOCK_COMMIT_FRAMES,
     return null;
   };
 }
-
-/** A single, stateless opinion — for callers that do not hold a run's state. */
-export function reflexAction(arena, opts = {}) {
-  return createReflex()(arena, opts);
-}

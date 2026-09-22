@@ -12,8 +12,8 @@ import { connect } from '../src/cdp/client.mjs';
 
 const only = process.argv[2];
 const cdp = await connect();
-const scope = await cdp.scriptScope();
-const props = (await cdp.getProps(scope.objectId)).result ?? [];
+const scope = await cdp.scopeVars();
+const props = scope.vars;
 
 const classes = props.filter((p) =>
   p.value?.type === 'function' && /^class /.test(p.value.description ?? ''));

@@ -12,7 +12,6 @@
  * the slot's keys bound — see `scripts/bind-keys.mjs`.
  */
 
-import { readFileSync } from 'node:fs';
 import { connect } from '../src/cdp/client.mjs';
 import { openEntityPool } from '../src/state/entities.mjs';
 import { keyboard, readBindings } from '../src/executor/keyboard.mjs';
@@ -24,8 +23,7 @@ import { createClient } from '../src/jev/client.mjs';
 import { startMatch } from '../src/executor/match.mjs';
 import { createOverlay } from '../src/executor/overlay.mjs';
 import { proveInput, reportProbe } from '../src/executor/inputcheck.mjs';
-
-const arg = (n, d) => { const i = process.argv.indexOf(`--${n}`); return i === -1 ? d : process.argv[i + 1]; };
+import { arg, has, loadApiKey } from '../src/cli.mjs';
 
 const name = arg('name', 'Deep');
 const kind = arg('policy', 'heuristic');
@@ -39,10 +37,7 @@ if (!profile) throw new Error(`no profile for ${name}`);
 
 let policy;
 if (kind === 'jev') {
-  if (!process.env.TYPESAFE_API_KEY) {
-    const env = readFileSync('.env', 'utf8').match(/TYPESAFE_API_KEY=(.+)/);
-    if (env) process.env.TYPESAFE_API_KEY = env[1].trim();
-  }
+  loadApiKey();
   policy = jevPolicy(createClient(), profile, { deadlineMs: Number(arg('deadline-ms', 1400)) });
 } else {
   policy = heuristicPolicy(profile);
@@ -57,7 +52,7 @@ console.log(`P4 keys: ${Object.entries(keys).map(([s, k]) => `${s}=${k}`).join('
 const kb = keyboard(cdp, keys);
 
 // --fresh restarts the match first, so a run is never half a corpse.
-if (process.argv.includes('--fresh')) {
+if (has('fresh')) {
   const alive = await startMatch(cdp, pool, { attack: keys.attack });
   if (!alive) throw new Error('could not start a fresh match');
   console.log(`fresh match: ${alive.map((f) => f.name).join(', ')}`);
@@ -66,7 +61,7 @@ if (process.argv.includes('--fresh')) {
 // A run is only worth its credit if the fighter is actually listening. A wrong
 // key map is invisible in the telemetry — every action is logged as intended —
 // so the only honest gate is to press a key and read the game's reaction.
-if (!process.argv.includes('--no-verify')) {
+if (!has('no-verify')) {
   const results = await proveInput({ cdp, pool, name, keys });
   const gate = results.find((r) => r.gate);
   if (gate?.status !== 'pass') reportProbe(results);
@@ -78,7 +73,7 @@ if (!process.argv.includes('--no-verify')) {
   }
 }
 
-const overlay = createOverlay(cdp, { enabled: !process.argv.includes('--no-overlay') });
+const overlay = createOverlay(cdp, { enabled: !has('no-overlay') });
 await overlay.install();
 
 const run = openRun({ meta: { label: arg('label', `${kind}-${name}`), policy: kind, character: name,
@@ -108,7 +103,7 @@ const counts = await runLoop({
 });
 
 await kb.releaseAll();
-if (!process.argv.includes('--keep-overlay')) await overlay.remove();
+if (!has('keep-overlay')) await overlay.remove();
 const manifest = await run.close({ loop: counts });
 await cdp.close();
 

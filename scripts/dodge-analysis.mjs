@@ -6,16 +6,12 @@
  *   node scripts/dodge-analysis.mjs                # the newest run
  *   node scripts/dodge-analysis.mjs runs/<a> runs/<b>
  */
-import { readdirSync, existsSync, readFileSync } from 'node:fs';
+import { latestRun, readJsonl } from '../src/cli.mjs';
 
-const latestRun = () => readdirSync('runs').filter((d) => /^\d{4}-/.test(d)
-  && existsSync(`runs/${d}/ticks.jsonl`)).sort().at(-1);
-
-const runs = process.argv.slice(2).length ? process.argv.slice(2) : [`runs/${latestRun()}`];
+const runs = process.argv.slice(2).length ? process.argv.slice(2) : [latestRun()];
 
 for (const run of runs) {
-  const rows = readFileSync(`${run}/ticks.jsonl`, 'utf8')
-    .split('\n').filter(Boolean).map((l) => JSON.parse(l));
+  const rows = readJsonl(`${run}/ticks.jsonl`);
   console.log(`\n=== ${run} ===`);
 
   // Projectile episodes: a weapon flagged inFlight+closing, from first flag to

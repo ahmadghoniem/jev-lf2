@@ -37,11 +37,12 @@ const SWING_STYLES = {
  * @param held       the weapon entity in hand, or null
  * @param nearby     weapon and drink entities on the ground, with distances
  * @param nearest    distance to the closest threat, in game units
+ * @param targetDown the nearest enemy is on the floor or in the air
  * @param canDo      whether the executor can actually carry an option out
  */
 export function buildOptions({ profile, weapons, held, nearby = [], nearest = Infinity, mp = 0,
                                hp = null, hpMax = null, behind = false, vulnerable = false,
-                               enemyDoing = null, aligned = true, shootable = true,
+                               enemyDoing = null, aligned = true, targetDown = false,
                                hasTarget = false, mpLow = false, threatened = false,
                                helpless = false, weaponInbound = false, canDo = () => true }) {
   const options = {};
@@ -52,16 +53,15 @@ export function buildOptions({ profile, weapons, held, nearby = [], nearest = In
   // Where a fighter that can fire wants to stand, and so where "close the
   // distance" stops meaning "walk into it". A fighter with nothing to fire has
   // to close all the way, and its stand-off is zero.
-  const standoff = profile?.moves?.some((m) => m.kind === 'ranged') ? STANDOFF_X : 0;
+  const standoff = profile.hasRanged ? STANDOFF_X : 0;
 
   const misaligned = hasTarget && !aligned;
   // A target on the floor or in the air cannot be hit by anything fired from
   // where we stand. This used to gate only the moves that cost MP, which left
   // the free melee attacks on the list — and the run data shows what that bought:
   // 50-odd ticks of dash_attack chosen at a knocked-down enemy 200-430 away,
-  // dashing at a corpse. Now nothing fired from standing stays on the list while
-  // the target is down; the useful things then are to wait or to drink.
-  const targetDown = hasTarget && (enemyDoing === 'knocked_down' || enemyDoing === 'in_the_air');
+  // dashing at a corpse. Now no attack stays on the list while the target is
+  // down; the useful things then are to wait or to drink.
 
   // A free window is the one branch that opens because of the enemy rather than
   // for us: a fighter locked in a drink or a recovery cannot move or block, so

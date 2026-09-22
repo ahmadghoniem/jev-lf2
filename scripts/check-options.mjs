@@ -22,7 +22,7 @@ const at = (x, z) => ({ me, threats: [foe(x, z)], items: [], held: null, flying:
 const build = (arena, over = {}) => buildOptions({
   profile, weapons, held: null, nearest: Math.abs(arena.threats[0].dx),
   mp: 500, hp: 400, hpMax: 500, hasTarget: true,
-  aligned: arena.threats[0].aligned, shootable: true, ...over });
+  aligned: arena.threats[0].aligned, ...over });
 
 const far = at(350, 0);
 const mid = at(120, 0);

@@ -11,8 +11,8 @@
 import { writeFileSync } from 'node:fs';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { connect } from '../src/cdp/client.mjs';
+import { arg } from '../src/cli.mjs';
 
-const arg = (n, d) => { const i = process.argv.indexOf(`--${n}`); return i === -1 ? d : process.argv[i + 1]; };
 const keys = (arg('keys', '') || '').split(',').filter(Boolean);
 const gap = Number(arg('gap', 350));
 const wait = Number(arg('wait', 600));

@@ -160,7 +160,8 @@ of those were against a genuinely locked enemy — the other 75-87% were a
 windows, 200 / 218 / 160 had a weapon closing within 110 units. `rush_attack` now
 requires a window nothing is arriving into, and says which of the two it is.
 
-**Unverified in play:** the game was closed before these changes could be run.
-The two numbers to calibrate on the first run are `FLIGHT_SLACK` (how far an item
-must move between reads to count as thrown) and `PROJECTILE_BLOCK_RANGE` (where
-blocking beats stepping aside) — both in `src/state/arena.mjs`.
+The block this section describes has since been replaced by a dodge — the
+guard never stopped a thrown weapon — so the numbers to calibrate are
+`FLIGHT_SLACK` and `FLIGHT_STICKY` in `src/state/arena.mjs` (how far an item must
+move between reads to count as thrown, and how long it stays flagged) and the
+dodge box in `src/state/bot.mjs`.

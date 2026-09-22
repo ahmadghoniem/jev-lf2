@@ -20,8 +20,7 @@ import { openEntityPool } from '../src/state/entities.mjs';
 import { readArena } from '../src/state/arena.mjs';
 import { profileFor, framesFor } from '../src/lf2data/tables.mjs';
 import { keyboard, P4_KEYS } from '../src/executor/keyboard.mjs';
-
-const arg = (n, d) => { const i = process.argv.indexOf(`--${n}`); return i === -1 ? d : process.argv[i + 1]; };
+import { arg, has } from '../src/cli.mjs';
 
 const SEQUENCE = {
   a: ['attack'], j: ['jump'], d: ['defend'],
@@ -43,7 +42,7 @@ console.log(`${arena0.me.name}, slot ${arena0.me.slot}, mp ${arena0.me.mp}\n`);
 const specials = profile.moves.filter((m) => SEQUENCE[m.input] && m.input !== 'a' && m.input !== 'j');
 if (specials.length === 0) { console.log('this character has no specials in hit_*'); await done(0); }
 
-const windows = process.argv.includes('--sweep')
+const windows = has('sweep')
   ? [[50, 70], [60, 90], [70, 120], [90, 150], [120, 200]]
   : [[Number(arg('press', 60)), Number(arg('gap', 90))]];
 

@@ -42,7 +42,7 @@ function parseTags(block) {
 }
 
 /** Input suffixes on `hit_*` fields, in the game's own notation. */
-export const MOVE_INPUTS = ['a', 'd', 'j', 'Fa', 'Ua', 'Da', 'Uj'];
+const MOVE_INPUTS = ['a', 'd', 'j', 'Fa', 'Ua', 'Da', 'Uj'];
 
 export function parseFrames(text) {
   const frames = new Map();
@@ -101,90 +101,4 @@ export function parseHeader(text) {
 
 export function parseDataFile(text) {
   return { header: parseHeader(text), frames: parseFrames(text) };
-}
-
-/**
- * Walk a move from its entry frame, following `next`, to find what it costs and
- * what it does. Returns null if the chain never lands a damaging itr.
- *
- * `ticks` counts frame `wait` values, which is the startup in game ticks — the
- * number the reflex layer cares about when deciding whether a block is possible.
- */
-export function summarizeMove(frames, entryId, maxDepth = 24) {
-  let id = entryId;
-  let ticks = 0;
-  let mp = 0;
-  const visited = new Set();
-
-  for (let step = 0; step < maxDepth; step++) {
-    const frame = frames.get(id);
-    if (!frame || visited.has(id)) break;
-    visited.add(id);
-
-    if (typeof frame.mp === 'number') mp += frame.mp;
-
-    const hit = frame.itr.find((it) => typeof it.injury === 'number' && it.injury > 0);
-    if (hit) {
-      return {
-        entry: entryId,
-        name: frames.get(entryId)?.name ?? null,
-        mp,
-        startupTicks: ticks,
-        injury: hit.injury,
-        fall: hit.fall ?? null,
-        bdefend: hit.bdefend ?? null,
-        landsOnFrame: id,
-      };
-    }
-
-    // An opoint spawns a projectile; the damage lives in the spawned object's file.
-    if (frame.opoint.length > 0) {
-      return {
-        entry: entryId,
-        name: frames.get(entryId)?.name ?? null,
-        mp,
-        startupTicks: ticks,
-        injury: null,
-        spawns: frame.opoint.map((o) => o.oid),
-        landsOnFrame: id,
-      };
-    }
-
-    ticks += typeof frame.wait === 'number' ? frame.wait : 0;
-    if (typeof frame.next !== 'number' || frame.next <= 0) break;
-    id = frame.next;
-  }
-  return null;
-}
-
-/**
- * Every move reachable by an input, keyed by the input notation the executor
- * needs to type. Deduplicated by entry frame, since many frames share a move.
- */
-export function buildMoveTable(frames) {
-  const moves = new Map();
-  for (const frame of frames.values()) {
-    for (const [input, target] of Object.entries(frame.transitions)) {
-      const key = `${input}:${target}`;
-      if (moves.has(key)) { moves.get(key).fromFrames.push(frame.id); continue; }
-      const summary = summarizeMove(frames, target);
-      moves.set(key, { input, target, fromFrames: [frame.id], ...(summary ?? { unresolved: true }) });
-    }
-  }
-  return [...moves.values()].sort((a, b) => a.target - b.target);
-}
-
-/** Frames whose itr can hit someone, for the reflex layer's threat lookup. */
-export function buildThreatTable(frames) {
-  const threats = new Map();
-  for (const frame of frames.values()) {
-    const hits = frame.itr.filter((it) => typeof it.injury === 'number' && it.injury > 0);
-    if (hits.length === 0) continue;
-    threats.set(frame.id, {
-      frame: frame.id,
-      state: frame.state ?? null,
-      boxes: hits.map((h) => ({ x: h.x, y: h.y, w: h.w, h: h.h, injury: h.injury, dvx: h.dvx ?? 0 })),
-    });
-  }
-  return threats;
 }

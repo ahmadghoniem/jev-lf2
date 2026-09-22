@@ -12,8 +12,7 @@ import { connect } from '../src/cdp/client.mjs';
 import { openEntityPool } from '../src/state/entities.mjs';
 import { readBindings } from '../src/executor/keyboard.mjs';
 import { proveInput, reportProbe } from '../src/executor/inputcheck.mjs';
-
-const arg = (n, d) => { const i = process.argv.indexOf(`--${n}`); return i === -1 ? d : process.argv[i + 1]; };
+import { arg } from '../src/cli.mjs';
 
 const name = arg('name', 'Deep');
 

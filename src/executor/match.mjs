@@ -7,6 +7,7 @@
  * until fighters appear in the pool, and their appearance is the confirmation.
  */
 
+import { setTimeout as sleep } from 'node:timers/promises';
 import { fighters } from '../state/entities.mjs';
 import { readFighter } from '../state/fields.mjs';
 
@@ -30,5 +31,3 @@ export async function startMatch(cdp, pool, { attack = 'KeyK', tries = 12, gapMs
   }
   return null;
 }
-
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));

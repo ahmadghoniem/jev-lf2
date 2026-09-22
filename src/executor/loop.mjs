@@ -24,7 +24,7 @@ import { bucketRange } from '../lf2data/profile.mjs';
  * target rate — a run that paces at 22 Hz would otherwise get a 1.4-second
  * staleness window while believing it had one second.
  */
-const STALE_MS = 1300;
+const STALE_MS = 1500;
 
 // A single frame can read hp as 0/undefined while the entity is mid-transition
 // (spawn, certain hit states), which used to log a false death at t≈0. A fighter
@@ -129,13 +129,15 @@ export async function runLoop({ cdp, pool, kb, run, name, policy, overlay, hz = 
       // the list Jev was handed — not a redraw of the last answer's keys.
       shown = { ...shown, options: Object.keys(options) };
       forceDraw = true;
-      // Hash the question set the policy will actually send, not a stand-in for it.
-      const schema = run?.useSchema(policy.questions?.(options, arena) ?? { action: { type: 'choice', criteria: options } });
+      // The question set is built once and both hashed and sent, so the schema
+      // on record is the one the policy actually asked.
+      const questions = policy.questions(options, arena);
+      const schema = run?.useSchema(questions);
       const askedAt = tick;
       const record = { settled: false, askedAt, askedAtMs: Date.now(), result: null };
       pending = record;
       counts.decisions++;
-      policy.decide({ arena, options, recent }).then((result) => {
+      policy.decide({ arena, options, questions, recent }).then((result) => {
         record.result = result; record.settled = true;
         run?.judgement({
           tick: askedAt, schema, criteria: { action: options },
@@ -182,7 +184,7 @@ export async function runLoop({ cdp, pool, kb, run, name, policy, overlay, hz = 
             darkHp: arena.me.darkHp, mp: arena.me.mp, x: arena.me.x, z: arena.me.z,
             facing: arena.me.facing, holding: arena.held?.name ?? null },
       threats: arena.threats.slice(0, 3).map((t) => ({ slot: t.slot, name: t.name, frame: t.frame,
-        doing: doing(t), vulnerable: t.vulnerable, hp: t.hp, dx: Math.round(t.dx), dz: Math.round(t.dz),
+        doing: t.doing, vulnerable: t.vulnerable, hp: t.hp, dx: Math.round(t.dx), dz: Math.round(t.dz),
         // The enemy's own destination, so a decision that read it can be checked
         // after the fact against where the enemy actually went.
         destDx: t.destDx === null ? null : Math.round(t.destDx),
@@ -202,7 +204,7 @@ export async function runLoop({ cdp, pool, kb, run, name, policy, overlay, hz = 
     await overlay?.update({
       ...shown, action, source, counts, reflex: reflex?.reason ?? null,
       hp: arena.me.hp, darkHp: arena.me.darkHp, hpMax: arena.me.hpMax, mp: arena.me.mp,
-      nearest: near ? { name: near.name, distance: bucketRange(near.gap), doing: doing(near), vulnerable: near.vulnerable, helpless: near.helpless } : null,
+      nearest: near ? { name: near.name, distance: bucketRange(near.gap), doing: near.doing, vulnerable: near.vulnerable, helpless: near.helpless } : null,
       // Shown because a thrown weapon is invisible in every other reading: the
       // enemy looks idle and the weapon looks like something to walk over.
       threat: arena.flying[0]

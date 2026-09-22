@@ -7,14 +7,18 @@
  */
 
 import { buildOptions } from '../state/options.mjs';
-import { semanticState, doing } from '../state/arena.mjs';
+import { semanticState, doing, isDown } from '../state/arena.mjs';
 import { weapons } from '../lf2data/tables.mjs';
 import { executableOptions, planAction } from './actions.mjs';
 import { wouldWhiff, incoming, inboundWeapon } from './reflex.mjs';
 import { STANDOFF_X } from '../state/bot.mjs';
 
+/** Below this much MP, spending it is flagged as a last resort. */
+const MP_LOW = 100;
+
 /** Options the executor can actually carry out, described for a reader. */
 export function offer(arena, profile) {
+  const near = arena.threats[0];
   const options = buildOptions({
     profile,
     weapons,
@@ -27,15 +31,15 @@ export function offer(arena, profile) {
     mp: arena.me.mp,
     hp: arena.me.hp,
     hpMax: arena.me.hpMax,
-    behind: arena.threats[0] ? !arena.threats[0].infront : false,
-    vulnerable: arena.threats[0]?.vulnerable ?? false,
-    enemyDoing: arena.threats[0] ? doing(arena.threats[0]) : null,
-    aligned: arena.threats[0]?.aligned ?? true,
-    shootable: arena.threats[0]?.shootable ?? true,
-    hasTarget: arena.threats.length > 0,
-    mpLow: arena.me.mp < 100,
+    behind: near ? !near.infront : false,
+    vulnerable: near?.vulnerable ?? false,
+    enemyDoing: near?.doing ?? null,
+    aligned: near?.aligned ?? true,
+    targetDown: isDown(near?.doing),
+    hasTarget: !!near,
+    mpLow: arena.me.mp < MP_LOW,
     threatened: !!incoming(arena, { within: 12 }),
-    helpless: !!arena.threats[0]?.helpless,
+    helpless: !!near?.helpless,
     weaponInbound: !!inboundWeapon(arena),
   });
   return executableOptions(options, { arena, profile });
@@ -72,13 +76,12 @@ export function heuristicPolicy(profile) {
  * lands late answers a question about a fight that has moved on — and `null`
  * on a miss, which the loop treats as "keep doing what you were doing".
  */
-export function jevPolicy(client, profile, { deadlineMs = 900 } = {}) {
+export function jevPolicy(client, profile, { deadlineMs = 1400 } = {}) {
   return {
     name: 'jev',
     questions: questionSet,
-    async decide({ arena, options, recent }) {
+    async decide({ arena, options, questions = questionSet(options, arena), recent }) {
       const state = semanticState({ arena, profile, recent });
-      const questions = questionSet(options, arena);
       const t0 = Date.now();
       const answer = await client.ask({ state, questions, deadlineMs });
       const latencyMs = Date.now() - t0;
@@ -94,49 +97,48 @@ export function jevPolicy(client, profile, { deadlineMs = 900 } = {}) {
   };
 }
 
-/** Independent questions, evaluated in parallel by the service. */
-function questionSet(options, arena) {
+/**
+ * The situation notes appended to the action question, each only when it
+ * holds. They say in words what the arena says in numbers.
+ */
+function situationNotes(options, arena) {
   const near = arena.threats[0];
   const canShoot = Object.keys(options).some((o) => o === 'shoot' || o.startsWith('special_'));
+  return [
+    [near?.helpless,
+      'An enemy is helpless right now — it cannot move or block — so a free hit is on the table.'],
+    [near?.vulnerable && !near.helpless,
+      'The enemy is at the tail end of an attack. It has nothing live, but it may have released a weapon a moment ago, so check the air before walking in.'],
+    [near && !near.aligned,
+      'You and the enemy are at different depths, so nothing fired from here will connect until you line up on its depth.'],
+    [near?.aligned && canShoot && near.gap <= STANDOFF_X,
+      'You are level with the enemy and inside your firing range, so the shot reaches from where you stand — holding this distance beats walking in, where it can hit back.'],
+    [near && near.gap <= 80,
+      'The enemy is inside punching range. Standing here means trading blows with it — stepping back keeps you out of its reach while your shots still fly, and a thrower at this distance is throwing almost point-blank.'],
+    [near?.approach,
+      'The enemy is walking toward you, so it will close the gap on its own; there is nothing to gain by meeting it.'],
+    [near && !near.approach && near.hasDest,
+      'The enemy is holding or withdrawing rather than closing, so you may have to move to keep it inside your range.'],
+    [doing(arena.me) === 'blocking',
+      'You are holding a block. It absorbs a few hits and then breaks, so the moment the swing passes, answer with an attack rather than blocking again.'],
+    [near && isDown(near.doing),
+      'The enemy is on the floor or in the air, so nothing you fire can connect — spend no MP until it is back on its feet.'],
+    [inboundWeapon(arena),
+      'A weapon that was thrown at you is still in the air and closing, so nothing you throw will stop it — block, or step off the line it is travelling along.'],
+    [incoming(arena, { within: 12 }),
+      'An enemy swing is already coming at you, so blocking or stepping back beats trading.'],
+    [arena.me.mp < MP_LOW,
+      'Your MP is nearly spent, so spend what is left only on a shot that will land.'],
+  ].filter(([when]) => when).map(([, text]) => ` ${text}`).join('');
+}
+
+/** Independent questions, evaluated in parallel by the service. */
+function questionSet(options, arena) {
   const questions = {
     action: {
       type: 'choice',
       instructions: 'Choose what to do next in this fight. Every option listed is available right now.'
-        + (near?.helpless
-          ? ' An enemy is helpless right now — it cannot move or block — so a free hit is on the table.'
-          : '')
-        + (near?.vulnerable && !near.helpless
-          ? ' The enemy is at the tail end of an attack. It has nothing live, but it may have released a weapon a moment ago, so check the air before walking in.'
-          : '')
-        + (near && !near.aligned
-          ? ' You and the enemy are at different depths, so nothing fired from here will connect until you line up on its depth.'
-          : '')
-        + (near && near.aligned && canShoot && near.gap <= STANDOFF_X
-          ? ' You are level with the enemy and inside your firing range, so the shot reaches from where you stand — holding this distance beats walking in, where it can hit back.'
-          : '')
-        + (near && near.gap <= 80
-          ? ' The enemy is inside punching range. Standing here means trading blows with it — stepping back keeps you out of its reach while your shots still fly, and a thrower at this distance is throwing almost point-blank.'
-          : '')
-        + (near && near.approach
-          ? ' The enemy is walking toward you, so it will close the gap on its own; there is nothing to gain by meeting it.'
-          : near && near.hasDest
-          ? ' The enemy is holding or withdrawing rather than closing, so you may have to move to keep it inside your range.'
-          : '')
-        + (doing(arena.me) === 'blocking'
-          ? ' You are holding a block. It absorbs a few hits and then breaks, so the moment the swing passes, answer with an attack rather than blocking again.'
-          : '')
-        + (near && (near.doing === 'knocked_down' || near.doing === 'in_the_air')
-          ? ' The enemy is on the floor or in the air, so nothing you fire can connect — spend no MP until it is back on its feet.'
-          : '')
-        + (inboundWeapon(arena)
-          ? ' A weapon that was thrown at you is still in the air and closing, so nothing you throw will stop it — block, or step off the line it is travelling along.'
-          : '')
-        + (incoming(arena, { within: 12 })
-          ? ' An enemy swing is already coming at you, so blocking or stepping back beats trading.'
-          : '')
-        + (arena.me.mp < 100
-          ? ' Your MP is nearly spent, so spend what is left only on a shot that will land.'
-          : ''),
+        + situationNotes(options, arena),
       criteria: options,
     },
     commit: {

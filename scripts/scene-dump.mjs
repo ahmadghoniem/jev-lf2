@@ -43,8 +43,8 @@ const WALK = `function (depth, pixiKeys) {
 }`;
 
 const cdp = await connect();
-const scope = await cdp.scriptScope();
-const props = (await cdp.getProps(scope.objectId)).result ?? [];
+const scope = await cdp.scopeVars();
+const props = scope.vars;
 const scene = props.find((p) => p.name === 'pixiGameScene')?.value;
 if (!scene?.objectId) { console.error('pixiGameScene not in scope'); process.exit(1); }
 

@@ -12,6 +12,7 @@
  * covers all 30-odd characters without a table of special cases.
  */
 
+import { damagingItr, reachOfFrame } from './frames.mjs';
 
 /** Distance buckets, in game units. Tuned to LF2's own numbers: a character is
  *  about 60 wide, a walk step ~5/tick, a dash covers ~150 before it lands. */
@@ -61,35 +62,10 @@ export const BASIC_ATTACKS = {
 // into a character's profile.
 
 /**
- * itr kinds that actually hurt someone. `kind 0` is an ordinary attack and
- * `kind 6` a super punch; `kind 2` is the pick-up box and `kind 5` marks a
- * weapon's in-hand strength, whose `injury 789` is a placeholder the engine
- * replaces from the weapon's `<wsl>` table. Counting those as damage reads an
- * arrow as an 789-point attack.
+ * Furthest point an attack reaches ahead of the fighter, measured from the
+ * fighter's own hurt box because `centerx` is absent on most frames.
  */
-const HURTS = new Set([0, 6]);
-const damagingItr = (frame) => frame.itr.filter((it) => HURTS.has(it.kind) && it.injury > 0);
-
-
-/**
- * Furthest point an attack reaches ahead of the fighter.
- *
- * `centerx` is absent on most frames, so the fighter's own hurt box gives the
- * origin: its middle is where the character stands.
- */
-function reachOf(frame) {
-  const itrs = damagingItr(frame);
-  const origin = typeof frame.centerx === 'number'
-    ? frame.centerx
-    : frame.bdy.length
-      ? frame.bdy[0].x + frame.bdy[0].w / 2
-      : 0;
-  let reach = 0;
-  for (const itr of itrs) {
-    reach = Math.max(reach, (itr.x ?? 0) + (itr.w ?? 0) - origin);
-  }
-  return Math.round(reach);
-}
+const reachOf = (frame) => Math.round(Math.max(0, reachOfFrame(frame)));
 
 /** Walks a move's `next` chain, collecting reach, spawns and damage. */
 function inspectMove(frames, entryId, maxDepth = 24) {
@@ -115,7 +91,7 @@ function inspectMove(frames, entryId, maxDepth = 24) {
     }
 
     for (const o of frame.opoint) {
-      spawns.push({ oid: o.oid, dvx: o.dvx ?? 0, dvy: o.dvy ?? 0, count: o.action != null ? 1 : 1 });
+      spawns.push({ oid: o.oid, dvx: o.dvx ?? 0, dvy: o.dvy ?? 0 });
     }
     const hit = damagingItr(frame)[0];
     if (hit) {

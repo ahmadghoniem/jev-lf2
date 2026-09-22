@@ -21,6 +21,7 @@
 import { connect } from '../src/cdp/client.mjs';
 import { openEntityPool } from '../src/state/entities.mjs';
 import { startMatch, living } from '../src/executor/match.mjs';
+import { has } from '../src/cli.mjs';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -72,14 +73,14 @@ if (already) {
 }
 
 const running = await inProgress(pool);
-if (running && !process.argv.includes('--force')) {
+if (running && !has('force')) {
   console.error(`a round is already under way: ${running.map(fighterLine).join(', ')}`);
   console.error('  refusing to spend attack presses on a live fight; pass --force to start over');
   process.exit(2);
 }
 
 let started = await startMatch(cdp, pool);
-if (!started && process.argv.includes('--drive')) {
+if (!started && has('drive')) {
   await driveFromTitle(cdp);
   started = await startMatch(cdp, pool, { tries: 16 });
 }

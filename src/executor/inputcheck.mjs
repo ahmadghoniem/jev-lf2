@@ -18,21 +18,22 @@
  * from the COM can fake movement, height and a frame change.
  */
 
-import { readFileSync } from 'node:fs';
 import { fighters } from '../state/entities.mjs';
+import { F } from '../state/fields.mjs';
+import { profileFor } from '../lf2data/tables.mjs';
 
 /** Frames 0-15 are the standing, walking and running blocks. */
 const ACTIONABLE_MAX_FRAME = 15;
 
-export async function proveInput({ cdp, pool, name, keys, profilePath = 'build/_profiles.json' }) {
+export async function proveInput({ cdp, pool, name, keys }) {
   const wanted = name.toLowerCase();
   const me = async () => fighters(await pool.read()).find((f) => f.name?.toLowerCase() === wanted);
 
   const start = await me();
   if (!start) throw new Error(`${name} is not in play — start a match with that fighter first`);
 
-  const profile = JSON.parse(readFileSync(profilePath, 'utf8'))[wanted];
-  if (!profile) throw new Error(`no profile for ${wanted} — rebuild ${profilePath}`);
+  const profile = profileFor(wanted);
+  if (!profile) throw new Error(`no profile for ${wanted} — rebuild build/_profiles.json`);
   // Both kinds count: the gate asks whether our key produced an attack
   // animation, and for an archer the attack is a drawn bow, whose entry frames
   // live in the ranged moves. Melee-only cost a whole run once — Henry's arrow
@@ -46,7 +47,7 @@ export async function proveInput({ cdp, pool, name, keys, profilePath = 'build/_
     const until = Date.now() + timeoutMs;
     while (Date.now() < until) {
       const f = await me();
-      if (f && f.Ts <= ACTIONABLE_MAX_FRAME) return f;
+      if (f && f[F.frame] <= ACTIONABLE_MAX_FRAME) return f;
     }
     return null;
   };
@@ -81,11 +82,11 @@ export async function proveInput({ cdp, pool, name, keys, profilePath = 'build/_
       pass: (s) => Math.min(...s.map((f) => f.y)) < -5,
       detail: (s) => `peak height ${Math.min(...s.map((f) => f.y)).toFixed(0)}` }),
     await check({ name: 'attack', slot: 'attack', holdMs: 400, gate: true,
-      pass: (s) => s.some((f) => attackFrames.has(f.Ts)),
-      detail: (s) => `frames ${[...new Set(s.map((f) => f.Ts))].join(',')}` }),
+      pass: (s) => s.some((f) => attackFrames.has(f[F.frame])),
+      detail: (s) => `frames ${[...new Set(s.map((f) => f[F.frame]))].join(',')}` }),
     await check({ name: 'defend', slot: 'defend', holdMs: 400,
-      pass: (s) => s.some((f) => f.Ts !== start.Ts),
-      detail: (s) => `frames ${[...new Set(s.map((f) => f.Ts))].join(',')}` }),
+      pass: (s) => s.some((f) => f[F.frame] !== start[F.frame]),
+      detail: (s) => `frames ${[...new Set(s.map((f) => f[F.frame]))].join(',')}` }),
   ];
 }
 

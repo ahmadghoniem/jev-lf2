@@ -1,15 +1,16 @@
 /**
  * Parses every _res_data file and writes the tables the harness runs on:
- * per-object frames, move tables, threat frames, and a fighting profile for
- * each character.
+ * per-object frames, weapon damage tables, and a fighting profile for each
+ * character.
  *
  *   node scripts/build-move-tables.mjs [--json]
  */
 import { readFileSync, writeFileSync, mkdirSync, readdirSync } from 'node:fs';
 import { join, dirname, basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { parseDataFile, buildMoveTable, buildThreatTable } from '../src/lf2data/parse.mjs';
+import { parseDataFile } from '../src/lf2data/parse.mjs';
 import { buildProfile, buildObjectIndex } from '../src/lf2data/profile.mjs';
+import { has } from '../src/cli.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const DATA_DIR = 'C:/LF2-Remastered/LF2-Remastered(The Game)/resources/app/_res_data';
@@ -43,16 +44,10 @@ const objects = buildObjectIndex(byId);
 const index = [];
 const profiles = {};
 let totalFrames = 0;
-let totalMoves = 0;
-let totalThreats = 0;
 
 for (const [file, { header, frames }] of parsed) {
   const reg = registry.find((r) => r.file === file);
-  const moves = buildMoveTable(frames);
-  const threats = buildThreatTable(frames);
   totalFrames += frames.size;
-  totalMoves += moves.length;
-  totalThreats += threats.size;
 
   const name = file.replace(/-r\.txt$/, '');
   const record = {
@@ -61,8 +56,6 @@ for (const [file, { header, frames }] of parsed) {
     type: reg?.type ?? null,
     header,
     frames: Object.fromEntries(frames),
-    moves,
-    threatFrames: Object.fromEntries(threats),
   };
 
   if (reg?.type === 0 && name !== 'template') {
@@ -70,9 +63,9 @@ for (const [file, { header, frames }] of parsed) {
     profiles[name] = record.profile;
   }
 
-  writeFileSync(join(OUT_DIR, `${name}.json`), JSON.stringify(record, null, process.argv.includes('--json') ? 2 : 0));
+  writeFileSync(join(OUT_DIR, `${name}.json`), JSON.stringify(record, null, has('json') ? 2 : 0));
   index.push({ file: name, character: header.name ?? null, id: reg?.id ?? null, type: reg?.type ?? null,
-               frames: frames.size, moves: moves.length, threatFrames: threats.size, wsl: header.wsl.length });
+               frames: frames.size, wsl: header.wsl.length });
 }
 
 writeFileSync(join(OUT_DIR, '_index.json'), JSON.stringify(index, null, 2));
@@ -92,7 +85,7 @@ for (const [id, { header }] of byId) {
 writeFileSync(join(OUT_DIR, '_weapons.json'), JSON.stringify(weapons, null, 2));
 
 console.log(`parsed ${files.length} files -> ${OUT_DIR}`);
-console.log(`  frames ${totalFrames}, moves ${totalMoves}, damaging frames ${totalThreats}`);
+console.log(`  frames ${totalFrames}`);
 console.log(`  profiles ${Object.keys(profiles).length}, objects ${objects.size}\n`);
 
 console.log(`  weapons with damage tables ${Object.keys(weapons).length}

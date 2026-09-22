@@ -7,39 +7,24 @@
  * shown, the options it was offered, what it chose — and what actually happened
  * in the seconds after the answer landed.
  *
- * Outcomes are derived from `ticks.jsonl` rather than read from `events.jsonl`,
- * because nothing calls `run.outcome()` yet: every recording so far has an empty
- * event stream. Deriving them here means this works on runs already on disk.
+ * Outcomes are derived from `ticks.jsonl`, the only record of what happened
+ * after an answer landed.
  *
  *   node scripts/breakdown.mjs runs/2026-09-19T02-11-24
  *   node scripts/breakdown.mjs runs/<a> --window 2000 --out runs/<a>/breakdown.html
  */
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
-import { resolve, join, dirname } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { resolve, join } from 'node:path';
 import { label } from '../src/state/options.mjs';
+import { isAttackOption } from '../src/executor/actions.mjs';
+import { profiles } from '../src/lf2data/tables.mjs';
+import { arg, has, readJsonl } from '../src/cli.mjs';
 import { REACH_SLACK } from '../src/lf2data/frames.mjs';
-
-const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-
-const arg = (n, d) => { const i = process.argv.indexOf(`--${n}`); return i === -1 ? d : process.argv[i + 1]; };
-const has = (n) => process.argv.includes(`--${n}`);
 
 /** How far after an answer lands we look for its consequences. */
 const WINDOW_MS = Number(arg('window', 1500));
 
 // ---------------------------------------------------------------- loading
-
-function readJsonl(path) {
-  if (!existsSync(path)) return [];
-  const out = [];
-  for (const line of readFileSync(path, 'utf8').split('\n')) {
-    const s = line.trim();
-    if (!s) continue;
-    try { out.push(JSON.parse(s)); } catch { /* tolerate a corrupt line */ }
-  }
-  return out;
-}
 
 function readJson(path, fallback = null) {
   if (!existsSync(path)) return fallback;
@@ -54,12 +39,8 @@ function readJson(path, fallback = null) {
  * the names line up.
  */
 function resolveAction(name, profile) {
-  if (!name || !profile) return { attack: false };
-  if (name === 'wait' || name === 'defend' || name === 'close_distance'
-    || name === 'open_distance' || name === 'drop_weapon' || name === 'throw_weapon') {
-    return { attack: name === 'throw_weapon', ranged: name === 'throw_weapon', reach: Infinity };
-  }
-  if (name.startsWith('pick_up_') || name.startsWith('drink_')) return { attack: false };
+  if (!name || !profile || !isAttackOption(name)) return { attack: false };
+  if (name === 'throw_weapon') return { attack: true, ranged: true, reach: Infinity };
 
   const basic = profile.basicAttack;
   if (name === 'shoot') {
@@ -93,7 +74,6 @@ function analyze(runDir, { windowMs = WINDOW_MS } = {}) {
   const ticks = readJsonl(join(dir, 'ticks.jsonl'));
   const judgements = readJsonl(join(dir, 'judgements.jsonl')).sort((a, b) => a.tick - b.tick);
 
-  const profiles = readJson(join(ROOT, 'build', '_profiles.json'), {});
   const character = (manifest.character ?? '').toLowerCase();
   const profile = profiles[character] ?? null;
 
