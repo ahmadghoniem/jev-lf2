@@ -18,9 +18,15 @@ a second, and presses the keys — on a player slot bound to F13–F19, which no
 physical keyboard can reach, so the humans' slots are untouchable. Every tick is
 logged with the layer that produced it.
 
+Special moves are executable: each one is played as its Defend, direction,
+button sequence once the fighter is level with the target, and
+`scripts/prove-specials.mjs` checks every sequence against the move's own entry
+frame. Thrown weapons are stepped off the line rather than blocked, and the
+block is a short parry modelled on the game's own CPU.
+
 Still open: the heuristic control arm and Jev have not been compared over enough
-matches to say anything, special moves are not executable yet, and the reflex
-layer has not been validated.
+matches to say anything, and the reflex layer — the dodge and the finite block —
+has not been validated in play.
 
 ## What this is
 
@@ -71,6 +77,7 @@ node scripts/launch-game.mjs                # start the game with the CDP port o
 node scripts/bind-keys.mjs --assign P4 --from F13 --reload   # give the harness a slot
 node scripts/entity-dump.mjs                # every entity in a live match
 node scripts/ask-jev.mjs --character henry  # build the options and let Jev choose
+node scripts/prove-specials.mjs             # fire each special and confirm it lands
 ```
 
 Then start a VS match with P4 joined (its attack key is now `F17`) and some

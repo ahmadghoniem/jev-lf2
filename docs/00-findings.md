@@ -124,7 +124,7 @@ is in the air — because no field marks it. Replaying the logs with that rule (
 range deltas, and only the three items the log records), a closing weapon was within
 110 units in the ten ticks before 44/54, 51/61 and 34/50 of the hits taken. See
 `createItemMotion` in `src/state/arena.mjs`, `inboundWeapon` in
-`src/executor/reflex.mjs`, and `scratch/check-defense.mjs` for its behaviour.
+`src/executor/reflex.mjs`, and `scripts/check-dodge.mjs` for its behaviour.
 
 ## FIXED — a weapon in flight was being claimed as one in our hands
 

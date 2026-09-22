@@ -46,11 +46,13 @@ the humans' slots.
 
 ## Only executable options are offered
 
-The special moves need `hit_*` input strings that are still unconfirmed, so the
-executor cannot perform them. Offering an option that cannot be carried out
-would quietly corrupt the experiment — the answer would be recorded and the
-action would not happen. `planAction` returns `null` for anything unsupported
-and those options are dropped **before** the question is built.
+Offering an option that cannot be carried out would quietly corrupt the
+experiment — the answer would be recorded and the action would not happen.
+`planAction` returns `null` for anything unsupported and those options are
+dropped **before** the question is built. Specials are supported: a `hit_*`
+input maps to a Defend, direction, button sequence in `SPECIAL_SEQUENCE`, and
+`scripts/prove-specials.mjs` confirmed every timing window from 50/70 to
+120/200 ms fires; a special whose input has no mapping is still dropped.
 
 That interacts with the option cap, and the first live run showed how: the four
 melee slots went to the heaviest variants and dropped `punch`, the one attack
