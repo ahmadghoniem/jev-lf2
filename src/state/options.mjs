@@ -257,7 +257,7 @@ const FRIENDLY = {
   weapon0: 'stick', weapon1: 'stone', weapon2: 'hoe', weapon3: 'boulder', weapon4: 'knife',
   weapon5: 'baseball bat', weapon6: 'milk', weapon7: 'ice sword', weapon8: 'beer',
   weapon9: 'blade', weapon10: 'armour', weapon11: 'armour',
-  rudolf_weapon: "Rudolf's staff", henry_arrow1: 'arrow',
+  rudolf_weapon: "Rudolf's throwing star", henry_arrow1: 'arrow',
 };
 /** Option names are read back as identifiers, so keep them to letters, digits, `_`. */
 const slug = (s) => String(s).toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
