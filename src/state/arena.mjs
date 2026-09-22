@@ -163,11 +163,22 @@ export function readArena(entities, { slot, name, isLive, heldTracker, motionTra
     const dx = e.x - me.x;
     const dz = e.z - me.z;
     const dy = e.y - me.y;
+    // The CPU writes where it means to walk to; -1000 is its "no destination"
+    // marker, and only a fighter type carries the fields at all. This is the
+    // enemy's own intent, read rather than guessed from its motion.
+    const hasDest = Number.isFinite(e.destX) && Number.isFinite(e.destZ)
+      && e.destX > -999 && e.destZ > -999;
+    const destDx = hasDest ? e.destX - me.x : null;
+    const destDz = hasDest ? e.destZ - me.z : null;
     return { ...e, dx, dz, dy, gap: Math.abs(dx), zGap: Math.abs(dz), yGap: Math.abs(dy),
              range: Math.hypot(dx, dz),
              side: dx >= 0 ? 'right' : 'left',
              infront: (dx >= 0) === (me.facing === 'right'),
-             aligned: Math.abs(dz) <= Z_TOLERANCE && Math.abs(dy) <= Y_TOLERANCE };
+             aligned: Math.abs(dz) <= Z_TOLERANCE && Math.abs(dy) <= Y_TOLERANCE,
+             hasDest, destDx, destDz,
+             // A destination nearer to us than where it stands means it is
+             // closing; farther away means it is withdrawing or holding.
+             approach: hasDest && Math.abs(destDx) < Math.abs(dx) };
   };
 
   const threats = others.filter((f) => f.team !== me.team).map(geo)
@@ -289,6 +300,9 @@ export function semanticState({ arena, profile, recent = {} }) {
       doing: t.doing,
       vulnerable: t.vulnerable,
       hp: health(t),
+      // Where it is heading, not where it is. Only a COM has a destination to
+      // read; a human-controlled fighter leaves this null.
+      heading: t.hasDest ? (t.approach ? 'closing on you' : 'withdrawing or holding') : null,
     })),
     // Things to walk over and take. A weapon in flight is not one of these, so
     // it is listed separately below rather than as a pickup.

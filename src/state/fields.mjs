@@ -16,6 +16,12 @@ export const F = {
   facing: 'As',   // flips with direction of travel
   team: 'group',
   human: 'bo',
+  // The CPU's movement target, read from px.js `TI2f`: it walks toward
+  // (`ih`, `eh`) and sets both to -1000 when it has arrived and has nowhere to
+  // go. Surfacing it lets a decision use where the enemy is *going* rather than
+  // inferring it from where it has been.
+  destX: 'ih',
+  destZ: 'eh',
 };
 
 /** MP has no max field in the pool; `je` was seen at 505 while `Ke` is 500. */
@@ -37,4 +43,6 @@ export const readFighter = (e) => ({
   team: e[F.team],
   human: e[F.human] === true,
   alive: e[F.hp] > 0,
+  destX: e[F.destX],
+  destZ: e[F.destZ],
 });
