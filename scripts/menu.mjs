@@ -2,7 +2,8 @@
  * Puts the game into a fresh match, from wherever it happens to be.
  *
  *   node scripts/menu.mjs            # land on a fresh match, or confirm one
- *   node scripts/menu.mjs --drive    # also allow the title -> VS -> join drive
+ *   node scripts/menu.mjs --setup --fighter Henry --vs Rudolf [--difficulty normal]
+ *                                    # reload and set up that exact match
  *
  * Idempotent by design: if our fighter is already at full health facing a
  * full-health opponent, nothing is pressed and it exits 0. Otherwise it presses
@@ -10,10 +11,10 @@
  * panel — every setting persists across matches, so fighter, computer count,
  * background and difficulty all carry over.
  *
- * `--drive` covers the one screen the panel cannot: a game that has just
- * started and is sitting on the title screen. It is opt-in because a blind
- * `Enter` on character select would join P1, and a second human breaks
- * `readArena`'s "first human is ours" rule. Only use it from the title.
+ * `--setup` is the deterministic start: it reloads the page and walks every
+ * menu, reading the menu state back after each press (src/executor/setup.mjs).
+ * `--vs` takes a comma-separated list for more than one computer. Use it after
+ * a launch, or to change fighters; plain restarts keep the settings.
  *
  * Confirmation is always the entity pool, never a screen scrape.
  */
@@ -21,7 +22,9 @@
 import { connect } from '../src/cdp/client.mjs';
 import { openEntityPool } from '../src/state/entities.mjs';
 import { startMatch, living } from '../src/executor/match.mjs';
-import { has } from '../src/cli.mjs';
+import { arg, has } from '../src/cli.mjs';
+import { setupMatch } from '../src/executor/setup.mjs';
+import { readBindings } from '../src/executor/keyboard.mjs';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -45,25 +48,30 @@ async function inProgress(pool) {
   return foe ? [me, foe] : null;
 }
 
-/**
- * Title -> VS Mode -> character select -> join -> attack to the panel. Blind
- * `Enter` is the risk here, so this only runs under `--drive`.
- */
-async function driveFromTitle(cdp) {
-  console.log('drive: title -> VS Mode');
-  await cdp.key('Enter', { holdMs: 150 });
-  await sleep(2500); // title -> loading -> character select
-  console.log('drive: join the harness slot');
-  await cdp.key('KeyK', { holdMs: 150 });
-  await sleep(1200);
-  console.log('drive: step fighter -> team -> computer count');
-  await cdp.key('KeyK', { holdMs: 150 });
-  await sleep(400);
-  await cdp.key('KeyK', { holdMs: 150 });
-  await sleep(400);
+const cdp = await connect();
+
+if (has('setup')) {
+  const me = arg('fighter', 'Henry');
+  const foes = String(arg('vs', 'Rudolf')).split(',').map((s) => s.trim()).filter(Boolean);
+  await setupMatch(cdp, {
+    keys: await readBindings(cdp), me, foes, difficulty: arg('difficulty', 'normal'),
+    log: (m) => console.log(`setup: ${m}`),
+  });
+  // The reload made a new page context, so the pool is opened only now.
+  const pool = await openEntityPool(cdp);
+  let alive = [];
+  for (let i = 0; i < 20 && alive.length < 1 + foes.length; i++) { await sleep(250); alive = await living(pool); }
+  const ours = alive.find((f) => f.human);
+  const theirs = alive.filter((f) => !f.human).map((f) => f.name.toLowerCase()).sort();
+  const wanted = foes.map((f) => f.toLowerCase()).sort();
+  if (ours?.name.toLowerCase() !== me.toLowerCase() || theirs.join() !== wanted.join()) {
+    console.error(`set up the wrong match: ${alive.map(fighterLine).join(', ')}`);
+    process.exit(1);
+  }
+  console.log(`fresh match: ${alive.map(fighterLine).join(', ')}`);
+  process.exit(0);
 }
 
-const cdp = await connect();
 const pool = await openEntityPool(cdp);
 
 const already = await fresh(pool);
@@ -79,17 +87,13 @@ if (running && !has('force')) {
   process.exit(2);
 }
 
-let started = await startMatch(cdp, pool);
-if (!started && has('drive')) {
-  await driveFromTitle(cdp);
-  started = await startMatch(cdp, pool, { tries: 16 });
-}
+const started = await startMatch(cdp, pool);
 
 if (!started) {
   const seen = (await living(pool)).map(fighterLine);
   console.error('could not reach a fresh match');
   if (seen.length) console.error(`  fighters in pool: ${seen.join(', ')}`);
-  console.error('  from the title screen, re-run with --drive');
+  console.error('  from the title screen, or to change fighters, re-run with --setup');
   process.exit(1);
 }
 

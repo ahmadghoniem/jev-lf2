@@ -172,14 +172,20 @@ so two humans and a spare keyboard layout are all still available.
 
 ## Getting into a match
 
-Every screen is reachable with synthetic keys; no file patching, no mods.
+`node scripts/menu.mjs --setup --fighter Henry --vs Rudolf` does all of this
+deterministically: it reloads the page and, after every key press, reads the
+menu state back from the one instance of the game's `Sh7E` class (screen,
+mode cursor, each box's join stage and fighter, the countdown, the pre-fight
+panel cursor and difficulty), so a lost press is retried rather than landing
+on the wrong fighter. The steps it walks:
 
 1. title screen — `Enter` selects **VS Mode**
 2. character select — each slot joins with that player's own attack key
 3. attack steps down the rows (fighter, team), then a **"How many Computer
    Players?"** prompt takes 0–7
-4. a pre-fight panel offers Fight / Reset / Background / Difficulty, so
-   difficulty is a recorded run parameter rather than an assumption
+4. a pre-fight panel offers Fight / Reset All / Reset Random / Background /
+   Difficulty / Exit. It opens on **Reset Random**, not Fight, which is what
+   broke the old blind-key drive
 
 ## Tools
 
