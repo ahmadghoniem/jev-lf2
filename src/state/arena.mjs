@@ -50,8 +50,24 @@ const HELD_DZ = 2;
  * one, which moves not at all.
  */
 const FLIGHT_SLACK = 6;
-/** An in-flight weapon inside this range, closing, is worth answering. */
-export const PROJECTILE_RANGE = 110;
+/**
+ * How long a weapon stays flagged as flying once it has been seen moving.
+ *
+ * The motion read is noisy in exactly the wrong place: a returning weapon's
+ * range oscillates between reads (46→57→46), so `moved` can dip under the slack
+ * in mid-flight and the flag drops for a tick or two. Every such gap is a tick
+ * with no dodge, and the run data shows the worst of them land a stale answer
+ * into an arriving weapon. So flight is sticky: seeing a weapon move keeps it
+ * flagged for this many reads even if the next read shows little movement.
+ */
+const FLIGHT_STICKY = 10;
+/**
+ * How far away a weapon can be and still make the flying list. The old 110 only
+ * saw a weapon once it was almost here, which is why the dodge never had time.
+ * The CPU steps when a projectile is 150 away; the horizon has to be at least
+ * that, with room for the dodge to finish its step before arrival.
+ */
+export const PROJECTILE_RANGE = 200;
 
 /**
  * How a thrown weapon is answered is a question of time, not distance.
@@ -66,17 +82,52 @@ export const PROJECTILE_ETA_TICKS = 6;
 /** Fallback when the weapon has only been seen once and has no measured speed. */
 export const PROJECTILE_BLOCK_RANGE = 45;
 
-export function createItemMotion({ slack = FLIGHT_SLACK } = {}) {
+export function createItemMotion({ slack = FLIGHT_SLACK, stickyTicks = FLIGHT_STICKY } = {}) {
   const prev = new Map();
-  return (item) => {
+  const prev2 = new Map();   // the position two reads back, for a stable `closing`
+  const sticky = new Map();
+  const prevOffset = new Map(); // this weapon's offset to the nearest fighter
+  return (item, fighters = []) => {
     const now = { x: Math.round(item.x), z: Math.round(item.z), range: item.range };
     const was = prev.get(item.slot);
+    const was2 = prev2.get(item.slot);
+    prev2.set(item.slot, prev.get(item.slot) ?? now);
     prev.set(item.slot, now);
-    if (!was) return { inFlight: false, closing: false, speed: 0 };
+    const left = sticky.get(item.slot) ?? 0;
+
+    // A weapon a fighter is holding moves exactly with that fighter: its offset
+    // to the nearest one stays small and barely changes between reads. A thrown
+    // weapon's offset to everyone changes at its own speed. This is the
+    // difference the motion read could not make on its own, and the run data
+    // shows what the miss cost: an enemy's held weapon swaying with its idle
+    // animation passed every flight test, the dodge fired at it for 27 ticks
+    // while it sat at our feet doing nothing, and every attack was refused in
+    // that window because the lane looked occupied.
+    const near = fighters.length
+      ? fighters.reduce((best, f) => {
+          const d = Math.hypot(f.x - item.x, f.z - item.z);
+          return !best || d < best.d
+            ? { d, dx: Math.round(item.x - f.x), dz: Math.round(item.z - f.z) } : best;
+        }, null)
+      : null;
+    const wasOffset = prevOffset.get(item.slot);
+    prevOffset.set(item.slot, near);
+    const carried = !!near && near.d < 60 && !!wasOffset
+      && Math.abs(wasOffset.dx - near.dx) <= 8 && Math.abs(wasOffset.dz - near.dz) <= 8;
+
+    if (!was) return { inFlight: left > 0, closing: false, speed: 0, carried };
     const moved = Math.hypot(now.x - was.x, now.z - was.z);
-    return { inFlight: moved > slack, closing: now.range < was.range,
+    const fresh = moved > slack;
+    sticky.set(item.slot, fresh ? stickyTicks : Math.max(0, left - 1));
+    return { inFlight: (fresh || sticky.get(item.slot) > 0) && !carried,
+             // Closing across two reads, and inclusive: a weapon pausing
+             // mid-flight (its range read the same twice in a row) is still
+             // coming, and a strict `<` dropped the flag on exactly those
+             // reads — which is what released the dodge a tick early.
+             closing: now.range <= was.range || now.range <= (was2?.range ?? now.range),
              // Units closed per read, which is what turns distance into time.
-             speed: was.range - now.range };
+             speed: was.range - now.range,
+             carried };
   };
 }
 
@@ -198,7 +249,12 @@ export function readArena(entities, { slot, name, isLive, heldTracker, motionTra
 
   const items = entities.filter((e) => ITEM_TYPES.has(e.type) && e.name !== 'broken_weapon')
     .map((e) => geo({ slot: e.slot, name: e.name, id: e.id, type: e.type, x: e.x, y: e.y, z: e.z }))
-    .map((i) => ({ ...i, ...(motionTracker ? motionTracker(i) : { inFlight: false, closing: false }) }));
+    // Every fighter is handed in, because the carried test needs the holder:
+    // the same read that says "this weapon moved" has to be able to say "but it
+    // moved with the fighter standing next to it".
+    .map((i) => ({ ...i, ...(motionTracker
+      ? motionTracker(i, [me, ...others])
+      : { inFlight: false, closing: false, carried: false }) }));
 
   const inHand = items.filter((i) => i.gap <= HELD_DX && i.zGap <= HELD_DZ);
   const held = (heldTracker ? inHand.find((i) => heldTracker(me, i)) : inHand[0]) ?? null;
@@ -207,9 +263,11 @@ export function readArena(entities, { slot, name, isLive, heldTracker, motionTra
     .sort((a, b) => a.range - b.range);
 
   // A thrown weapon is not a thing to walk over and pick up, and it is not a
-  // thing to ignore either: it is the attack that lands most often. Closing
-  // separates the one coming at us from the one we just threw ourselves.
-  const flying = ground.filter((i) => i.inFlight && i.closing && i.range <= PROJECTILE_RANGE);
+  // thing to ignore either: it is the attack that lands most often. A weapon
+  // carried in a hand is neither, whatever its idle sway looks like in the
+  // motion read.
+  const flying = ground.filter((i) => i.inFlight && !i.carried && i.closing
+    && i.range <= PROJECTILE_RANGE);
 
   return { me, threats, allies, held, items: ground, flying,
            nearest: threats[0]?.gap ?? Infinity };

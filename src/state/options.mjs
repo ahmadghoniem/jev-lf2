@@ -14,6 +14,7 @@
 
 import { tierDamage, tierMp, bucketRange } from '../lf2data/profile.mjs';
 import { REACH_SLACK } from '../lf2data/frames.mjs';
+import { STANDOFF_X, RUN_IN_MIN_X, RUN_OUT_MAX_X } from './bot.mjs';
 
 /** How a weapon's four swing types read as options. */
 const SWING_STYLES = {
@@ -48,10 +49,18 @@ export function buildOptions({ profile, weapons, held, nearby = [], nearest = In
   const affordable = (m) => m.mp <= mp || m.allowedWhenShort;
   const basic = profile.basicAttack;
 
+  // Where a fighter that can fire wants to stand, and so where "close the
+  // distance" stops meaning "walk into it". A fighter with nothing to fire has
+  // to close all the way, and its stand-off is zero.
+  const standoff = profile?.moves?.some((m) => m.kind === 'ranged') ? STANDOFF_X : 0;
+
   const misaligned = hasTarget && !aligned;
   // A target on the floor or in the air cannot be hit by anything fired from
-  // where we stand, so an MP-costing move now is MP spent on nothing. The free
-  // moves stay on the list; only the ones that cost MP wait.
+  // where we stand. This used to gate only the moves that cost MP, which left
+  // the free melee attacks on the list — and the run data shows what that bought:
+  // 50-odd ticks of dash_attack chosen at a knocked-down enemy 200-430 away,
+  // dashing at a corpse. Now nothing fired from standing stays on the list while
+  // the target is down; the useful things then are to wait or to drink.
   const targetDown = hasTarget && (enemyDoing === 'knocked_down' || enemyDoing === 'in_the_air');
 
   // A free window is the one branch that opens because of the enemy rather than
@@ -83,7 +92,7 @@ export function buildOptions({ profile, weapons, held, nearby = [], nearest = In
   // --- what the character can throw from where it stands
   const rangedName = (m) => (basic && m.entry === basic.entry ? 'shoot' : `special_${label(m)}`);
   const ranged = profile.moves.filter((m) => m.kind === 'ranged' && affordable(m)
-    && (!targetDown || m.mp === 0) && canDo(rangedName(m)));
+    && !targetDown && canDo(rangedName(m)));
   for (const move of dedupe(ranged, MAX_RANGED)) {
     const isBasic = basic && move.entry === basic.entry;
     options[rangedName(move)] = [
@@ -102,7 +111,7 @@ export function buildOptions({ profile, weapons, held, nearby = [], nearest = In
 
   // --- what it can do with its hands, and whether anything is in reach
   const melee = profile.moves.filter((m) => m.kind === 'melee' && !m.needsWeapon
-    && affordable(m) && (!targetDown || m.mp === 0) && canDo(label(m)));
+    && affordable(m) && !targetDown && canDo(label(m)));
   // The ordinary attack always belongs on the list. It costs nothing, it is the
   // archetype in one option, and the cap would otherwise spend all four slots on
   // heavier variants and drop the one move that is always available.
@@ -127,7 +136,7 @@ export function buildOptions({ profile, weapons, held, nearby = [], nearest = In
 
   // --- what the weapon in hand is worth, per swing type. Only ever listed while
   // the weapon is confirmed to be in hand, so the swing is real.
-  if (held) {
+  if (held && !targetDown) {
     const table = weapons[held.id];
     const weaponName = plainName(table?.name, held.name);
     if (table) {
@@ -175,11 +184,34 @@ export function buildOptions({ profile, weapons, held, nearby = [], nearest = In
   }
 
   // --- the things that are always available
+  // Movement is a gear as well as a direction. The game reads a run only from a
+  // double-tap, so running is a separate choice: it covers ground about twice as
+  // fast, but commits to the direction, where walking can be revised every tick.
+  // Offered once the distance is long enough that walking would be slow, and
+  // out to a run when there is ground to cover to break off.
+  if (hasTarget && nearest > RUN_IN_MIN_X) {
+    options.run_in = 'Run at the enemy — double-tap toward it. It closes ground about twice as fast as walking, but the direction is committed for the burst.';
+  }
+  if (hasTarget && nearest <= RUN_OUT_MAX_X) {
+    options.run_out = 'Run away from the enemy — double-tap away from it. It breaks off quickly to reset the distance, where walking away is slow.';
+  }
+
   options.close_distance = behind
-    ? 'Turn around and move toward the enemy to get into range.'
-    : 'Move toward the enemy to get into range.';
-  options.open_distance = 'Move away from the enemy to get out of its range.';
-  options.defend = 'Hold block. Safe, but it gives up the initiative and a heavy hit breaks it.';
+    ? (standoff
+      ? 'Turn around, close on the enemy and stop at your firing range — near enough to shoot, too far to be punched.'
+      : 'Turn around and move toward the enemy to get into range.')
+    : (standoff
+      ? 'Close on the enemy, but stop at your firing range. Once the shot reaches, hold and fire rather than walking in.'
+      : 'Move toward the enemy to get into range.');
+  options.open_distance = 'Move away from the enemy, walking, to get out of its reach. Nothing is committed, so it can be changed at any moment.';
+  // Blocking is only ever worth it while something is actually on its way: a
+  // guard held against an idle enemy does nothing, wears down, and breaks on
+  // the first real volley — the run data has 73 defend ticks with the enemy
+  // more than 120 away. So the option closes unless a swing is live, a weapon
+  // is inbound, or the enemy is close enough to swing at any moment.
+  if (threatened || weaponInbound || (hasTarget && nearest <= 100)) {
+    options.defend = 'Hold block for the moment. It absorbs a few hits and then breaks, so it is a way to survive a swing, not somewhere to stand.';
+  }
   options.wait = 'Hold position and do nothing this instant.';
 
   return options;

@@ -14,7 +14,7 @@
 import { readArena, doing, createLiveness, createHeldTracker, createItemMotion } from '../state/arena.mjs';
 import { profileFor } from '../lf2data/tables.mjs';
 import { planAction } from './actions.mjs';
-import { reflexAction } from './reflex.mjs';
+import { createReflex } from './reflex.mjs';
 import { offer } from './policies.mjs';
 import { bucketRange } from '../lf2data/profile.mjs';
 
@@ -43,6 +43,8 @@ export async function runLoop({ cdp, pool, kb, run, name, policy, overlay, hz = 
   let stance = null;
   let burst = null;
   let pending = null;
+  let planned = null;      // the cached plan for the current action
+  let plannedFor = null;   // which action it was planned for
   let lastAsk = 0;
   let recent = {};
   let shown = { policy: policy.name };   // what the overlay is currently saying
@@ -60,6 +62,9 @@ export async function runLoop({ cdp, pool, kb, run, name, policy, overlay, hz = 
   // And one for weapons in flight, which is the only way a thrown weapon is
   // told apart from one lying on the ground.
   const motionTracker = createItemMotion();
+  // And the reflex layer's own state, so its block is a finite parry with a rest
+  // between rather than a guard held until it breaks.
+  const reflexFor = createReflex();
 
   const profile = profileFor(name);
   if (!profile) throw new Error(`no derived profile for ${name} — rebuild build/_profiles.json`);
@@ -87,8 +92,12 @@ export async function runLoop({ cdp, pool, kb, run, name, policy, overlay, hz = 
     deadStreak = 0;
 
     // --- the layer that cannot wait for a network call
-    const reflex = reflexAction(arena);
-    if (reflex) { counts.reflexes++; action = reflex.action; source = 'reflex'; stance = null; }
+    const reflex = reflexFor(arena);
+    if (reflex) {
+      counts.reflexes++;
+      action = reflex.action; source = 'reflex'; stance = null;
+      plannedFor = null;   // a reflex tick is a new order; re-plan it
+    }
 
     // --- a decision that arrived since the last tick
     if (pending?.settled) {
@@ -99,6 +108,7 @@ export async function runLoop({ cdp, pool, kb, run, name, policy, overlay, hz = 
       // that one reflex holds against a late answer; everything else steps aside.
       else if (result?.action && !reflex?.thrown) {
         action = result.action; source = policy.name; stance = null;
+        plannedFor = null;   // each answer owns one execution, not one ever
         recent = { last_action: action, outcome: 'pending' };
       } else if (!result?.action) counts.misses++;
       shown = {
@@ -140,10 +150,21 @@ export async function runLoop({ cdp, pool, kb, run, name, policy, overlay, hz = 
     }
 
     // --- carry out whatever is current
+    // The plan is cached while the action is unchanged. Re-planning every tick
+    // recreated each stance from scratch, which silently reset any state it
+    // kept — the aimed attack's sequence counter never got past its first
+    // press, so the special was tapped into nothing and the fighter stood
+    // there. The stance still re-reads the arena every tick; only its
+    // construction is cached.
     if (!burst) {
-      const plan = planAction(action, { arena, profile, keys });
+      if (plannedFor !== action) {
+        planned = planAction(action, { arena, profile, keys });
+        plannedFor = action;
+      }
+      const plan = planned;
       if (plan?.kind === 'burst') {
         counts.bursts++;
+        plannedFor = null;
         burst = plan.run(kb).finally(() => { burst = null; });
       } else if (plan?.kind === 'stance') {
         stance = plan.step;
@@ -161,12 +182,18 @@ export async function runLoop({ cdp, pool, kb, run, name, policy, overlay, hz = 
             darkHp: arena.me.darkHp, mp: arena.me.mp, x: arena.me.x, z: arena.me.z,
             facing: arena.me.facing, holding: arena.held?.name ?? null },
       threats: arena.threats.slice(0, 3).map((t) => ({ slot: t.slot, name: t.name, frame: t.frame,
-        doing: doing(t), vulnerable: t.vulnerable, hp: t.hp, dx: Math.round(t.dx), dz: Math.round(t.dz) })),
+        doing: doing(t), vulnerable: t.vulnerable, hp: t.hp, dx: Math.round(t.dx), dz: Math.round(t.dz),
+        // The enemy's own destination, so a decision that read it can be checked
+        // after the fact against where the enemy actually went.
+        destDx: t.destDx === null ? null : Math.round(t.destDx),
+        approach: !!t.approach })),
       // `dx`/`dz` and `inFlight` are what make a thrown weapon checkable after
       // the fact: with range alone, a weapon crossing the stage and one lying
-      // beside us look the same in the log.
+      // beside us look the same in the log. `speed` is the measured closing
+      // rate, which is what the dodge's reaction maths is built on.
       items: arena.items.slice(0, 3).map((i) => ({ slot: i.slot, name: i.name, range: Math.round(i.range),
-        dx: Math.round(i.dx), dz: Math.round(i.dz), inFlight: !!i.inFlight, closing: !!i.closing })),
+        dx: Math.round(i.dx), dz: Math.round(i.dz), inFlight: !!i.inFlight, closing: !!i.closing,
+        speed: Math.round(i.speed ?? 0) })),
       action, source,
       reflex: reflex?.reason ?? null,
       keys: kb.stats.down,

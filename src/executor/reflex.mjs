@@ -10,8 +10,8 @@
 
 import { framesFor } from '../lf2data/tables.mjs';
 import { nextHit, REACH_SLACK } from '../lf2data/frames.mjs';
-import { Z_TOLERANCE, Y_TOLERANCE, PROJECTILE_RANGE, PROJECTILE_BLOCK_RANGE,
-         PROJECTILE_ETA_TICKS } from '../state/arena.mjs';
+import { Z_TOLERANCE, Y_TOLERANCE, doing } from '../state/arena.mjs';
+import { BOT } from '../state/bot.mjs';
 
 /**
  * The most urgent incoming attack, if one is close enough to matter.
@@ -43,27 +43,40 @@ export function wouldWhiff(arena, reach) {
 }
 
 /**
- * The nearest weapon currently flying at us, if one is close enough to matter.
+ * The nearest weapon that is actually going to hit us, if one is close enough
+ * to matter.
  *
- * This is a separate alert from `incoming()` because there is no frame chain to
- * read: the weapon is already in the air, so the only warnings are its distance
- * and the fact that it is closing. In the recorded runs this is where the damage
- * actually came from — the enemy reads as `recovering` while the weapon travels.
+ * The trigger is the CPU's own dodge rule, read out of px.js: a projectile
+ * inside 150 in x and 25 in depth gets stepped off the line. The old trigger —
+ * arrival within 6 ticks or inside 45 — fired when the weapon was already
+ * almost here, and the run data shows what that cost: the dodge held a key for
+ * 180 ms and gained 5-7 units of separation where 25 were needed.
+ *
+ * A guard is *not* the answer here, whatever the distance. The damage ledger of
+ * one loss run has 453 of 512 hp taken while staggered — every big projectile
+ * hit was taken in the hit-stun of the previous one — and only 12 while
+ * blocking. A shield absorbs a handful of hits and then breaks, so standing in
+ * one while a weapon flies at you is how the spiral starts. The dodge is the
+ * answer; the block is the last resort for a weapon that is already on top of
+ * us and cannot be stepped away from.
  */
-export function inboundWeapon(arena, { within = PROJECTILE_RANGE } = {}) {
-  // Nearest first, so the weapon about to arrive is the one answered.
-  for (const item of arena.flying ?? []) {
-    if (item.range > within) continue;
-    // `zGap` matters as much as it does for a swing: a weapon crossing at
-    // another depth passes us by. Height is not checked because the pool read is
-    // flat in practice and a false block is cheaper than a weapon in the chest.
-    if (item.zGap > Z_TOLERANCE) continue;
-    // Time to arrival off the measured closing speed. A weapon seen for the
-    // first time has no speed yet, so it falls back to the distance.
+export function inboundWeapon(arena) {
+  // Read from the whole item list, not the flying list: a fast weapon only
+  // crosses the 200-unit flying horizon for one or two reads before it lands,
+  // and the run data shows exactly that — first flagged at r80 with 43 units
+  // closing per read, hit two reads later. Whatever the range, a weapon that is
+  // in the air, not carried, and closing at our lane gets the same answer.
+  for (const item of arena.items ?? []) {
+    if (!item.inFlight || item.carried) continue;
     const eta = item.speed > 0 ? item.range / item.speed : Infinity;
-    if (eta <= PROJECTILE_ETA_TICKS || item.range <= PROJECTILE_BLOCK_RANGE) {
-      return { ...item, eta };
-    }
+    // Inside the CPU's 150, answer as it does. Beyond it, only when the weapon
+    // is fast enough that waiting would leave no time to clear the lane: a
+    // 43-units-per-read weapon first seen at 300 has seven reads left, which is
+    // exactly what the step needs, and a slow one at the same distance has
+    // dozens — nothing gained by standing off the lane for all of them.
+    if (item.range > BOT.DODGE_X && eta > 15) continue;
+    if (item.zGap > BOT.DODGE_Z) continue;
+    return { ...item, eta };
   }
   return null;
 }
@@ -77,16 +90,57 @@ export function inboundWeapon(arena, { within = PROJECTILE_RANGE } = {}) {
  * letting every reflex override the policy is what starved Jev's attacks. A
  * thrown weapon is the exception — it is already travelling and only the block
  * stops it — so it is marked and allowed to hold against a late answer.
+ *
+ * The block is deliberately finite. The game's own CPU blocks only while the
+ * enemy is actually in an attack frame, commits for about ten frames, and then
+ * re-decides; it is never seen standing in a guard while it is hit. Holding the
+ * guard indefinitely is what the runs are full of — 89% of the damage in one
+ * loss arrived while defending — because a block absorbs a few hits and then
+ * breaks. So this counts its own consecutive blocks, stops once the budget is
+ * spent, and rests for a few frames so the policy can answer instead of guarding
+ * again. The counter itself is the policy's job: a blocked swing leaves the
+ * enemy in its recovery tail, which the options layer already marks as a window.
+ *
+ * It is stateful, so the caller holds one per run and passes the arena in each
+ * tick, exactly like the held-weapon and liveness trackers.
  */
+export function createReflex({ maxBlockTicks = BOT.BLOCK_COMMIT_FRAMES,
+                               restTicks = BOT.BLOCK_REST_FRAMES } = {}) {
+  let blocked = 0;
+  let rest = 0;
+  return function reflex(arena, opts = {}) {
+    // A broken guard cannot block at all — the wall is already down — so the
+    // only answers left are to move or to hit back, which are the policy's.
+    if (doing(arena.me) === 'broken_guard') { blocked = 0; return null; }
+
+    const thrown = inboundWeapon(arena);
+    if (thrown) {
+      const when = Number.isFinite(thrown.eta) ? `~${thrown.eta.toFixed(0)} ticks out` : 'closing';
+      // Always the dodge: the stance behind it picks the jump when the weapon
+      // is about to land and the depth step when there is time. The old block
+      // fallback is gone because the data says the guard never stopped these —
+      // a shuriken cost 25 hp while a block was being held, and six of them
+      // broke the guard outright.
+      return { action: 'dodge', thrown: true, threat: null,
+               reason: `a thrown weapon ${Math.round(thrown.range)} away, ${when} — get off the line` };
+    }
+
+    const threat = incoming(arena, opts);
+    if (threat) {
+      // Inside the rest window the guard stays down on purpose: the swing has
+      // passed, and the better answer is the counter the policy is about to pick.
+      if (rest > 0) { rest--; return null; }
+      if (blocked >= maxBlockTicks) { blocked = 0; rest = restTicks; return null; }
+      blocked++;
+      return { action: 'defend', reason: `hit from slot ${threat.slot} in ${threat.ticks} ticks`, threat };
+    }
+    blocked = 0;
+    if (rest > 0) rest--;
+    return null;
+  };
+}
+
+/** A single, stateless opinion — for callers that do not hold a run's state. */
 export function reflexAction(arena, opts = {}) {
-  const threat = incoming(arena, opts);
-  if (threat) return { action: 'defend', reason: `hit from slot ${threat.slot} in ${threat.ticks} ticks`, threat };
-  const thrown = inboundWeapon(arena);
-  if (thrown) {
-    const when = Number.isFinite(thrown.eta) ? `~${thrown.eta.toFixed(1)} ticks out` : 'closing';
-    return { action: 'defend',
-             reason: `a thrown weapon ${Math.round(thrown.range)} away, ${when} — block`,
-             threat: null, thrown: true };
-  }
-  return null;
+  return createReflex()(arena, opts);
 }

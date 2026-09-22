@@ -11,6 +11,7 @@ import { semanticState, doing } from '../state/arena.mjs';
 import { weapons } from '../lf2data/tables.mjs';
 import { executableOptions, planAction } from './actions.mjs';
 import { wouldWhiff, incoming, inboundWeapon } from './reflex.mjs';
+import { STANDOFF_X } from '../state/bot.mjs';
 
 /** Options the executor can actually carry out, described for a reader. */
 export function offer(arena, profile) {
@@ -96,6 +97,7 @@ export function jevPolicy(client, profile, { deadlineMs = 900 } = {}) {
 /** Independent questions, evaluated in parallel by the service. */
 function questionSet(options, arena) {
   const near = arena.threats[0];
+  const canShoot = Object.keys(options).some((o) => o === 'shoot' || o.startsWith('special_'));
   const questions = {
     action: {
       type: 'choice',
@@ -108,6 +110,20 @@ function questionSet(options, arena) {
           : '')
         + (near && !near.aligned
           ? ' You and the enemy are at different depths, so nothing fired from here will connect until you line up on its depth.'
+          : '')
+        + (near && near.aligned && canShoot && near.gap <= STANDOFF_X
+          ? ' You are level with the enemy and inside your firing range, so the shot reaches from where you stand — holding this distance beats walking in, where it can hit back.'
+          : '')
+        + (near && near.gap <= 80
+          ? ' The enemy is inside punching range. Standing here means trading blows with it — stepping back keeps you out of its reach while your shots still fly, and a thrower at this distance is throwing almost point-blank.'
+          : '')
+        + (near && near.approach
+          ? ' The enemy is walking toward you, so it will close the gap on its own; there is nothing to gain by meeting it.'
+          : near && near.hasDest
+          ? ' The enemy is holding or withdrawing rather than closing, so you may have to move to keep it inside your range.'
+          : '')
+        + (doing(arena.me) === 'blocking'
+          ? ' You are holding a block. It absorbs a few hits and then breaks, so the moment the swing passes, answer with an attack rather than blocking again.'
           : '')
         + (near && (near.doing === 'knocked_down' || near.doing === 'in_the_air')
           ? ' The enemy is on the floor or in the air, so nothing you fire can connect — spend no MP until it is back on its feet.'
