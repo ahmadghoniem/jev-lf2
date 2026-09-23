@@ -197,7 +197,12 @@ export function createReflex({ maxBlockTicks = BOT.BLOCK_COMMIT_FRAMES,
       const clearBy = (dir) => LANE_CLEAR + (dir === side ? -1 : 1) * Math.abs(lane.laneDz);
       const dir = room(side, z) >= clearBy(side) ? side : other;
       const need = clearBy(dir) / WALK_Z;
-      if (lane.eta >= need && room(dir, z) >= clearBy(dir)) {
+      // Short of time, the step is still taken when a block would break the
+      // guard: that star lands either way, and a partial step may clear it. In
+      // one run 534 hp went to stars, nearly all in chains that began with a
+      // worn guard blocking while there was no time to step.
+      const worn = (arena.me.guard ?? 0) + 16 > GUARD_BREAK + Math.floor(lane.eta);
+      if ((lane.eta >= need || worn) && room(dir, z) >= clearBy(dir)) {
         if (evade?.dir === dir) {
           evade.still = Math.abs(z - evade.z) < 0.5 ? evade.still + 1 : 0;
           evade.z = z;
