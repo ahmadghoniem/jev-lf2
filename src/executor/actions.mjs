@@ -99,7 +99,8 @@ const meleeReach = (profile) => profile?.bestMelee?.reach ?? profile?.basicAttac
  * the lane during the wind-up is chased before the sequence ever starts, which
  * a fixed burst frozen at plan time could not do.
  */
-function aimedAttack(keys, { tight, seq = ['attack'], needReach = false, reach = 45, spendsMp = false }) {
+function aimedAttack(keys, { tight, seq = ['attack'], needReach = false, reach = 45, spendsMp = false,
+                             startup = 5 }) {
   let step = 0;
   const started = () => step > 0 && step < seq.length * 5;
   const run = (a) => {
@@ -144,6 +145,14 @@ function aimedAttack(keys, { tight, seq = ['attack'], needReach = false, reach =
     // scripts/prove-specials.mjs did.
     if (step < seq.length * 5) {
       if (step % 5 === 0) {
+        // The last press of a special waits while a star would land inside the
+        // move's wind-up: Defend's block pose covers the earlier presses, but
+        // after Attack the fighter is open, and in one run every blastpush
+        // fired into Rudolf's stars was knocked out of its wind-up. The game's
+        // reader stays armed without a timeout, so the wait loses nothing.
+        const last = seq.length > 1 && step / 5 === seq.length - 1;
+        const weapon = last ? inboundWeapon(a) : null;
+        if (weapon && weapon.eta <= startup + 2) return { hold: [] };
         const press = seq[step / 5];
         const code = press === 'forward' ? keys[dirTo(a.me, t)] : keys[press];
         step++;
@@ -339,7 +348,7 @@ export function planAction(name, { arena, profile, keys = P4_KEYS } = {}) {
     // 150-MP blastpushes did 13 and 7.
     const fullBand = move.falloff?.[0]?.to;
     return stance(aimedAttack(keys, { tight: Z_TOLERANCE, seq: SPECIAL_SEQUENCE[move.input],
-                                      spendsMp: (move.mp ?? 0) > 0,
+                                      spendsMp: (move.mp ?? 0) > 0, startup: move.startupTicks ?? 5,
                                       needReach: !!fullBand, reach: (fullBand ?? 0) - REACH_SLACK }));
   }
 
