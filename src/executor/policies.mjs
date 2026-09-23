@@ -48,6 +48,8 @@ export function offer(arena, profile) {
     helpless: !!near?.helpless,
     weaponInbound: !!inboundWeapon(arena),
     guardWorn: guardWorn(arena),
+    // Distance to the stage edge on the side away from the enemy.
+    roomBehind: near ? (near.x >= arena.me.x ? arena.me.x : (arena.stageWidth ?? Infinity) - arena.me.x) : Infinity,
   });
   return executableOptions(options, { arena, profile });
 }

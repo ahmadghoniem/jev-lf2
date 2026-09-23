@@ -303,7 +303,7 @@ export function readArena(entities, { slot, name, isLive, heldTracker, motionTra
   // motion read.
   const flying = ground.filter((i) => i.hostile && i.range <= PROJECTILE_RANGE);
 
-  return { me, threats, allies, held, items: ground, flying,
+  return { me, threats, allies, held, items: ground, flying, stageWidth,
            nearest: threats[0]?.gap ?? Infinity };
 }
 

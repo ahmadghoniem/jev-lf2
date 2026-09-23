@@ -41,11 +41,15 @@ const SWING_STYLES = {
  * @param targetDown the nearest enemy is on the floor or in the air
  * @param canDo      whether the executor can actually carry an option out
  */
+/** Room the roll needs behind the fighter to end out of reach. */
+const ROLL_ROOM = 180;
+
 export function buildOptions({ profile, weapons, held, nearby = [], nearest = Infinity, mp = 0,
                                hp = null, hpMax = null, behind = false, vulnerable = false,
                                enemyDoing = null, aligned = true, targetDown = false,
                                hasTarget = false, threatened = false, targetOnScreen = true,
                                helpless = false, weaponInbound = false, guardWorn = false,
+                               roomBehind = Infinity,
                                canDo = () => true }) {
   const options = {};
 
@@ -94,12 +98,15 @@ export function buildOptions({ profile, weapons, held, nearby = [], nearest = In
 
   // --- what the character can throw from where it stands
   const rangedName = (m) => (basic && m.entry === basic.entry ? 'shoot' : `special_${label(m)}`);
-  // A short-lived projectile is closed once the enemy is past the end of it:
-  // the executor fires from where it stands, so the MP would buy nothing.
+  // A short-lived projectile is offered only while the enemy is inside its
+  // full-damage band, because that is where the executor fires it; further
+  // out it walks in first, and the observer saw Henry walk toward Rudolf's
+  // stars with arrows he could have fired instead.
   // Nothing is fired at an enemy off the screen: the observer saw every such
   // shot as wasted, and the log agrees (arrows fired from 700 on landed 1 in 7).
   const ranged = profile.moves.filter((m) => m.kind === 'ranged' && affordable(m)
-    && !targetDown && (!hasTarget || (targetOnScreen && damageAt(m, nearest) > 0))
+    && !targetDown && (!hasTarget || (targetOnScreen
+      && damageAt(m, nearest) >= (m.falloff ? m.falloff[0].injury : 1)))
     && canDo(rangedName(m)));
   for (const move of dedupe(ranged, MAX_RANGED)) {
     const isBasic = basic && move.entry === basic.entry;
@@ -230,7 +237,9 @@ export function buildOptions({ profile, weapons, held, nearby = [], nearest = In
   // A roll has no hurt box for its whole length, so it is the one answer that
   // takes no damage at all. It is reached from a run, which is why it cannot
   // answer a weapon that is about to land.
-  if (hasTarget && (threatened || weaponInbound || nearest <= 220)) {
+  // The roll carries about 200, so against the edge of the stage it ends in
+  // the corner rather than out of reach (seen by the observer on both sides).
+  if (hasTarget && roomBehind >= ROLL_ROOM && (threatened || weaponInbound || nearest <= 220)) {
     options.roll_away = [
       'Roll away from the enemy: a short run, then a tumble along the ground. Nothing can hit you during the tumble and nothing breaks it, and you end about 200 further away, out of its reach.',
       'It takes about a third of a second to start, so it is for an enemy that is close or pressing you, not for a weapon about to land.',
