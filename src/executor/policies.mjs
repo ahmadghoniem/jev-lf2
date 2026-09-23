@@ -116,7 +116,9 @@ function situationNotes(options, arena) {
   return [
     [near && !near.onScreen,
       'The enemy is off the screen, too far for any shot to land, so there is nothing to fire at until it is back on screen.'],
-    [near?.helpless,
+    [near?.doing === 'drinking',
+      'The enemy is drinking to heal and cannot move, block or attack until it finishes. Every moment it drinks is health it gets back, so hit it now: a shot that reaches from here lands and stops the drink, and running in works if nothing you fire reaches.'],
+    [near?.helpless && near.doing !== 'drinking',
       'An enemy is helpless right now — it cannot move or block — so a free hit is on the table.'],
     [near?.vulnerable && !near.helpless,
       'The enemy is at the tail end of an attack. It has nothing live, but it may have released a weapon a moment ago, so check the air before walking in.'],

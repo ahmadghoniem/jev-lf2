@@ -266,6 +266,12 @@ export function planAction(name, { arena, profile, keys = P4_KEYS } = {}) {
   // 180 ms step gained 5-7 units of separation where 25 were needed. So the
   // step is held until the lane is actually clear — either the weapon has
   // passed far enough in depth, or it is gone from the air entirely.
+  // Leaving a thrown weapon's line, chosen by the reflex: the side is its call,
+  // since it sees the stage edge; this only holds the key.
+  if (name === 'dodge_up' || name === 'dodge_down') {
+    const key = name === 'dodge_up' ? keys.up : keys.down;
+    return stance(() => ({ hold: [key] }));
+  }
   if (name === 'dodge') {
     if (!weaponOnLane(arena)) return null;
     return stance((a) => {

@@ -80,7 +80,9 @@ export function buildOptions({ profile, weapons, held, nearby = [], nearest = In
   // incoming swing or a weapon in the air is never a punish.
   const window = vulnerable ? (enemyDoing ?? 'stuck') : null;
   if (window) {
-    options.rush_attack = helpless
+    options.rush_attack = enemyDoing === 'drinking'
+      ? 'The enemy is drinking to heal: it cannot move, block or hit back until it finishes, and every moment it keeps drinking comes back to it as health. Run in and hit it; the first hit also stops the drink.'
+      : helpless
       ? `The enemy is ${window} and cannot move or block for the moment. Close in and hit it before it recovers.`
       : `The enemy is ${window} at the end of an attack, so it cannot swing again yet — but it may already have a weapon in the air. Close in and hit it before it recovers.`;
   }
@@ -248,6 +250,14 @@ export function buildOptions({ profile, weapons, held, nearby = [], nearest = In
     ].filter(Boolean).join(' ');
   }
   options.wait = 'Hold position and do nothing this instant.';
+
+  // An enemy drinking is the one window that pays twice: it cannot answer, and
+  // every tick left alone is health back (Rudolf drank from 386 to 500 in one
+  // run while Henry waited and shot from 350). With nothing coming at us, the
+  // passive answers are closed so the choice is only how to hit it.
+  if (enemyDoing === 'drinking' && !threatened && !weaponInbound) {
+    for (const passive of ['wait', 'defend', 'open_distance', 'roll_away']) delete options[passive];
+  }
 
   return options;
 }

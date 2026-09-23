@@ -72,6 +72,30 @@ export function nextHit(frames, frameId, waiting = 0, horizon = 12) {
   return null;
 }
 
+/**
+ * Ticks until this fighter's current animation throws something (a frame with
+ * an `opoint`), and how fast it flies, or `null`. Rudolf's stars are thrown
+ * from his punch frames, which have no hitbox of their own, so `nextHit` never
+ * sees them coming.
+ */
+export function nextSpawn(frames, frameId, waiting = 0, horizon = 10) {
+  if (!frames) return null;
+  let id = frameId;
+  let elapsed = -waiting;
+  for (let hop = 0; hop < 6; hop++) {
+    const frame = frames[id];
+    if (!frame) return null;
+    const thrown = (frame.opoint ?? []).find((o) => o.kind === 1 && Math.abs(o.dvx ?? 0) > 0);
+    if (thrown) return { ticks: Math.max(0, elapsed), speed: Math.abs(thrown.dvx), ahead: thrown.x ?? 0 };
+    elapsed += (frame.wait ?? 1) + 1;
+    if (elapsed > horizon) return null;
+    const next = frame.next;
+    if (typeof next !== 'number' || next <= 0 || next === id) return null;
+    id = next;
+  }
+  return null;
+}
+
 /** Ticks until this fighter's next damaging hitbox goes live, or `null`. */
 export const ticksToHit = (frames, frameId, waiting = 0, horizon = 12) =>
   nextHit(frames, frameId, waiting, horizon)?.ticks ?? null;

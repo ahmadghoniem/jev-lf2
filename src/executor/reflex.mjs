@@ -9,7 +9,7 @@
  */
 
 import { framesFor } from '../lf2data/tables.mjs';
-import { nextHit, REACH_SLACK } from '../lf2data/frames.mjs';
+import { nextHit, nextSpawn, REACH_SLACK } from '../lf2data/frames.mjs';
 import { Z_TOLERANCE, Y_TOLERANCE, doing } from '../state/arena.mjs';
 import { BOT } from '../state/bot.mjs';
 
@@ -81,6 +81,41 @@ export function inboundWeapon(arena) {
   return null;
 }
 
+/**
+ * Depth between a star's line and us for it to fly past. In the Rudolf runs,
+ * 1 of 16 stars passing at 16 or more hit, against 8 of 28 closer than that.
+ */
+export const LANE_CLEAR = 20;
+/** Depth a standard fighter walks in a tick (walking_speedz 2.5 for Henry and Rudolf). */
+const WALK_Z = 2.5;
+/** How far off a thrower in its wind-up is still worth leaving the lane for. */
+const THROW_RANGE = 450;
+
+/**
+ * The line a thrown weapon will travel along through us, if one is coming:
+ * a star already in the air, or an enemy facing us whose animation throws one
+ * within the next few ticks. `laneDz` is the line's depth minus ours, and
+ * `eta` the ticks until it arrives.
+ */
+export function laneDanger(arena) {
+  const { me } = arena;
+  let worst = null;
+  const consider = (d) => { if (!worst || d.eta < worst.eta) worst = d; };
+  for (const item of arena.items ?? []) {
+    if (!item.hostile || item.zGap >= LANE_CLEAR) continue;
+    consider({ laneDz: item.dz, eta: item.speed > 0 ? item.range / item.speed : Infinity, what: 'star' });
+  }
+  for (const t of arena.threats) {
+    if (t.zGap >= LANE_CLEAR || t.gap > THROW_RANGE || t.yGap > Y_TOLERANCE) continue;
+    const facingUs = t.facing === (me.x >= t.x ? 'right' : 'left');
+    if (!facingUs) continue;
+    const spawn = nextSpawn(framesFor(t.id), t.frame, t.waiting);
+    if (!spawn) continue;
+    consider({ laneDz: t.dz, eta: spawn.ticks + Math.max(0, t.gap - spawn.ahead) / spawn.speed, what: 'throw' });
+  }
+  return worst;
+}
+
 /** px.js breaks a guard when a blocked hit takes the meter over this. */
 export const GUARD_BREAK = 30;
 const bdefendCache = new Map();
@@ -134,7 +169,36 @@ export function createReflex({ maxBlockTicks = BOT.BLOCK_COMMIT_FRAMES,
                                restTicks = BOT.BLOCK_REST_FRAMES } = {}) {
   let blocked = 0;
   let rest = 0;
+  let evade = null; // { dir, z, still, wall }: the side chosen, and a side found blocked
   return function reflex(arena, opts = {}) {
+    // Leave the line before the star is on it. Standing in it and blocking
+    // wears the guard out in two or three stars and then every star lands
+    // (the observer: "run towards a different lane instead of standing and
+    // defending"). The older depth step failed because it started only once
+    // the star was within 150, too late at 2.5 depth a tick; this starts on
+    // Rudolf's wind-up and only when there is time to get clear.
+    const lane = laneDanger(arena);
+    const mine = doing(arena.me);
+    const canMove = ['neutral', 'walking', 'running'].includes(mine);
+    if (lane && canMove) {
+      // `up` lowers z. Step away from the line; a line straight through us
+      // keeps the side already chosen. A side that does not move us for three
+      // ticks is the edge of the stage, and the way out is across the line.
+      let dir = lane.laneDz > 1 ? 'up' : lane.laneDz < -1 ? 'down' : (evade?.dir ?? 'up');
+      if (evade?.wall === dir) dir = dir === 'up' ? 'down' : 'up';
+      const away = (dir === 'up') === (lane.laneDz > 0) || Math.abs(lane.laneDz) <= 1;
+      const need = (LANE_CLEAR + (away ? -1 : 1) * Math.abs(lane.laneDz)) / WALK_Z;
+      if (lane.eta >= need) {
+        if (evade?.dir === dir) {
+          evade.still = Math.abs(arena.me.z - evade.z) < 0.5 ? evade.still + 1 : 0;
+          evade.z = arena.me.z;
+          if (evade.still >= 3) evade = { ...evade, wall: dir, dir: null };
+        } else evade = { dir, z: arena.me.z, still: 0, wall: evade?.wall ?? null };
+        return { action: dir === 'up' ? 'dodge_up' : 'dodge_down', thrown: true, eta: lane.eta,
+                 reason: `${lane.what === 'star' ? 'a star' : 'a throw'} on our line in ~${lane.eta.toFixed(0)} ticks — step ${dir} off it` };
+      }
+    } else if (!lane) evade = null;
+
     // A broken guard cannot block at all — the wall is already down — so the
     // only answers left are to move or to hit back, which are the policy's.
     if (doing(arena.me) === 'broken_guard') { blocked = 0; return null; }
