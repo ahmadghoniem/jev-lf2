@@ -102,9 +102,20 @@ const meleeReach = (profile) => profile?.bestMelee?.reach ?? profile?.basicAttac
 function aimedAttack(keys, { tight, seq = ['attack'], needReach = false, reach = 45, spendsMp = false }) {
   let step = 0;
   const started = () => step > 0 && step < seq.length * 5;
-  return (a) => {
+  const run = (a) => {
     const t = enemy(a);
     if (!t) return { hold: [] };
+    // Presses made while staggered or knocked about are read by nobody, and a
+    // hit mid-sequence leaves it half played. In one run 38 of 40 blastpush
+    // attempts ended this way: Henry pressed Defend (a block pose on screen),
+    // got hit, and started over. So the sequence starts only from a stance
+    // that can act, and a hit restarts it.
+    const mine = doing(a.me);
+    if (HURT.has(mine)) {
+      if (started()) step = 0;
+      return { hold: [] };
+    }
+    if (step === 0 && !CAN_START.has(mine)) return { hold: [] };
     // Off the screen nothing lands, so walk on until it is back in view.
     if (t.onScreen === false) {
       if (started()) step = 0;
@@ -126,7 +137,7 @@ function aimedAttack(keys, { tight, seq = ['attack'], needReach = false, reach =
       if (step > 0 && step < seq.length * 5) step = 0;
       return { hold: [dz < 0 ? keys.up : keys.down] };
     }
-    if (needReach && t.gap > reach + REACH_SLACK) return { hold: toward(a, keys, t) };
+    if (needReach && !started() && t.gap > reach + REACH_SLACK) return { hold: toward(a, keys, t) };
     if (!t.infront) return { hold: [], tap: [keys[dirTo(a.me, t)]] };
     // One press every fifth tick: ~166 ms between press starts, which keeps
     // the presses distinct the way the 60 ms press + 90 ms gap tuned by
@@ -143,7 +154,14 @@ function aimedAttack(keys, { tight, seq = ['attack'], needReach = false, reach =
     }
     return { hold: [] };
   };
+  // A half-played sequence, which a repeat of the same answer should not restart.
+  run.busy = started;
+  return run;
 }
+/** States a hit leaves a fighter in, where key presses do nothing. */
+const HURT = new Set(['staggered', 'broken_guard', 'knocked_down', 'in_the_air']);
+/** What an attack sequence can start from; a block counts, since specials open with Defend. */
+const CAN_START = new Set(['neutral', 'walking', 'running', 'blocking']);
 
 export function planAction(name, { arena, profile, keys = P4_KEYS } = {}) {
   const { me, threats, held } = arena;
@@ -315,8 +333,14 @@ export function planAction(name, { arena, profile, keys = P4_KEYS } = {}) {
   if (name.startsWith('special_')) {
     const move = findSpecial(profile, name);
     if (!move || !SPECIAL_SEQUENCE[move.input]) return null;
+    // A projectile that weakens with distance fires only inside its full-damage
+    // band. The answer is chosen against where the enemy was half a second ago;
+    // in one run Rudolf had backed off to 280 by the time Henry pressed, and two
+    // 150-MP blastpushes did 13 and 7.
+    const fullBand = move.falloff?.[0]?.to;
     return stance(aimedAttack(keys, { tight: Z_TOLERANCE, seq: SPECIAL_SEQUENCE[move.input],
-                                      spendsMp: (move.mp ?? 0) > 0 }));
+                                      spendsMp: (move.mp ?? 0) > 0,
+                                      needReach: !!fullBand, reach: (fullBand ?? 0) - REACH_SLACK }));
   }
 
   if (name === 'throw_weapon') {
@@ -485,7 +509,7 @@ function away(arena, keys, t) {
   return [keys[dirTo(arena.me, t) === 'right' ? 'left' : 'right']];
 }
 
-const stance = (step) => ({ kind: 'stance', step });
+const stance = (step) => ({ kind: 'stance', step, busy: step.busy ?? (() => false) });
 const burst = (run) => ({ kind: 'burst', run });
 
 /** Which of the offered options the executor can actually carry out. */

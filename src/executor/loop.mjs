@@ -163,8 +163,13 @@ export async function runLoop({ cdp, pool, kb, run, name, policy, overlay, hz = 
       // it is offered — was always overruled by the block.
       else if (result?.action && (!reflex?.thrown
                || (result.action === 'roll_away' && reflex.eta >= ROLL_START_TICKS))) {
+        // Each answer owns one execution, except that the same answer arriving
+        // while a special is half played lets it finish. A special takes 15
+        // ticks, about one decision interval, so restarting it on every repeat
+        // meant it rarely completed.
+        const finishing = result.action === action && source === policy.name && planned?.busy?.();
         action = result.action; source = policy.name; stance = null;
-        plannedFor = null;   // each answer owns one execution, not one ever
+        if (!finishing) plannedFor = null;
         if (action === 'roll_away') rollUntil = Date.now() + ROLL_OWNS_MS;
         recent = { last_action: action, outcome: 'pending' };
         standing = { action, askedAtMs };
