@@ -14,7 +14,7 @@
 import { readArena, doing, createLiveness, createHeldTracker, createItemMotion } from '../state/arena.mjs';
 import { profileFor } from '../lf2data/tables.mjs';
 import { planAction, ROLL_START_TICKS } from './actions.mjs';
-import { createReflex } from './reflex.mjs';
+import { createReflex, laneDanger } from './reflex.mjs';
 import { offer } from './policies.mjs';
 import { stageWidth as readStageWidth } from './setup.mjs';
 import { bucketRange } from '../lf2data/profile.mjs';
@@ -298,7 +298,10 @@ export async function runLoop({ cdp, pool, kb, run, name, policy, overlay, hz = 
         // The enemy's own destination, so a decision that read it can be checked
         // after the fact against where the enemy actually went.
         destDx: t.destDx === null ? null : Math.round(t.destDx),
-        approach: !!t.approach, onScreen: !!t.onScreen })),
+        approach: !!t.approach, onScreen: !!t.onScreen, facing: t.facing, waiting: t.waiting })),
+      // Logged only, to check the lane dodge after the fact: whether a throw
+      // or star on our line was seen on this tick.
+      lane: (() => { const l = laneDanger(arena); return l ? { dz: Math.round(l.laneDz), eta: +l.eta.toFixed(1), what: l.what } : null; })(),
       // `dx`/`dz` and `inFlight` are what make a thrown weapon checkable after
       // the fact: with range alone, a weapon crossing the stage and one lying
       // beside us look the same in the log. `speed` is the measured closing
