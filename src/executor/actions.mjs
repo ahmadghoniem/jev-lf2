@@ -117,6 +117,15 @@ function aimedAttack(keys, { tight, seq = ['attack'], needReach = false, reach =
       return { hold: [] };
     }
     if (step === 0 && !CAN_START.has(mine)) return { hold: [] };
+    // A special opens with Defend, and the block pose that press starts lasts
+    // 13 ticks, during which the fighter cannot step out of a star's line. In
+    // one run 232 of 397 block-pose ticks came from specials. So one is not
+    // started while a star or a throw would arrive before it fires; the
+    // reflex steps off the line first, and the special starts after.
+    if (step === 0 && seq.length > 1) {
+      const danger = laneDanger(a);
+      if (danger && danger.eta < seq.length * 5 + startup) return { hold: [] };
+    }
     // Off the screen nothing lands, so walk on until it is back in view.
     if (t.onScreen === false) {
       if (started()) step = 0;

@@ -148,6 +148,13 @@ export function buildOptions({ profile, weapons, held, nearby = [], nearest = In
       window ? 'The enemy is helpless right now, so this cannot be answered or blocked.' : '',
       behind ? 'The enemy is behind you; you will turn first, which costs a moment.' : '',
       cost(move),
+      // An archer's attack button fires an arrow that costs MP even point
+      // blank, so without saying so the free melee moves read as the weaker
+      // choice: offered about 110 times in one run, chosen never, while the
+      // observer watched Henry spend 150 MP on blastpush at 70 away.
+      !move.mp && basic?.kind === 'ranged'
+        ? `Your ordinary attack and your specials spend MP even point blank, so this is the hit to use up close${mp < 150 ? ', especially now that MP is short' : ''}, and it saves MP for the specials.`
+        : '',
     ].filter(Boolean).join(' ');
   }
 

@@ -128,6 +128,8 @@ function situationNotes(options, arena) {
       'You are level with the enemy and inside your firing range, so the shot reaches from where you stand — holding this distance beats walking in, where it can hit back.'],
     [near && near.gap <= 80,
       'The enemy is inside punching range. Standing here means trading blows with it, and a block here only waits for the next hit — rolling away or stepping back gets you out of its reach while your shots still fly, and a thrower at this distance is throwing almost point-blank.'],
+    [near && near.gap <= 100 && Object.keys(options).some((o) => o === 'dash_attack' || o === 'run_attack'),
+      'The enemy is close enough for your free melee attacks, which cost no MP; an arrow or a special spends MP even at this range.'],
     [near?.approach,
       'The enemy is walking toward you, so it will close the gap on its own; there is nothing to gain by meeting it.'],
     [near && !near.approach && near.hasDest,
