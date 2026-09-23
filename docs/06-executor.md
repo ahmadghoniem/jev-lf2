@@ -190,3 +190,29 @@ and every hit.
 unless it fails. The full five-check probe used to take about three seconds of
 a live fight in which Rudolf was free to hit a fighter walking left and right
 on its own, and the first decision was a cold 700-900 ms call.
+
+## From the first annotated match (2026-09-23T17-25-47)
+
+Ten notes, and what each turned into:
+
+- **Firing at an enemy off the screen** (five notes). The view is 794 units
+  wide and follows Henry, clamped at the stage ends (`Sh7E.ph` is the stage
+  width). Every flagged shot had Rudolf 398 or more away. Off the screen, no
+  ranged option is offered, `close_distance` says why, and an aimed attack
+  already under way walks toward the enemy instead of firing.
+- **Blastpush into a downed enemy, with a block first.** The "block" is the
+  Defend press that starts D>A. The special now holds its last press while the
+  target is down, instead of spending the MP.
+- **Facing away and blocking at nothing.** The roll was a blind burst: fired
+  while Henry was knocked down, the double-tap was lost and the Defend press
+  became a standing block facing away. It is now a stance that waits until
+  Henry can act, holds the run until the game shows running, and only then
+  presses Defend (or gives up). A started roll keeps the reflex off for a
+  second.
+- **Blocks the volley, never hits back.** An answer that landed while the
+  reflex was blocking a star was thrown away. It is now kept, and takes the
+  keys back as soon as the reflex lets go, if it is still fresh.
+
+Matches restart from where the last one ended: attack from the summary, or
+Esc, Q, Enter from a round still being fought. `menu.mjs --setup` is only for
+changing fighters.

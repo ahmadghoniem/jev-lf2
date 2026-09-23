@@ -221,7 +221,18 @@ export function createLiveness({ staleMs = 1000 } = {}) {
  * matches two entities. An explicit slot wins over it; the name is a last
  * resort for a run where no slot is human-controlled.
  */
-export function readArena(entities, { slot, name, isLive, heldTracker, motionTracker } = {}) {
+/**
+ * The view is LF2's 794 units wide and follows the human player, clamped at the
+ * stage ends. A fighter whose body is past its edge is off the screen, which is
+ * also where the observer saw Henry's shots go nowhere: every "enemy not on
+ * screen" note of 2026-09-23 had Rudolf 398 or more from Henry. The margin
+ * keeps half a body inside.
+ */
+export const VIEW_HALF = 397;
+const ON_SCREEN_MARGIN = 30;
+
+export function readArena(entities, { slot, name, isLive, heldTracker, motionTracker,
+                                      stageWidth = Infinity } = {}) {
   const fighters = entities.filter((e) => e.type === 0).map(readFighter);
   const me = (slot !== undefined && fighters.find((f) => f.slot === slot))
     || fighters.find((f) => f.human)
@@ -231,6 +242,7 @@ export function readArena(entities, { slot, name, isLive, heldTracker, motionTra
   // Our own fighter is never liveness-checked: lying dead is motionless, and
   // dropping ourselves would end the run.
   const others = fighters.filter((f) => f !== me && f.alive && (!isLive || isLive(f)));
+  const cameraX = Math.min(Math.max(me.x, VIEW_HALF), Math.max(VIEW_HALF, stageWidth - VIEW_HALF));
   const geo = (e) => {
     const dx = e.x - me.x;
     const dz = e.z - me.z;
@@ -248,6 +260,7 @@ export function readArena(entities, { slot, name, isLive, heldTracker, motionTra
              infront: (dx >= 0) === (me.facing === 'right'),
              aligned: Math.abs(dz) <= Z_TOLERANCE && Math.abs(dy) <= Y_TOLERANCE,
              hasDest, destDx, destDz,
+             onScreen: Math.abs(e.x - cameraX) <= VIEW_HALF - ON_SCREEN_MARGIN,
              // A destination nearer to us than where it stands means it is
              // closing; farther away means it is withdrawing or holding.
              approach: hasDest && Math.abs(destDx) < Math.abs(dx) };

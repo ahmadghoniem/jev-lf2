@@ -16,6 +16,7 @@ import { profileFor } from '../lf2data/tables.mjs';
 import { planAction, ROLL_START_TICKS } from './actions.mjs';
 import { createReflex } from './reflex.mjs';
 import { offer } from './policies.mjs';
+import { stageWidth as readStageWidth } from './setup.mjs';
 import { bucketRange } from '../lf2data/profile.mjs';
 
 /**
@@ -37,6 +38,8 @@ const DEAD_CONFIRM_TICKS = 15;
  * enemy was dead.
  */
 const DECIDED_TICKS = 90;
+/** How long a chosen roll keeps the reflex off: run-up, tumble, and a margin. */
+const ROLL_OWNS_MS = 1000;
 
 export async function runLoop({ cdp, pool, kb, run, name, policy, overlay, hz = 30,
                                decideEveryMs = 500, seconds = 120, onTick, keys,
@@ -77,11 +80,15 @@ export async function runLoop({ cdp, pool, kb, run, name, policy, overlay, hz = 
 
   const profile = profileFor(name);
   if (!profile) throw new Error(`no derived profile for ${name} — rebuild build/_profiles.json`);
+  // Where the camera can go, so "on screen" can be worked out from positions.
+  const stageWidth = await readStageWidth(cdp);
 
   // The game paused (Esc) is a person looking at the fight. Nothing is asked
   // or pressed until it resumes, the paused time is added back to the run, and
   // anything typed into the pause box is logged against the tick the pause
   // began on.
+  let rollUntil = 0;
+  let standing = null;     // Jev's latest answer, for when a reflex lets go
   let paused = false;
   let pausedAtMs = 0;
   const fromPage = (res) => {
@@ -110,7 +117,7 @@ export async function runLoop({ cdp, pool, kb, run, name, policy, overlay, hz = 
     }
 
     const t0 = performance.now();
-    const arena = readArena(await pool.read(), { name, isLive, heldTracker, motionTracker });
+    const arena = readArena(await pool.read(), { name, isLive, heldTracker, motionTracker, stageWidth });
     tick++; counts.ticks++;
 
     if (!arena) { await kb.releaseAll(); await pace(t0, period); continue; }
@@ -134,7 +141,9 @@ export async function runLoop({ cdp, pool, kb, run, name, policy, overlay, hz = 
     if (noEnemyStreak >= DECIDED_TICKS) { counts.outcome = 'won'; break; }
 
     // --- the layer that cannot wait for a network call
-    const reflex = reflexFor(arena);
+    // A roll that has started owns the keys until it is done: the block would
+    // cut the run short and leave a standing guard in its place.
+    const reflex = Date.now() < rollUntil ? null : reflexFor(arena);
     if (reflex) {
       counts.reflexes++;
       action = reflex.action; source = 'reflex'; stance = null;
@@ -156,8 +165,14 @@ export async function runLoop({ cdp, pool, kb, run, name, policy, overlay, hz = 
                || (result.action === 'roll_away' && reflex.eta >= ROLL_START_TICKS))) {
         action = result.action; source = policy.name; stance = null;
         plannedFor = null;   // each answer owns one execution, not one ever
+        if (action === 'roll_away') rollUntil = Date.now() + ROLL_OWNS_MS;
         recent = { last_action: action, outcome: 'pending' };
-      } else if (!result?.action) counts.misses++;
+        standing = { action, askedAtMs };
+      } else if (result?.action) {
+        // Overruled by the block for now, but still the answer for when the
+        // weapon has passed.
+        standing = { action: result.action, askedAtMs };
+      } else counts.misses++;
       shown = {
         ...shown,
         latencyMs: result?.latencyMs ?? null,
@@ -166,6 +181,17 @@ export async function runLoop({ cdp, pool, kb, run, name, policy, overlay, hz = 
         commit: result?.answers?.commit?.noul ?? null,
       };
       forceDraw = true;
+    }
+
+    // --- once the reflex lets go, Jev's latest answer takes the keys back.
+    // Before, an answer that landed while a star was being blocked was thrown
+    // away, and the fighter stood in a dropped guard until the next decision:
+    // the observer's "blocks the volley but never hits back while Rudolf
+    // reloads".
+    if (!reflex && source === 'reflex' && standing && Date.now() - standing.askedAtMs <= staleMs) {
+      action = standing.action; source = policy.name; stance = null;
+      plannedFor = null;
+      standing = null;
     }
 
     // --- ask for the next one, without waiting for it
@@ -235,7 +261,7 @@ export async function runLoop({ cdp, pool, kb, run, name, policy, overlay, hz = 
         // The enemy's own destination, so a decision that read it can be checked
         // after the fact against where the enemy actually went.
         destDx: t.destDx === null ? null : Math.round(t.destDx),
-        approach: !!t.approach })),
+        approach: !!t.approach, onScreen: !!t.onScreen })),
       // `dx`/`dz` and `inFlight` are what make a thrown weapon checkable after
       // the fact: with range alone, a weapon crossing the stage and one lying
       // beside us look the same in the log. `speed` is the measured closing

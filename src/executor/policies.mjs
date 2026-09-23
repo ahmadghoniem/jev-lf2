@@ -37,6 +37,7 @@ export function offer(arena, profile) {
     aligned: near?.aligned ?? true,
     targetDown: isDown(near?.doing),
     hasTarget: !!near,
+    targetOnScreen: near?.onScreen ?? true,
     threatened: !!incoming(arena, { within: 12 }),
     helpless: !!near?.helpless,
     weaponInbound: !!inboundWeapon(arena),
@@ -104,6 +105,8 @@ function situationNotes(options, arena) {
   const near = arena.threats[0];
   const canShoot = Object.keys(options).some((o) => o === 'shoot' || o.startsWith('special_'));
   return [
+    [near && !near.onScreen,
+      'The enemy is off the screen, too far for any shot to land, so there is nothing to fire at until it is back on screen.'],
     [near?.helpless,
       'An enemy is helpless right now — it cannot move or block — so a free hit is on the table.'],
     [near?.vulnerable && !near.helpless,

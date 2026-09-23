@@ -51,6 +51,20 @@ export async function menuState(cdp) {
   return v ? JSON.parse(v) : null;
 }
 
+/** The stage's width in game units (`Sh7E.ph`, set from the background's `w`). */
+export async function stageWidth(cdp) {
+  try {
+    const proto = await classPrototype(cdp, 'Sh7E');
+    const q = await cdp.send('Runtime.queryObjects', { prototypeObjectId: proto });
+    const r = await cdp.send('Runtime.callFunctionOn', { objectId: q.result.objects.objectId,
+      returnByValue: true, functionDeclaration: 'function () { return this[0]?.ph ?? null; }' });
+    const w = r.result?.result?.value;
+    return Number.isFinite(w) && w > 0 ? w : Infinity;
+  } catch {
+    return Infinity;
+  }
+}
+
 const same = (a, b) => a?.toLowerCase() === b?.toLowerCase();
 
 /**

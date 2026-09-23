@@ -44,7 +44,7 @@ const SWING_STYLES = {
 export function buildOptions({ profile, weapons, held, nearby = [], nearest = Infinity, mp = 0,
                                hp = null, hpMax = null, behind = false, vulnerable = false,
                                enemyDoing = null, aligned = true, targetDown = false,
-                               hasTarget = false, threatened = false,
+                               hasTarget = false, threatened = false, targetOnScreen = true,
                                helpless = false, weaponInbound = false, canDo = () => true }) {
   const options = {};
 
@@ -95,8 +95,11 @@ export function buildOptions({ profile, weapons, held, nearby = [], nearest = In
   const rangedName = (m) => (basic && m.entry === basic.entry ? 'shoot' : `special_${label(m)}`);
   // A short-lived projectile is closed once the enemy is past the end of it:
   // the executor fires from where it stands, so the MP would buy nothing.
+  // Nothing is fired at an enemy off the screen: the observer saw every such
+  // shot as wasted, and the log agrees (arrows fired from 700 on landed 1 in 7).
   const ranged = profile.moves.filter((m) => m.kind === 'ranged' && affordable(m)
-    && !targetDown && (!hasTarget || damageAt(m, nearest) > 0) && canDo(rangedName(m)));
+    && !targetDown && (!hasTarget || (targetOnScreen && damageAt(m, nearest) > 0))
+    && canDo(rangedName(m)));
   for (const move of dedupe(ranged, MAX_RANGED)) {
     const isBasic = basic && move.entry === basic.entry;
     options[rangedName(move)] = [
@@ -200,7 +203,9 @@ export function buildOptions({ profile, weapons, held, nearby = [], nearest = In
     options.run_out = 'Run away from the enemy — double-tap away from it. It breaks off quickly to reset the distance, where walking away is slow.';
   }
 
-  options.close_distance = behind
+  options.close_distance = hasTarget && !targetOnScreen
+    ? 'The enemy is off the screen, out of reach of anything you can fire. Walk toward it until it is back on screen, then shoot from there.'
+    : behind
     ? (standoff
       ? 'Turn around, close on the enemy and stop at your firing range — near enough to shoot, too far to be punched.'
       : 'Turn around and move toward the enemy to get into range.')

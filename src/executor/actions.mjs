@@ -16,7 +16,7 @@
 
 import { setTimeout as sleep } from 'node:timers/promises';
 import { P4_KEYS } from './keyboard.mjs';
-import { DRINK_TYPE, Z_TOLERANCE, isDown } from '../state/arena.mjs';
+import { DRINK_TYPE, Z_TOLERANCE, isDown, doing } from '../state/arena.mjs';
 import { REACH_SLACK } from '../lf2data/frames.mjs';
 import { label } from '../state/options.mjs';
 import { incoming, inboundWeapon } from './reflex.mjs';
@@ -53,10 +53,6 @@ const SPECIAL_SEQUENCE = {
 const TURN_MS = 110;
 /** How long a run burst keeps holding the direction after the double-tap. */
 const RUN_MS = 520;
-/** Defend this long into a run starts the roll (measured: 200 ms works). */
-const ROLL_AFTER_RUN_MS = 200;
-/** Frames 102-107 at two ticks each, plus a margin. */
-const ROLL_MS = 450;
 /**
  * Ticks from pressing the double-tap to the first frame with no hurt box: the
  * 60 ms tap, the 60 ms gap and the run before Defend, about 320 ms, with a
@@ -103,11 +99,24 @@ const meleeReach = (profile) => profile?.bestMelee?.reach ?? profile?.basicAttac
  * the lane during the wind-up is chased before the sequence ever starts, which
  * a fixed burst frozen at plan time could not do.
  */
-function aimedAttack(keys, { tight, seq = ['attack'], needReach = false, reach = 45 }) {
+function aimedAttack(keys, { tight, seq = ['attack'], needReach = false, reach = 45, spendsMp = false }) {
   let step = 0;
+  const started = () => step > 0 && step < seq.length * 5;
   return (a) => {
     const t = enemy(a);
     if (!t) return { hold: [] };
+    // Off the screen nothing lands, so walk on until it is back in view.
+    if (t.onScreen === false) {
+      if (started()) step = 0;
+      return { hold: toward(a, keys, t) };
+    }
+    // An enemy that goes down while the sequence is being played would take
+    // the MP and nothing else — the observer saw blastpush fired into a
+    // falling Rudolf — so the last press waits until it is up again.
+    if (spendsMp && isDown(t.doing)) {
+      if (started()) step = 0;
+      return { hold: [] };
+    }
     const dz = t.z - a.me.z;
     // Losing the lane mid-sequence restarts it: a half-played sequence (guard
     // and forward pressed, attack not) is neither a move nor a safe state to
@@ -203,16 +212,13 @@ export function planAction(name, { arena, profile, keys = P4_KEYS } = {}) {
   // A roll is the one move with no hurt box: frames 102-107, reached by
   // pressing Defend while running. Measured on Henry: about 450 ms and 190
   // units of travel with nothing to hit. It goes away from the enemy.
+  // A stance, not a fixed burst, because each step depends on what the fighter
+  // is doing. As a blind burst it fired from the floor: the double-tap was lost
+  // while Henry was knocked down, and the Defend press that should have turned
+  // a run into a roll became a block facing away from the enemy.
   if (name === 'roll_away') {
     if (!target || !hasRoll(profile)) return null;
-    const dir = dirTo(me, target) === 'right' ? 'left' : 'right';
-    return burst(async (kb) => {
-      await kb.doubleTap(keys[dir]);
-      await sleep(ROLL_AFTER_RUN_MS);
-      await kb.tap(keys.defend, 100, { intended: true });
-      await sleep(ROLL_MS);
-      await kb.hold([]);
-    });
+    return stance(rollAway(keys));
   }
 
   if (name === 'run_in' || name === 'run_out') {
@@ -309,7 +315,8 @@ export function planAction(name, { arena, profile, keys = P4_KEYS } = {}) {
   if (name.startsWith('special_')) {
     const move = findSpecial(profile, name);
     if (!move || !SPECIAL_SEQUENCE[move.input]) return null;
-    return stance(aimedAttack(keys, { tight: Z_TOLERANCE, seq: SPECIAL_SEQUENCE[move.input] }));
+    return stance(aimedAttack(keys, { tight: Z_TOLERANCE, seq: SPECIAL_SEQUENCE[move.input],
+                                      spendsMp: (move.mp ?? 0) > 0 }));
   }
 
   if (name === 'throw_weapon') {
@@ -353,6 +360,47 @@ export function planAction(name, { arena, profile, keys = P4_KEYS } = {}) {
 
   return null; // anything unrecognised is not executable
 }
+
+/**
+ * The roll, one tick at a time: wait until the fighter can act, double-tap away
+ * from the enemy, hold the run until the game shows running, then Defend.
+ * A run that never starts within the budget gives up rather than pressing
+ * Defend into a standing block.
+ */
+function rollAway(keys) {
+  let phase = 'ready';
+  let dir = null;
+  let ticks = 0;
+  return (a) => {
+    const t = enemy(a);
+    const now = doing(a.me);
+    ticks++;
+    if (phase === 'ready') {
+      if (!t || !ACTIONABLE.has(now)) return { hold: [] };
+      dir = dirTo(a.me, t) === 'right' ? 'left' : 'right';
+      phase = 'tap'; ticks = 0;
+    }
+    // The double-tap as holds, about the 60 ms press and 60 ms gap that
+    // `kb.doubleTap` uses: two ticks down (the first is the tick that chose the direction), one up,
+    // then held into the run.
+    if (phase === 'tap') {
+      if (ticks <= 1) return { hold: [keys[dir]] };
+      if (ticks === 2) return { hold: [] };
+      phase = 'run'; ticks = 0;
+      return { hold: [keys[dir]] };
+    }
+    if (phase === 'run') {
+      if (now === 'running') { phase = 'roll'; ticks = 0; return { hold: [], tap: [keys.defend], special: true }; }
+      if (ticks > RUN_START_TICKS) { phase = 'done'; return { hold: [] }; }
+      return { hold: [keys[dir]] };
+    }
+    return { hold: [] };
+  };
+}
+/** What a fighter can start a run from. */
+const ACTIONABLE = new Set(['neutral', 'walking', 'running']);
+/** Reads it takes the game to show a run after the double-tap (about 4 measured), with margin. */
+const RUN_START_TICKS = 10;
 
 /** The MP a named option costs, or 0 for the free moves. */
 function mpCost(profile, name) {
