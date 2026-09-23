@@ -41,10 +41,14 @@ const DECIDED_TICKS = 90;
 /** How long a chosen roll keeps the reflex off: run-up, tumble, and a margin. */
 const ROLL_OWNS_MS = 1000;
 
-export async function runLoop({ cdp, pool, kb, run, name, policy, overlay, hz = 30,
+export async function runLoop({ cdp, pool, kb, run, name, policy, overlay, hz = 30, noSync = false,
                                decideEveryMs = 500, seconds = 120, onTick, keys,
                                staleMs = STALE_MS } = {}) {
   const period = 1000 / hz;
+  // `hz` is only the fallback pace, for a pool that cannot wait on a frame.
+  const sync = typeof pool.next === 'function' && !noSync;
+  const timing = { gap: [], wait: [], work: [] };
+  let lastT0 = 0;
   let until = Date.now() + seconds * 1000;
 
   let tick = 0;
@@ -119,11 +123,18 @@ export async function runLoop({ cdp, pool, kb, run, name, policy, overlay, hz = 
       continue;
     }
 
+    // Frame-synced when the pool supports it: the read waits for the game's
+    // next frame, so no timer sleeps between ticks.
+    const tWait = performance.now();
+    const live = sync ? await pool.next() : await pool.read();
     const t0 = performance.now();
-    const arena = readArena(await pool.read(), { name, isLive, heldTracker, motionTracker, stageWidth });
+    if (lastT0) timing.gap.push(t0 - lastT0);
+    lastT0 = t0;
+    timing.wait.push(t0 - tWait);
+    const arena = readArena(live, { name, isLive, heldTracker, motionTracker, stageWidth });
     tick++; counts.ticks++;
 
-    if (!arena) { await kb.releaseAll(); await pace(t0, period); continue; }
+    if (!arena) { await kb.releaseAll(); if (!sync) await pace(t0, period); continue; }
 
     if (!arena.me.alive) {
       deadStreak++;
@@ -136,7 +147,7 @@ export async function runLoop({ cdp, pool, kb, run, name, policy, overlay, hz = 
         fromPage(await overlay?.update({ ...shown, dead: true, action, source, counts,
           hp: arena.me.hp, hpMax: arena.me.hpMax, mp: arena.me.mp, darkHp: arena.me.darkHp }));
       }
-      await pace(t0, period);
+      if (!sync) await pace(t0, period);
       continue;
     }
     deadStreak = 0;
@@ -327,14 +338,26 @@ export async function runLoop({ cdp, pool, kb, run, name, policy, overlay, hz = 
 
     onTick?.({ tick, arena, action, source });
 
-    await pace(t0, period);
+    timing.work.push(performance.now() - t0);
+    if (!sync) await pace(t0, period);
   }
+  counts.timing = summarise(timing);
 
   await kb.releaseAll();
   // A note typed in the last moments is still waiting in the page.
   fromPage(await overlay?.update({ ...shown, counts }, { force: true }));
   counts.defused = kb.stats.defused ?? 0;
   return counts;
+}
+
+/** Per-tick timings as percentiles: the loop's rate and where its time goes. */
+function summarise({ gap, wait, work }) {
+  const pct = (a, p) => { const s = [...a].sort((x, y) => x - y); return s.length ? +s[Math.floor((s.length - 1) * p)].toFixed(1) : null; };
+  const mean = gap.length ? gap.reduce((a, b) => a + b, 0) / gap.length : null;
+  return { hz: mean ? +(1000 / mean).toFixed(1) : null,
+           gapMs: { p50: pct(gap, 0.5), p90: pct(gap, 0.9), p99: pct(gap, 0.99) },
+           waitMs: { p50: pct(wait, 0.5), p90: pct(wait, 0.9) },
+           workMs: { p50: pct(work, 0.5), p90: pct(work, 0.9), p99: pct(work, 0.99) } };
 }
 
 async function pace(t0, period) {

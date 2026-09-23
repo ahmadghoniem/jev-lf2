@@ -147,6 +147,15 @@ const isEntryFrame = (frame) => frame.state === undefined || ENTRY_STATES.has(fr
  * `objects` maps an object id to `{ type, damage, travels }` for everything a
  * move can spawn, which is what makes a projectile recognisable.
  */
+/**
+ * Reach measured in play, for projectiles whose data cannot give it. Henry's
+ * arrow is a thrown object that drops under gravity, so its frame chain loops
+ * and reads as flying until it hits. Over every Henry vs Rudolf run of
+ * 2026-09-23 it landed 57% of the time from 100 to 499 away and 24% from 500
+ * to 599; Rudolf drank 510-600 away through 55 ticks of arrows and lost no HP.
+ */
+const MEASURED_RANGE = { henry_arrow1: 500 };
+
 export function buildProfile(name, frames, objects) {
   // What a spawn does depends on the frame it starts on: John's heal and his
   // energy ball are one object entered at different actions, and Rudolf's
@@ -154,7 +163,13 @@ export function buildProfile(name, frames, objects) {
   // character (Rudolf's clones) is a summon, not a projectile.
   const spawnInfo = (s) => {
     const o = objects.get(s.oid);
-    return { ...s, ...(o ?? {}), ...(o?.at?.(s.action) ?? {}) };
+    const info = { ...s, ...(o ?? {}), ...(o?.at?.(s.action) ?? {}) };
+    const measured = MEASURED_RANGE[o?.name];
+    if (measured && !info.falloff && info.damage > 0) {
+      info.range = measured;
+      info.falloff = [{ to: measured, injury: info.damage }];
+    }
+    return info;
   };
   const isProjectile = (s) => s.type !== 0 && s.damage > 0;
   const moves = [];

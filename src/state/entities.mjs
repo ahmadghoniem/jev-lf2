@@ -61,7 +61,30 @@ export async function openEntityPool(cdp, className = CLASSES.entity) {
     return JSON.parse(r.result.result.value);
   };
 
-  return { read, poolId };
+  /**
+   * The pool on the next game frame: waits in the page, one animation frame at
+   * a time, until anything in play has moved or advanced, then reads it in
+   * the same round trip. Pacing the loop with timers could not hold 30 Hz on
+   * Windows, where a timer sleeps in steps of 15.6 ms: a 13 ms wait took 15.6
+   * and a 20 ms one took 31, and the loop ran at 22 Hz. Waiting on the game's
+   * own frame keeps one read per frame and misses none.
+   */
+  let sig = 0;
+  const next = async (timeoutMs = 60) => {
+    const r = await cdp.send('Runtime.callFunctionOn', {
+      objectId: poolId,
+      returnByValue: true,
+      awaitPromise: true,
+      functionDeclaration: READ_NEXT,
+      arguments: [{ value: IDENTITY }, { value: sig }, { value: timeoutMs }],
+    });
+    if (r.result?.exceptionDetails) throw new Error(r.result.exceptionDetails.text);
+    const out = JSON.parse(r.result.result.value);
+    sig = out.sig;
+    return out.live;
+  };
+
+  return { read, next, poolId };
 }
 
 /**
@@ -84,6 +107,29 @@ const READ_LIVE = `function (identity) {
     out.push(e);
   }
   return JSON.stringify(out);
+}`;
+
+const READ_NEXT = `function (identity, lastSig, timeoutMs) {
+  const pool = this;
+  const read = ${READ_LIVE};
+  const sig = () => {
+    let s = 0;
+    for (const o of pool) {
+      if (o.x === 0 && o.z === 0) continue;
+      s = (s * 31 + (o.Ts | 0) * 7 + (o.waiting | 0) * 3 + Math.round(o.x * 8) + Math.round(o.y * 8) + Math.round(o.z * 8)) | 0;
+    }
+    return s;
+  };
+  return new Promise((resolve) => {
+    const t0 = performance.now();
+    const step = () => {
+      const s = sig();
+      if (s !== lastSig || performance.now() - t0 > timeoutMs) {
+        resolve('{"sig":' + s + ',"live":' + read.call(pool, identity) + '}');
+      } else requestAnimationFrame(step);
+    };
+    step();
+  });
 }`;
 
 /** Entities that are fighters (data type 0), i.e. players and COMs. */

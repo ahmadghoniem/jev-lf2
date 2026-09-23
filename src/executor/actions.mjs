@@ -309,8 +309,12 @@ export function planAction(name, { arena, profile, keys = P4_KEYS } = {}) {
   // stops whiffing from out of range.
   if (name === 'shoot' || name === 'punch' || name.startsWith('swing_')) {
     const melee = name !== 'shoot';
+    // A shot with a measured reach walks in until it is inside it, like the
+    // blastpush does with its full-damage band.
+    const shotRange = !melee ? profile?.basicAttack?.range : null;
     return stance(aimedAttack(keys, { tight: melee ? BOT.ALIGN_Z_TIGHT : Z_TOLERANCE,
-                                       needReach: melee, reach: meleeReach(profile) }));
+                                       needReach: melee || !!shotRange,
+                                       reach: melee ? meleeReach(profile) : (shotRange ?? 0) - REACH_SLACK }));
   }
 
   if (name === 'jump_attack' || name.startsWith('jump_swing_')) {

@@ -104,6 +104,7 @@ process.on('SIGINT', stop);
 let lastShown = '';
 const counts = await runLoop({
   cdp, pool, kb, run, name, policy, overlay, hz, decideEveryMs, seconds, staleMs, keys,
+  noSync: has('no-sync'),
   onTick: ({ arena, action, source }) => {
     const line = `${source.padEnd(9)} ${action.padEnd(24)} hp ${String(arena.me.hp).padStart(4)}  mp ${String(arena.me.mp).padStart(4)}  nearest ${Math.round(arena.nearest)}`;
     if (line !== lastShown) { console.log(line); lastShown = line; }
@@ -119,3 +120,4 @@ console.log(`\n${counts.ticks} ticks, ${counts.decisions} decisions, ${counts.mi
   + `${counts.stale} stale, ${counts.reflexes} reflex ticks, ${counts.bursts} bursts, ${counts.dead} dead ticks, `
   + `${counts.defused} specials defused — ${counts.outcome}`);
 console.log(`run: ${run.dir} (${manifest.counts.judgements} judgement rows)`);
+if (counts.timing) console.log(`loop: ${JSON.stringify(counts.timing)}`);
