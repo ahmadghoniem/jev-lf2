@@ -36,9 +36,11 @@ const profile = profileFor(name);
 if (!profile) throw new Error(`no profile for ${name}`);
 
 let policy;
+let client = null;
 if (kind === 'jev') {
   loadApiKey();
-  policy = jevPolicy(createClient(), profile, { deadlineMs: Number(arg('deadline-ms', 1400)) });
+  client = createClient();
+  policy = jevPolicy(client, profile, { deadlineMs: Number(arg('deadline-ms', 1400)) });
 } else {
   policy = heuristicPolicy(profile);
 }
@@ -51,6 +53,13 @@ const keys = await readBindings(cdp, 'P4');
 console.log(`P4 keys: ${Object.entries(keys).map(([s, k]) => `${s}=${k}`).join(' ')}`);
 const kb = keyboard(cdp, keys);
 
+// Everything that can be done before the fight starts is done now: the panel
+// goes up, and the connection to Jev is opened while the match loads and the
+// input is checked, so the first decision is a warm one.
+const overlay = createOverlay(cdp, { enabled: !has('no-overlay') });
+await overlay.install();
+const warming = client?.warm().then((ms) => console.log(`jev warm in ${ms} ms`)).catch(() => {});
+
 // --fresh restarts the match first, so a run is never half a corpse.
 if (has('fresh')) {
   const alive = await startMatch(cdp, pool, { attack: keys.attack });
@@ -62,7 +71,7 @@ if (has('fresh')) {
 // key map is invisible in the telemetry — every action is logged as intended —
 // so the only honest gate is to press a key and read the game's reaction.
 if (!has('no-verify')) {
-  const results = await proveInput({ cdp, pool, name, keys });
+  const results = await proveInput({ cdp, pool, name, keys, gateOnly: true });
   const gate = results.find((r) => r.gate);
   if (gate?.status !== 'pass') reportProbe(results);
   if (gate?.status === 'fail') {
@@ -73,8 +82,7 @@ if (!has('no-verify')) {
   }
 }
 
-const overlay = createOverlay(cdp, { enabled: !has('no-overlay') });
-await overlay.install();
+await warming;
 
 const run = openRun({ meta: { label: arg('label', `${kind}-${name}`), policy: kind, character: name,
                               archetype: profile.archetype, hz, decideEveryMs, seconds } });

@@ -25,7 +25,7 @@ import { framesFor } from '../lf2data/tables.mjs';
 /** Frames 0-15 are the standing, walking and running blocks. */
 const ACTIONABLE_MAX_FRAME = 15;
 
-export async function proveInput({ cdp, pool, name, keys }) {
+export async function proveInput({ cdp, pool, name, keys, gateOnly = false }) {
   const wanted = name.toLowerCase();
   const me = async () => fighters(await pool.read()).find((f) => f.name?.toLowerCase() === wanted);
 
@@ -72,6 +72,20 @@ export async function proveInput({ cdp, pool, name, keys }) {
     return { name: label, gate, status: pass(s) ? 'pass' : 'fail', detail: detail(s) };
   };
 
+  const attack = () => check({ name: 'attack', slot: 'attack', holdMs: 400, gate: true,
+    pass: (s) => s.some(attacking),
+    detail: (s) => `frames ${[...new Set(s.map((f) => f[F.frame]))].join(',')}` });
+
+  // The attack is the only decisive check, and the others take about three
+  // seconds of a live fight in which the enemy is free to hit a fighter that is
+  // walking left and right on its own. So a caller about to play runs only the
+  // gate, and the rest only when it did not pass, to say what is wrong.
+  if (gateOnly) {
+    const gate = await attack();
+    if (gate.status === 'pass') return [gate];
+    return [...(await proveInput({ cdp, pool, name, keys })).filter((r) => !r.gate), gate];
+  }
+
   return [
     await check({ name: 'walk left', slot: 'left', holdMs: 600,
       pass: (s) => delta(s, 'x') < -10, detail: (s) => `x moved ${delta(s, 'x').toFixed(0)}` }),
@@ -80,9 +94,7 @@ export async function proveInput({ cdp, pool, name, keys }) {
     await check({ name: 'jump', slot: 'jump', holdMs: 250,
       pass: (s) => Math.min(...s.map((f) => f.y)) < -5,
       detail: (s) => `peak height ${Math.min(...s.map((f) => f.y)).toFixed(0)}` }),
-    await check({ name: 'attack', slot: 'attack', holdMs: 400, gate: true,
-      pass: (s) => s.some(attacking),
-      detail: (s) => `frames ${[...new Set(s.map((f) => f[F.frame]))].join(',')}` }),
+    await attack(),
     await check({ name: 'defend', slot: 'defend', holdMs: 400,
       pass: (s) => s.some((f) => f[F.frame] !== start[F.frame]),
       detail: (s) => `frames ${[...new Set(s.map((f) => f[F.frame]))].join(',')}` }),

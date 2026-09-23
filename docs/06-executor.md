@@ -166,3 +166,27 @@ keeps 50 at any distance. The option states the damage at the enemy's current
 distance and is withdrawn once the enemy is past the end of it. Things that
 travel under 100 (explosions, Firen's flame trail) are placed, not thrown, and
 get no bands.
+
+## Notes from a paused game
+
+Esc pauses the game, and while it is paused a note box opens at the top of the
+screen. Enter saves a note (several are fine), Shift+Enter starts a new line,
+and Esc saves whatever is typed and resumes. Typed keys stop at the box, so the
+game's own pause keys (Q restarts, N steps, H, Z) do nothing while it has focus;
+click the game to give them back. The box follows the game's own `pause` flag
+on `Sh7E`, not a count of Esc presses.
+
+While paused the loop asks nothing and presses nothing, drops any answer still
+in flight, and adds the paused time back to the run. Notes land in
+`runs/<id>/notes.jsonl` against the tick the pause began on, and
+`node scripts/notes.mjs runs/<id>` prints the three seconds before each one and
+one after: what Jev was offered and chose, reflex overrides, weapons in flight,
+and every hit.
+
+## Starting fast
+
+`play.mjs` puts the panel up and opens the Jev connection (one tiny question,
+`client.warm()`) before the fight, and checks only the decisive attack input
+unless it fails. The full five-check probe used to take about three seconds of
+a live fight in which Rudolf was free to hit a fighter walking left and right
+on its own, and the first decision was a cold 700-900 ms call.

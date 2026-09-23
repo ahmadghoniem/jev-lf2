@@ -8,10 +8,12 @@
  * the action on screen came from Jev or from the reflex layer overruling it.
  *
  * The page-side half lives in `overlay.page.js` so its CSS and markup can be
- * edited as code. Updates are one-way; the page never talks back.
+ * edited as code. The page answers each update with two things: whether the
+ * game is paused, and any notes typed into the pause box since the last one.
  */
 
 import { readFileSync } from 'node:fs';
+import { classPrototype } from '../state/entities.mjs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
@@ -27,6 +29,15 @@ export function createOverlay(cdp, { enabled = true, minIntervalMs = 100 } = {})
     async install() {
       if (!enabled) return false;
       await cdp.evaluate(PAGE);
+      // The pause flag lives on the game's one `Sh7E` instance, which nothing
+      // on `window` reaches; give the page a reference so the note box can
+      // follow it. Without it the panel still draws and the box never opens.
+      try {
+        const proto = await classPrototype(cdp, 'Sh7E');
+        const q = await cdp.send('Runtime.queryObjects', { prototypeObjectId: proto });
+        await cdp.send('Runtime.callFunctionOn', { objectId: q.result.objects.objectId,
+          functionDeclaration: 'function () { window.__jevGameRef = this[0]; }' });
+      } catch { /* no pause notes this run */ }
       installed = true;
       return true;
     },
@@ -36,23 +47,25 @@ export function createOverlay(cdp, { enabled = true, minIntervalMs = 100 } = {})
      * decision passes `force` so it is never the update that gets dropped.
      */
     async update(data, { force = false } = {}) {
-      if (!installed) return;
+      if (!installed) return null;
       const now = Date.now();
-      if (!force && now - last < minIntervalMs) return;
+      if (!force && now - last < minIntervalMs) return null;
       last = now;
       try {
-        await cdp.evaluate(`window.__jev && window.__jev(${JSON.stringify(data)})`);
+        return await cdp.evaluate(`window.__jev && window.__jev(${JSON.stringify(data)})`) ?? null;
       } catch {
         // A reload or a scene change can take the panel with it; the next
         // install puts it back. Never let drawing break the fight.
         installed = false;
+        return null;
       }
     },
 
     async remove() {
       if (!installed) return;
       await cdp.evaluate("document.getElementById('jev-overlay')?.remove();"
-        + "document.getElementById('jev-overlay-style')?.remove(); delete window.__jev;");
+        + "document.getElementById('jev-overlay-style')?.remove(); window.__jevNoteCleanup?.();"
+        + 'delete window.__jev; delete window.__jevGameRef;');
       installed = false;
     },
   };

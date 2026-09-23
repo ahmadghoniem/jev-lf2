@@ -42,7 +42,7 @@ export async function runLoop({ cdp, pool, kb, run, name, policy, overlay, hz = 
                                decideEveryMs = 500, seconds = 120, onTick, keys,
                                staleMs = STALE_MS } = {}) {
   const period = 1000 / hz;
-  const until = Date.now() + seconds * 1000;
+  let until = Date.now() + seconds * 1000;
 
   let tick = 0;
   let action = 'wait';
@@ -78,7 +78,37 @@ export async function runLoop({ cdp, pool, kb, run, name, policy, overlay, hz = 
   const profile = profileFor(name);
   if (!profile) throw new Error(`no derived profile for ${name} — rebuild build/_profiles.json`);
 
+  // The game paused (Esc) is a person looking at the fight. Nothing is asked
+  // or pressed until it resumes, the paused time is added back to the run, and
+  // anything typed into the pause box is logged against the tick the pause
+  // began on.
+  let paused = false;
+  let pausedAtMs = 0;
+  const fromPage = (res) => {
+    if (!res) return;
+    for (const n of res.notes ?? []) run?.note({ tick, text: n.text });
+    paused = !!res.paused;
+  };
+
   while (Date.now() < until) {
+    if (paused) {
+      if (!pausedAtMs) {
+        pausedAtMs = Date.now();
+        pending = null;   // its answer would describe the fight before the pause
+        await kb.releaseAll();
+      }
+      fromPage(await overlay?.update({ ...shown, paused: true }, { force: true }));
+      if (!paused) {
+        until += Date.now() - pausedAtMs;
+        pausedAtMs = 0;
+        lastAsk = 0;      // ask about the resumed fight at once
+        await kb.releaseAll();
+      } else {
+        await new Promise((r) => setTimeout(r, 100));
+      }
+      continue;
+    }
+
     const t0 = performance.now();
     const arena = readArena(await pool.read(), { name, isLive, heldTracker, motionTracker });
     tick++; counts.ticks++;
@@ -93,8 +123,8 @@ export async function runLoop({ cdp, pool, kb, run, name, policy, overlay, hz = 
         counts.dead++;
         if (counts.dead >= DECIDED_TICKS) { counts.outcome = 'lost'; break; }
         run?.tick({ tick, dead: true });
-        await overlay?.update({ ...shown, dead: true, action, source, counts,
-          hp: arena.me.hp, hpMax: arena.me.hpMax, mp: arena.me.mp, darkHp: arena.me.darkHp });
+        fromPage(await overlay?.update({ ...shown, dead: true, action, source, counts,
+          hp: arena.me.hp, hpMax: arena.me.hpMax, mp: arena.me.mp, darkHp: arena.me.darkHp }));
       }
       await pace(t0, period);
       continue;
@@ -218,7 +248,7 @@ export async function runLoop({ cdp, pool, kb, run, name, policy, overlay, hz = 
       keys: kb.stats.down,
     });
     const near = arena.threats[0];
-    await overlay?.update({
+    fromPage(await overlay?.update({
       ...shown, action, source, counts, reflex: reflex?.reason ?? null,
       hp: arena.me.hp, darkHp: arena.me.darkHp, hpMax: arena.me.hpMax, mp: arena.me.mp,
       nearest: near ? { name: near.name, distance: bucketRange(near.gap), doing: near.doing, vulnerable: near.vulnerable, helpless: near.helpless } : null,
@@ -226,7 +256,7 @@ export async function runLoop({ cdp, pool, kb, run, name, policy, overlay, hz = 
       // enemy looks idle and the weapon looks like something to walk over.
       threat: arena.flying[0]
         ? { name: arena.flying[0].name, distance: bucketRange(arena.flying[0].range) } : null,
-    }, { force: forceDraw });
+    }, { force: forceDraw }));
     forceDraw = false;
 
     onTick?.({ tick, arena, action, source });
@@ -235,6 +265,8 @@ export async function runLoop({ cdp, pool, kb, run, name, policy, overlay, hz = 
   }
 
   await kb.releaseAll();
+  // A note typed in the last moments is still waiting in the page.
+  fromPage(await overlay?.update({ ...shown, counts }, { force: true }));
   counts.defused = kb.stats.defused ?? 0;
   return counts;
 }

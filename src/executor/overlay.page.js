@@ -9,14 +9,17 @@
  * monospace readout. The game uses neither anywhere, so there is no mistaking
  * this for the game's own HUD.
  *
- * Nothing here can affect the fight. No key handlers, no pointer events, and
- * every update is a one-way push from the executor.
+ * The panel cannot affect the fight: no pointer events, and every update is a
+ * one-way push from the executor. The one thing that talks back is the note
+ * box, which only exists while the game is paused (Esc): what is typed there is
+ * handed to the executor on its next update and logged against the paused tick.
  */
 
 (() => {
   const ID = 'jev-overlay';
   document.getElementById(ID)?.remove();
   document.getElementById(ID + '-style')?.remove();
+  window.__jevNoteCleanup?.();
 
   const style = document.createElement('style');
   style.id = ID + '-style';
@@ -113,6 +116,35 @@
       white-space: nowrap;
     }
     #jev-overlay .jv-meta > span { overflow: hidden; text-overflow: ellipsis; }
+    #jev-note {
+      position: fixed; left: 50%; top: 6vmin; transform: translateX(-50%);
+      z-index: 100000; width: 60vmin; min-width: 420px; display: none;
+      font-family: Arial, Helvetica, sans-serif; color: #fff;
+      background: rgba(16, 32, 108, 0.96);
+      border: 0.28vmin solid rgb(90, 119, 216);
+      border-top: 0.75vmin solid #f0a830;
+      border-radius: 1.1vmin; box-shadow: 0 0 2.4vmin rgba(0, 0, 0, 0.7);
+      padding: 1vmin 1.2vmin;
+    }
+    #jev-note.open { display: block; }
+    #jev-note .jn-head {
+      display: flex; justify-content: space-between; align-items: baseline;
+      color: #f0a830; font-weight: bold; font-size: 1.75vmin; letter-spacing: .16vmin;
+      margin-bottom: .7vmin;
+    }
+    #jev-note .jn-hint { color: rgb(126, 150, 230); font-weight: normal; letter-spacing: 0; font-size: 1.3vmin; }
+    #jev-note textarea {
+      width: 100%; box-sizing: border-box; height: 9vmin; resize: none;
+      font-family: Consolas, "Courier New", monospace; font-size: 1.8vmin;
+      color: #fff; background: rgba(0, 0, 0, .45);
+      border: .14vmin solid rgb(90, 119, 216); border-radius: .5vmin; padding: .6vmin;
+      outline: none;
+    }
+    #jev-note textarea:focus { border-color: #f0a830; }
+    #jev-note .jn-saved {
+      margin-top: .6vmin; font-family: Consolas, "Courier New", monospace;
+      font-size: 1.35vmin; color: rgb(190, 208, 255);
+    }
     #jev-overlay .jv-flash { animation: jv-flash .5s ease-out; }
     @keyframes jv-flash {
       from { background: rgba(240, 168, 48, .38); }
@@ -150,6 +182,73 @@
     </div>
   `;
   document.body.appendChild(el);
+
+  // --- the note box. It follows the game's own pause flag rather than
+  // guessing from Esc presses, so it can never be open while the fight runs.
+  const note = document.createElement('div');
+  note.id = 'jev-note';
+  note.innerHTML = `
+    <div class="jn-head"><span style="white-space:nowrap">NOTE FOR THIS MOMENT</span>
+      <span class="jn-hint">Enter saves &middot; Shift+Enter new line &middot; Esc resumes</span></div>
+    <textarea spellcheck="false" placeholder="What did you see?"></textarea>
+    <div class="jn-saved" data-saved></div>
+  `;
+  document.body.appendChild(note);
+  const box = note.querySelector('textarea');
+  const savedLine = note.querySelector('[data-saved]');
+  const outbox = [];
+  let savedHere = 0;
+  let paused = false;
+
+  const save = () => {
+    const text = box.value.trim();
+    if (!text) return;
+    outbox.push({ text, at: Date.now() });
+    box.value = '';
+    savedHere++;
+    savedLine.textContent = savedHere + ' note' + (savedHere === 1 ? '' : 's') + ' saved at this moment';
+  };
+
+  const isPaused = () => {
+    const g = window.__jevGameRef;
+    return !!g && g.J0 === 0 && g.pause === 1;
+  };
+  const poll = setInterval(() => {
+    const now = isPaused();
+    if (now === paused) return;
+    paused = now;
+    if (paused) {
+      savedHere = 0;
+      savedLine.textContent = '';
+      note.classList.add('open');
+      box.focus();
+    } else {
+      save();
+      box.blur();
+      note.classList.remove('open');
+    }
+  }, 100);
+
+  // The game reads keys from a bubbling listener on window, and while paused
+  // some letters do things (Q, N, H, Z). A capturing listener on window runs
+  // before it, so typed keys stop here and only reach the textarea. Esc goes
+  // through, because Esc is what resumes the game.
+  const swallow = (e) => {
+    if (document.activeElement !== box) return;
+    if (e.key === 'Escape') {
+      if (e.type === 'keydown') { save(); box.blur(); }
+      return;
+    }
+    if (e.type === 'keydown' && e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); save(); }
+    e.stopPropagation();
+  };
+  for (const type of ['keydown', 'keyup', 'keypress']) window.addEventListener(type, swallow, true);
+  window.__jevNoteCleanup = () => {
+    clearInterval(poll);
+    for (const type of ['keydown', 'keyup', 'keypress']) window.removeEventListener(type, swallow, true);
+    note.remove();
+    delete window.__jevNoteCleanup;
+  };
 
   const q = (name) => el.querySelector('[data-' + name + ']');
   const pct = (n, d) => (d ? Math.max(0, Math.min(1, n / d)) * 100 : 0) + '%';
@@ -215,6 +314,7 @@
       void row.offsetWidth;
       row.classList.add('jv-flash');
     }
+    return { paused: isPaused(), notes: outbox.splice(0) };
   };
 
   return 'ok';

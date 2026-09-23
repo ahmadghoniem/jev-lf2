@@ -175,6 +175,20 @@ export function createClient({
     get costUsd() { return usage.inputTokens * USD_PER_INPUT_TOKEN; },
 
     /**
+     * Opens the connection before the fight needs it. The first call of a run
+     * took 700-900 ms against ~300 once warm, and it used to be the first
+     * decision, so the fighter stood idle for most of a second at the start.
+     * One tiny question costs a few dozen tokens.
+     */
+    async warm() {
+      const t0 = performance.now();
+      await this.ask({ state: 'Connection check before a match.', deadlineMs: 5000,
+        questions: { ready: { type: 'noul', instructions: 'Is this a connection check?',
+          criteria: { true: 'Yes.', false: 'No.' } } } });
+      return Math.round(performance.now() - t0);
+    },
+
+    /**
      * One judgement, one attempt, one deadline. Returns `null` instead of
      * throwing when the answer did not arrive in time or the service failed,
      * because the caller's only sane response to either is to keep playing.

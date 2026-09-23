@@ -11,6 +11,7 @@
  *
  *   ticks.jsonl        30 Hz   what the arena looked like — the raw record
  *   judgements.jsonl   ~2 Hz   what Jev was asked and answered
+ *   notes.jsonl        rare    what the observer typed while the game was paused
  *
  * Outcomes — damage, deaths, what followed a decision — are derived from the
  * tick stream afterwards (scripts/breakdown.mjs, scripts/report-run.mjs).
@@ -35,12 +36,13 @@ export function openRun({ dir = 'runs', id = stamp(), meta = {} } = {}) {
   const streams = {
     ticks: createWriteStream(join(runDir, 'ticks.jsonl'), { flags: 'a' }),
     judgements: createWriteStream(join(runDir, 'judgements.jsonl'), { flags: 'a' }),
+    notes: createWriteStream(join(runDir, 'notes.jsonl'), { flags: 'a' }),
   };
   const write = (stream, row) => streams[stream].write(`${JSON.stringify(row)}\n`);
 
   const started = Date.now();
   const schemas = new Map();
-  const counts = { ticks: 0, judgements: 0, jevAnswers: 0, jevMisses: 0 };
+  const counts = { ticks: 0, judgements: 0, jevAnswers: 0, jevMisses: 0, notes: 0 };
 
   /**
    * Registers a question set and returns the id to reference it by.
@@ -83,6 +85,15 @@ export function openRun({ dir = 'runs', id = stamp(), meta = {} } = {}) {
         latencyMs, usage, requestId, source, action,
         error: error ? String(error.message ?? error) : undefined,
       });
+    },
+
+    /**
+     * A note typed during a pause, pinned to the tick the pause began on, so
+     * `scripts/notes.mjs` can show what was happening around it.
+     */
+    note({ tick, text }) {
+      counts.notes++;
+      write('notes', { t: Date.now() - started, tick, text });
     },
 
     /** Closes the streams and writes the manifest that describes the run. */
