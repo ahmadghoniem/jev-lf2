@@ -150,11 +150,22 @@ export async function runLoop({ cdp, pool, kb, run, name, policy, overlay, hz = 
     // A roll owns the keys until it is done, since the block would cut it
     // short — except against a weapon about to land during the run-up, where
     // Defend is what starts the tumble anyway (running + Defend is the roll).
-    if (Date.now() < rollUntil && !(reflex?.thrown && reflex.eta <= 3 && !ROLLING(arena.me.frame))) reflex = null;
+    // A lane dodge also goes ahead of a roll still walking into its run: the
+    // run is along the star's line, and stars are faster than a run.
+    if (Date.now() < rollUntil) {
+      const running = doing(arena.me) === 'running';
+      const dodge = reflex?.action?.startsWith('dodge_') && !running && !ROLLING(arena.me.frame);
+      const block = reflex?.thrown && reflex.action === 'defend' && reflex.eta <= 3 && !ROLLING(arena.me.frame);
+      if (dodge) rollUntil = 0;
+      else if (!block) reflex = null;
+    }
     // A special whose Defend has been pressed is already in a block pose, and
     // the star that interrupted it restarted it: against a steady thrower 1
     // blastpush in 12 fired. So a half-played special is left to finish.
-    if (reflex?.thrown && source === policy.name && planned?.busy?.()) reflex = null;
+    // Only the block waits for it; a lane dodge does not, since a special held
+    // at its last press stands in the star's line out of its block pose (111 hp
+    // were lost that way in one run).
+    if (reflex?.thrown && reflex.action === 'defend' && source === policy.name && planned?.busy?.()) reflex = null;
     // A block the guard meter cannot take only delays the hit by one star, so
     // an attack or roll Jev chose goes ahead of it.
     if (reflex?.worn && answered && !HOLDS.has(answered.action)
