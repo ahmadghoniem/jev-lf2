@@ -43,6 +43,13 @@ const SWING_STYLES = {
  */
 /** Room the roll needs behind the fighter to end out of reach. */
 const ROLL_ROOM = 180;
+/**
+ * Room a run away needs, and a walk away. Against the edge of the stage both
+ * press into it: in one run Henry spent most of his last 250 hp at the right
+ * edge answering run_out and open_distance, with his back to Rudolf.
+ */
+const RUN_OUT_ROOM = 150;
+const WALK_OUT_ROOM = 40;
 
 export function buildOptions({ profile, weapons, held, nearby = [], nearest = Infinity, mp = 0,
                                hp = null, hpMax = null, behind = false, vulnerable = false,
@@ -216,7 +223,7 @@ export function buildOptions({ profile, weapons, held, nearby = [], nearest = In
   if (hasTarget && nearest > RUN_IN_MIN_X) {
     options.run_in = 'Run at the enemy — double-tap toward it. It closes ground about twice as fast as walking, but the direction is committed for the burst.';
   }
-  if (hasTarget && nearest <= RUN_OUT_MAX_X) {
+  if (hasTarget && nearest <= RUN_OUT_MAX_X && roomBehind >= RUN_OUT_ROOM) {
     options.run_out = 'Run away from the enemy — double-tap away from it. It breaks off quickly to reset the distance, where walking away is slow.';
   }
 
@@ -229,7 +236,9 @@ export function buildOptions({ profile, weapons, held, nearby = [], nearest = In
     : (standoff
       ? 'Close on the enemy, but stop at your firing range. Once the shot reaches, hold and fire rather than walking in.'
       : 'Move toward the enemy to get into range.');
-  options.open_distance = 'Move away from the enemy, walking, to get out of its reach. Nothing is committed, so it can be changed at any moment.';
+  if (roomBehind >= WALK_OUT_ROOM) {
+    options.open_distance = 'Move away from the enemy, walking, to get out of its reach. Nothing is committed, so it can be changed at any moment.';
+  }
   // Blocking is only ever worth it while something is actually on its way: a
   // guard held against an idle enemy does nothing, wears down, and breaks on
   // the first real volley — the run data has 73 defend ticks with the enemy

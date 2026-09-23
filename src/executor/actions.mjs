@@ -51,8 +51,6 @@ const SPECIAL_SEQUENCE = {
 
 /** How long a turn is: a direction tap short enough not to walk anywhere. */
 const TURN_MS = 110;
-/** How long a run burst keeps holding the direction after the double-tap. */
-const RUN_MS = 520;
 /**
  * Ticks from pressing the double-tap to the first frame with no hurt box: the
  * 60 ms tap, the 60 ms gap and the run before Defend, about 320 ms, with a
@@ -116,6 +114,10 @@ function aimedAttack(keys, { tight, seq = ['attack'], needReach = false, reach =
       if (started()) step = 0;
       return { hold: [] };
     }
+    // Defend while running is a roll and Attack is the run attack, so a run
+    // is stopped first, by pressing against it. Started from the run, one
+    // super arrow rolled Henry past Rudolf into the edge of the stage.
+    if (step === 0 && mine === 'running') return { hold: [keys[opposite(a.me.facing)]] };
     if (step === 0 && !CAN_START.has(mine)) return { hold: [] };
     // A special opens with Defend, and the block pose that press starts lasts
     // 13 ticks, during which the fighter cannot step out of a star's line. In
@@ -181,7 +183,7 @@ function aimedAttack(keys, { tight, seq = ['attack'], needReach = false, reach =
 /** States a hit leaves a fighter in, where key presses do nothing. */
 const HURT = new Set(['staggered', 'broken_guard', 'knocked_down', 'in_the_air']);
 /** What an attack sequence can start from; a block counts, since specials open with Defend. */
-const CAN_START = new Set(['neutral', 'walking', 'running', 'blocking']);
+const CAN_START = new Set(['neutral', 'walking', 'blocking']);
 
 export function planAction(name, { arena, profile, keys = P4_KEYS } = {}) {
   const { me, threats, held } = arena;
@@ -239,6 +241,11 @@ export function planAction(name, { arena, profile, keys = P4_KEYS } = {}) {
     return stance((a) => {
       const t = enemy(a);
       if (!t) return { hold: [] };
+      // At the edge of the stage a step away goes nowhere and keeps his back
+      // to the enemy, so he turns to face it instead.
+      if (roomTo(a, opposite(dirTo(a.me, t))) < EDGE_ROOM) {
+        return t.infront ? { hold: [] } : { hold: [], tap: [keys[dirTo(a.me, t)]] };
+      }
       if (moveNoise(hesitation(1)) === 0) return { hold: [] };
       return { hold: away(a, keys, t) };
     });
@@ -261,14 +268,8 @@ export function planAction(name, { arena, profile, keys = P4_KEYS } = {}) {
 
   if (name === 'run_in' || name === 'run_out') {
     if (!target) return null;
-    const dir = name === 'run_out'
-      ? (dirTo(me, target) === 'right' ? 'left' : 'right')
-      : dirTo(me, target);
-    return burst(async (kb) => {
-      await kb.doubleTap(keys[dir]);
-      await sleep(RUN_MS);
-      await kb.hold([]);
-    });
+    const stopGap = (a) => Math.max(standoffFor(profile, a.me.mp), meleeReach(profile)) + RUN_SKID;
+    return stance(runStance(keys, { toward: name === 'run_in', stopGap }));
   }
 
   // Stepping off the line a thrown weapon travels along, and staying off it.
@@ -451,6 +452,64 @@ function rollAway(keys) {
     return { hold: [] };
   };
 }
+/**
+ * A run at the enemy or away from it, ended by a press the other way.
+ *
+ * LF2 keeps a run going after the key is let go; only the opposite direction,
+ * an attack, a jump or Defend ends it. The old burst double-tapped, held for
+ * 520 ms and let go, and the run went on: in one run Henry ran in from x 56,
+ * past Rudolf and into the right edge of the stage, then spent his last 250 hp
+ * there, every run away pressing into the edge with his back to Rudolf. So
+ * the run is held while it has somewhere to go, stopped, and then he turns to
+ * face the enemy.
+ */
+function runStance(keys, { toward, stopGap }) {
+  let phase = 'ready';
+  let dir = null;
+  let ticks = 0;
+  return (a) => {
+    const t = enemy(a);
+    const now = doing(a.me);
+    ticks++;
+    if (phase === 'ready') {
+      if (!t || !ACTIONABLE.has(now)) return { hold: [] };
+      dir = toward ? dirTo(a.me, t) : opposite(dirTo(a.me, t));
+      phase = roomTo(a, dir) < RUN_START_ROOM ? 'done' : 'tap';
+      ticks = 0;
+    }
+    if (phase === 'tap') {
+      if (ticks <= 1) return { hold: [keys[dir]] };
+      if (ticks === 2) return { hold: [] };
+      phase = 'run'; ticks = 0;
+    }
+    if (phase === 'run') {
+      const there = !t || roomTo(a, dir) < RUN_EDGE
+        || (toward ? dirTo(a.me, t) !== dir || t.gap <= stopGap(a) : ticks > RUN_TICKS);
+      const never = now !== 'running' && ticks > RUN_START_TICKS;
+      if (!there && !never) return { hold: [keys[dir]] };
+      phase = 'stop'; ticks = 0;
+    }
+    if (phase === 'stop') {
+      // Pressed on every other read, since held on it would walk back.
+      if (now === 'running' && ticks <= 6) return ticks % 2 ? { hold: [] } : { hold: [keys[opposite(dir)]] };
+      phase = 'done';
+    }
+    if (t && !t.infront && ACTIONABLE.has(now)) return { hold: [], tap: [keys[dirTo(a.me, t)]] };
+    return { hold: [] };
+  };
+}
+/** Ticks a run away is held once running, about the 520 ms the burst held. */
+const RUN_TICKS = 16;
+/** Ground a run needs ahead to start, and the ground at which it is stopped. */
+const RUN_START_ROOM = 120;
+const RUN_EDGE = 80;
+/** A run stopped by the opposite key still slides on. */
+const RUN_SKID = 40;
+/** Closer than this to the edge, a step away goes nowhere. */
+const EDGE_ROOM = 12;
+/** Ground between the fighter and the stage edge in a direction. */
+const roomTo = (a, dir) => (dir === 'left' ? a.me.x : (a.stageWidth ?? Infinity) - a.me.x);
+const opposite = (dir) => (dir === 'right' ? 'left' : 'right');
 /** What a fighter can start a run from. */
 const ACTIONABLE = new Set(['neutral', 'walking', 'running']);
 /** Reads it takes the game to show a run after the double-tap (about 4 measured), with margin. */

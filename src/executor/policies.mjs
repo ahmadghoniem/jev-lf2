@@ -48,8 +48,7 @@ export function offer(arena, profile) {
     helpless: !!near?.helpless,
     weaponInbound: !!inboundWeapon(arena),
     guardWorn: guardWorn(arena),
-    // Distance to the stage edge on the side away from the enemy.
-    roomBehind: near ? (near.x >= arena.me.x ? arena.me.x : (arena.stageWidth ?? Infinity) - arena.me.x) : Infinity,
+    roomBehind: roomBehind(arena),
   });
   return executableOptions(options, { arena, profile });
 }
@@ -106,6 +105,13 @@ export function jevPolicy(client, profile, { deadlineMs = 1400 } = {}) {
   };
 }
 
+/** Distance to the stage edge on the side away from the nearest enemy. */
+function roomBehind(arena) {
+  const near = arena.threats[0];
+  if (!near) return Infinity;
+  return near.x >= arena.me.x ? arena.me.x : (arena.stageWidth ?? Infinity) - arena.me.x;
+}
+
 /**
  * The situation notes appended to the action question, each only when it
  * holds. They say in words what the arena says in numbers.
@@ -130,6 +136,8 @@ function situationNotes(options, arena) {
       'The enemy is inside punching range. Standing here means trading blows with it, and a block here only waits for the next hit — rolling away or stepping back gets you out of its reach while your shots still fly, and a thrower at this distance is throwing almost point-blank.'],
     [near && near.gap <= 100 && Object.keys(options).some((o) => o === 'dash_attack' || o === 'run_attack'),
       'The enemy is close enough for your free melee attacks, which cost no MP; an arrow or a special spends MP even at this range.'],
+    [near && roomBehind(arena) < 60,
+      'Your back is to the edge of the stage, so there is no ground behind you to back away into; moving away only pins you in the corner. The way out is along the depth or past the enemy.'],
     [near?.approach,
       'The enemy is walking toward you, so it will close the gap on its own; there is nothing to gain by meeting it.'],
     [near && !near.approach && near.hasDest,
