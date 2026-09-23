@@ -19,6 +19,7 @@ import { P4_KEYS } from './keyboard.mjs';
 import { DRINK_TYPE, Z_TOLERANCE, isDown } from '../state/arena.mjs';
 import { REACH_SLACK } from '../lf2data/frames.mjs';
 import { label } from '../state/options.mjs';
+import { incoming, inboundWeapon } from './reflex.mjs';
 import { BOT, STANDOFF_X, createNoise, hesitation } from '../state/bot.mjs';
 
 /** Standing on top of an item is what picks it up; the hit box is generous. */
@@ -130,8 +131,13 @@ export function planAction(name, { arena, profile, keys = P4_KEYS } = {}) {
   if (name === 'wait') return stance(() => ({ hold: [] }));
   if (name === 'defend') {
     // Blocking only covers the side you face, so turning is part of blocking.
+    // It lasts only while something is coming, by the same test that offers
+    // the option: held until the next decision, a block against a star went on
+    // 0.5-1 s after the star had passed, which read as blocking at nothing.
     return stance((a) => {
       const t = enemy(a);
+      const coming = incoming(a, { within: 12 }) || inboundWeapon(a) || (t && t.gap <= 100);
+      if (!coming) return { hold: [] };
       return { hold: t && !t.infront ? [keys[dirTo(a.me, t)], keys.defend] : [keys.defend] };
     });
   }

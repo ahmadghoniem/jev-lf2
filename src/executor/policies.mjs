@@ -37,7 +37,6 @@ export function offer(arena, profile) {
     aligned: near?.aligned ?? true,
     targetDown: isDown(near?.doing),
     hasTarget: !!near,
-    mpLow: arena.me.mp < MP_LOW,
     threatened: !!incoming(arena, { within: 12 }),
     helpless: !!near?.helpless,
     weaponInbound: !!inboundWeapon(arena),

@@ -118,3 +118,27 @@ throttled to 10 Hz, except a new decision, which always draws.
 The cold round trip is why the per-call deadline is **1400 ms** and not 900: at
 900 the first three calls of a run all missed, and then latency settled to a
 third of that once the connection was warm.
+
+## MP is stated, not tiered
+
+Jev used to see its bar as `some` and a special as `expensive`, and could not
+tell whether a 200 MP super arrow would leave anything for the next one. It sat
+on a full bar for long stretches. Now the state gives the bar in numbers with
+its refill (`430 of 500, refilling about 10 a second`, and a warning when the
+bar is full and the refill is being thrown away), and every option that costs
+MP says what it costs against the MP in hand: how many times it can be paid,
+what is left after one, and whether that still buys a special or how many
+seconds until it does.
+
+Everything in that sentence comes from data, so it holds for every fighter.
+Costs differ per character even within a kind of move (the Fa energy ball is
+40 for Dennis and Davis, 75 for Firen, 100 for Freeze, 125 for Woody), so no
+table by category would do. Two engine rules from px.js: a cost above 1000
+carries HP in its thousands (`mp % 1000` MP and `10 * floor(mp / 1000)` HP, so
+Firen's explosion at 4300 is 300 MP and 40 HP), and the refill is
+`1 + floor((500 - hp) / 100)` per step, which measured 10, 20 and 30 MP a
+second above 400, 301-400 and 201-300 HP.
+
+A chosen `defend` also ends as soon as nothing is coming, by the same test
+that offers it. Held until the next decision, it outlasted the star it was
+answering by 0.5-1 s.

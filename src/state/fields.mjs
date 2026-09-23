@@ -27,6 +27,13 @@ export const F = {
 /** MP has no max field in the pool; `je` was seen at 505 while `Ke` is 500. */
 export const MP_CAP = 500;
 
+/**
+ * MP refill per second at a given HP. px.js adds `1 + floor((500 - hp) / 100)`
+ * per refill step, about ten steps a second: measured 10/s above 400 HP, 20/s
+ * at 301-400, 30/s at 201-300. A hurt fighter refills faster.
+ */
+export const mpRegenPerSecond = (hp) => 10 * (1 + Math.floor((500 - Math.min(500, Math.max(0, hp))) / 100));
+
 /** A fighter in our own vocabulary, with the raw entity kept for the log. */
 export const readFighter = (e) => ({
   slot: e.slot,

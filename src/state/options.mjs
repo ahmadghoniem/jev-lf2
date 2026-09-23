@@ -12,7 +12,8 @@
  * subtract two numbers to get there, because the numbers arrive as tiers.
  */
 
-import { tierDamage, tierMp, bucketRange } from '../lf2data/profile.mjs';
+import { tierDamage, bucketRange } from '../lf2data/profile.mjs';
+import { mpRegenPerSecond } from './fields.mjs';
 import { REACH_SLACK } from '../lf2data/frames.mjs';
 import { STANDOFF_X, RUN_IN_MIN_X, RUN_OUT_MAX_X } from './bot.mjs';
 
@@ -43,12 +44,13 @@ const SWING_STYLES = {
 export function buildOptions({ profile, weapons, held, nearby = [], nearest = Infinity, mp = 0,
                                hp = null, hpMax = null, behind = false, vulnerable = false,
                                enemyDoing = null, aligned = true, targetDown = false,
-                               hasTarget = false, mpLow = false, threatened = false,
+                               hasTarget = false, threatened = false,
                                helpless = false, weaponInbound = false, canDo = () => true }) {
   const options = {};
 
   const affordable = (m) => m.mp <= mp || m.allowedWhenShort;
   const basic = profile.basicAttack;
+  const cost = (m) => mpCost(m, { mp, hp, profile });
 
   // Where a fighter that can fire wants to stand, and so where "close the
   // distance" stops meaning "walk into it". A fighter with nothing to fire has
@@ -98,14 +100,12 @@ export function buildOptions({ profile, weapons, held, nearby = [], nearest = In
     options[rangedName(move)] = [
       'Attack from where you stand; it reaches any distance.',
       `Damage is ${move.damageTier}.`,
-      move.mp === 0 ? 'Costs no MP.'
-        : `Costs ${tierMp(move.mp)} MP${move.allowedWhenShort ? ', and still works when MP is short' : ''}.`,
+      cost(move),
       isBasic ? "This is this fighter's ordinary attack, so it is always available."
         : 'This is a signature special move, and the only way to hurt an enemy without walking into its range.',
       window ? 'The enemy is helpless right now, so this cannot be answered or blocked.' : '',
       behind ? 'You will turn to face the enemy first.' : '',
-      move.mp > 0 ? 'MP comes back slowly and this is spent even on a miss.' : '',
-      mpLow && move.mp > 0 ? 'Your MP is nearly gone — save it for a moment you cannot otherwise answer.' : '',
+      move.mp > 0 ? 'The MP is spent even on a miss.' : '',
     ].filter(Boolean).join(' ');
   }
 
@@ -130,7 +130,7 @@ export function buildOptions({ profile, weapons, held, nearby = [], nearest = In
         : 'The enemy is out of its reach, so this means closing in first.',
       window ? 'The enemy is helpless right now, so this cannot be answered or blocked.' : '',
       behind ? 'The enemy is behind you; you will turn first, which costs a moment.' : '',
-      move.mp > 0 ? `Costs ${tierMp(move.mp)} MP.` : '',
+      cost(move),
     ].filter(Boolean).join(' ');
   }
 
@@ -215,6 +215,36 @@ export function buildOptions({ profile, weapons, held, nearby = [], nearest = In
   options.wait = 'Hold position and do nothing this instant.';
 
   return options;
+}
+
+/**
+ * What a move costs, worked out against the MP in hand, so Jev never has to do
+ * the arithmetic or compare tiers: the exact price, how many times it can be
+ * paid now, what is left after one, whether that still buys a special, and how
+ * long the bar takes to pay for it again. The same sentence for every fighter,
+ * because the costs are read from the data and the refill rate from px.js.
+ */
+export function mpCost(move, { mp, hp, profile }) {
+  if (!move.mp) return move.hpCost ? `Costs no MP but ${move.hpCost} HP.` : 'Costs no MP.';
+  const hpPart = move.hpCost ? ` and ${move.hpCost} HP` : '';
+  if (move.allowedWhenShort && move.mp <= 20) {
+    return `Costs only ${move.mp} MP${hpPart}, and still works when MP runs out.`;
+  }
+  const times = Math.floor(mp / move.mp);
+  const left = mp - move.mp;
+  const specials = profile.moves.filter((m) => m.mp > 20 && !m.allowedWhenShort);
+  const cheapest = specials.length ? Math.min(...specials.map((m) => m.mp)) : Infinity;
+  const priciest = specials.length ? Math.max(...specials.map((m) => m.mp)) : 0;
+  const regen = mpRegenPerSecond(hp ?? 500);
+  const again = left >= move.mp ? 'enough to use it again'
+    : left >= cheapest ? `enough for a cheaper special but not this one again for about ${Math.ceil((move.mp - left) / regen)} s`
+    : `too little for any special for about ${Math.ceil((Math.min(cheapest, move.mp) - Math.max(0, left)) / regen)} s`;
+  return [
+    `Costs ${move.mp} of your ${mp} MP${hpPart}`,
+    times > 1 ? `(you can afford it ${times} times)` : '',
+    `, leaving ${Math.max(0, left)}: ${again}.`,
+    specials.length > 1 && move.mp === priciest ? 'It is your most expensive move.' : '',
+  ].filter(Boolean).join(' ').replace(' ,', ',');
 }
 
 /** Below this fraction of health a potion is worth the walk; above it, the branch closes. */

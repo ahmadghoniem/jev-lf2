@@ -72,6 +72,7 @@ function inspectMove(frames, entryId, isProjectile, maxDepth = 24) {
   let id = entryId;
   let ticks = 0;
   let mp = 0;
+  let hpCost = 0;
   let allowedWhenShort = false;
   let reach = 0;
   const spawns = [];
@@ -88,8 +89,12 @@ function inspectMove(frames, entryId, isProjectile, maxDepth = 24) {
     // cost counts: a later one is the price of repeating the move, like the
     // 100 on 5_arrow's second frame, which `hit_a` loops back to (measured:
     // one volley spent about 130, not the 250 a sum gives).
+    // Above 1000 the thousands carry an HP price: px.js takes `mp % 1000` MP
+    // and `10 * floor(mp / 1000)` HP (Firen's explosion, 4300, is 300 MP and
+    // 40 HP).
     if (typeof frame.mp === 'number' && mp === 0) {
-      mp += Math.abs(frame.mp);
+      mp = Math.abs(frame.mp) % 1000;
+      hpCost = 10 * Math.floor(Math.abs(frame.mp) / 1000);
       if (frame.mp < 0) allowedWhenShort = true;
     }
 
@@ -111,7 +116,7 @@ function inspectMove(frames, entryId, isProjectile, maxDepth = 24) {
     if (typeof frame.next !== 'number' || frame.next <= 0) break;
     id = frame.next;
   }
-  return { mp, allowedWhenShort, startupTicks: ticks, reach, spawns, injury, landsOnFrame };
+  return { mp, hpCost, allowedWhenShort, startupTicks: ticks, reach, spawns, injury, landsOnFrame };
 }
 
 /**
@@ -181,6 +186,7 @@ export function buildProfile(name, frames, objects) {
         needsWeapon: basic?.needsWeapon ?? false,
         kind: projectiles.length > 0 ? 'ranged' : 'melee',
         mp: m.mp,
+        hpCost: m.hpCost,
         mpTier: tierMp(m.mp),
         allowedWhenShort: m.allowedWhenShort,
         startupTicks: m.startupTicks,

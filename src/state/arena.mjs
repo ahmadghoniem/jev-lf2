@@ -8,7 +8,7 @@
  * reason to make it try.
  */
 
-import { readFighter, MP_CAP } from './fields.mjs';
+import { readFighter, MP_CAP, mpRegenPerSecond } from './fields.mjs';
 import { framesFor, BUSY_STATES } from '../lf2data/tables.mjs';
 import { ticksToHit } from '../lf2data/frames.mjs';
 import { bucketRange } from '../lf2data/profile.mjs';
@@ -358,9 +358,15 @@ const health = (f) => {
   return r > 0.7 ? 'healthy' : r > 0.4 ? 'hurt' : r > 0.15 ? 'low' : 'critical';
 };
 
+/**
+ * The bar in numbers rather than a tier: "some" could not tell Jev whether a
+ * 200 MP special was affordable. The refill is stated because a full bar does
+ * not store more, so MP held back at the cap is refill thrown away.
+ */
 const mana = (f) => {
-  const r = f.mp / MP_CAP;
-  return r > 0.8 ? 'full' : r > 0.5 ? 'plenty' : r > 0.25 ? 'some' : 'low';
+  const mp = Math.min(f.mp, MP_CAP);
+  const full = mp >= MP_CAP - 20 ? ', full, so the refill is being wasted until you spend some' : '';
+  return `${mp} of ${MP_CAP}, refilling about ${mpRegenPerSecond(f.hp)} a second${full}`;
 };
 
 /**
