@@ -22,6 +22,10 @@ export const F = {
   // inferring it from where it has been.
   destX: 'ih',
   destZ: 'eh',
+  // The guard meter, px.js `h3`: a blocked hit adds its bdefend, a clean hit
+  // sets it to 45, and it falls by one a tick. A blocked hit that takes it over
+  // 30 breaks the guard (frame 112).
+  guard: 'h3',
 };
 
 /** MP has no max field in the pool; `je` was seen at 505 while `Ke` is 500. */
@@ -52,4 +56,5 @@ export const readFighter = (e) => ({
   alive: e[F.hp] > 0,
   destX: e[F.destX],
   destZ: e[F.destZ],
+  guard: e[F.guard] ?? 0,
 });

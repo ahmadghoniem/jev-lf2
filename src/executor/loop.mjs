@@ -89,6 +89,8 @@ export async function runLoop({ cdp, pool, kb, run, name, policy, overlay, hz = 
   // began on.
   let rollUntil = 0;
   let standing = null;     // Jev's latest answer, for when a reflex lets go
+  let answered = null;     // Jev's latest answer, kept even once applied
+  const HOLDS = new Set(['defend', 'wait']);
   let paused = false;
   let pausedAtMs = 0;
   const fromPage = (res) => {
@@ -143,7 +145,15 @@ export async function runLoop({ cdp, pool, kb, run, name, policy, overlay, hz = 
     // --- the layer that cannot wait for a network call
     // A roll that has started owns the keys until it is done: the block would
     // cut the run short and leave a standing guard in its place.
-    const reflex = Date.now() < rollUntil ? null : reflexFor(arena);
+    let reflex = Date.now() < rollUntil ? null : reflexFor(arena);
+    // A block the guard meter cannot take only delays the hit by one star, so
+    // an attack or roll Jev chose goes ahead of it.
+    if (reflex?.worn && answered && !HOLDS.has(answered.action)
+        && Date.now() - answered.askedAtMs <= staleMs) {
+      counts.wornYields = (counts.wornYields ?? 0) + 1;
+      if (source === 'reflex') standing = answered;
+      reflex = null;
+    }
     if (reflex) {
       counts.reflexes++;
       action = reflex.action; source = 'reflex'; stance = null;
@@ -154,6 +164,7 @@ export async function runLoop({ cdp, pool, kb, run, name, policy, overlay, hz = 
     if (pending?.settled) {
       const { result, askedAt, askedAtMs } = pending;
       pending = null;
+      if (result?.action) answered = { action: result.action, askedAtMs };
       if (Date.now() - askedAtMs > staleMs) counts.stale++;
       // A thrown weapon is already in the air and the block answers it, so that
       // one reflex holds against a late answer; everything else steps aside.
@@ -162,6 +173,7 @@ export async function runLoop({ cdp, pool, kb, run, name, policy, overlay, hz = 
       // Without this, a roll chosen against Rudolf's stars — most of the times
       // it is offered — was always overruled by the block.
       else if (result?.action && (!reflex?.thrown
+               || (reflex.worn && !HOLDS.has(result.action))
                || (result.action === 'roll_away' && reflex.eta >= ROLL_START_TICKS))) {
         // Each answer owns one execution, except that the same answer arriving
         // while a special is half played lets it finish. A special takes 15
@@ -260,7 +272,7 @@ export async function runLoop({ cdp, pool, kb, run, name, policy, overlay, hz = 
       tick,
       me: { frame: arena.me.frame, doing: doing(arena.me), hp: arena.me.hp,
             darkHp: arena.me.darkHp, mp: arena.me.mp, x: arena.me.x, z: arena.me.z,
-            facing: arena.me.facing, holding: arena.held?.name ?? null },
+            facing: arena.me.facing, holding: arena.held?.name ?? null, guard: arena.me.guard },
       threats: arena.threats.slice(0, 3).map((t) => ({ slot: t.slot, name: t.name, frame: t.frame,
         doing: t.doing, vulnerable: t.vulnerable, hp: t.hp, dx: Math.round(t.dx), dz: Math.round(t.dz),
         // The enemy's own destination, so a decision that read it can be checked

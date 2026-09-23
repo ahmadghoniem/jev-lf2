@@ -10,11 +10,17 @@ import { buildOptions } from '../state/options.mjs';
 import { semanticState, doing, isDown } from '../state/arena.mjs';
 import { weapons } from '../lf2data/tables.mjs';
 import { executableOptions, planAction } from './actions.mjs';
-import { wouldWhiff, incoming, inboundWeapon } from './reflex.mjs';
+import { wouldWhiff, incoming, inboundWeapon, guardHolds, GUARD_BREAK } from './reflex.mjs';
 import { STANDOFF_X } from '../state/bot.mjs';
 
 /** Below this much MP, spending it is flagged as a last resort. */
 const MP_LOW = 100;
+
+/** Whether the next blocked hit would break the guard. */
+function guardWorn(arena) {
+  const weapon = inboundWeapon(arena);
+  return weapon ? !guardHolds(arena.me, weapon) : (arena.me.guard ?? 0) > GUARD_BREAK - 16;
+}
 
 /** Options the executor can actually carry out, described for a reader. */
 export function offer(arena, profile) {
@@ -41,6 +47,7 @@ export function offer(arena, profile) {
     threatened: !!incoming(arena, { within: 12 }),
     helpless: !!near?.helpless,
     weaponInbound: !!inboundWeapon(arena),
+    guardWorn: guardWorn(arena),
   });
   return executableOptions(options, { arena, profile });
 }
@@ -125,8 +132,10 @@ function situationNotes(options, arena) {
       'You are holding a block. It absorbs a few hits and then breaks, so the moment the swing passes, answer with an attack rather than blocking again.'],
     [near && isDown(near.doing),
       'The enemy is on the floor or in the air, so nothing you fire can connect — spend no MP until it is back on its feet.'],
-    [inboundWeapon(arena),
+    [inboundWeapon(arena) && !guardWorn(arena),
       'A weapon that was thrown at you is still in the air and closing, so nothing you throw will stop it — block it, or roll away if it is still far enough off for the roll to start.'],
+    [inboundWeapon(arena) && guardWorn(arena),
+      'A weapon is closing on you and your guard is too worn to hold it: blocking breaks the guard and the next throw lands. Rolling, or hitting the thrower while it is throwing, ends the volley; standing in its line does not.'],
     [incoming(arena, { within: 12 }),
       'An enemy swing is already coming at you, so blocking or rolling away beats trading.'],
     [arena.me.mp < MP_LOW,

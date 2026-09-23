@@ -81,6 +81,32 @@ export function inboundWeapon(arena) {
   return null;
 }
 
+/** px.js breaks a guard when a blocked hit takes the meter over this. */
+export const GUARD_BREAK = 30;
+const bdefendCache = new Map();
+/** The most a weapon adds to the guard meter when blocked (Rudolf's star: 12-16). */
+function bdefendOf(id) {
+  if (!bdefendCache.has(id)) {
+    let most = 0;
+    for (const f of Object.values(framesFor(id) ?? {})) {
+      for (const i of f.itr ?? []) if (i.kind === 0) most = Math.max(most, i.bdefend ?? 0);
+    }
+    bdefendCache.set(id, most || 16);
+  }
+  return bdefendCache.get(id);
+}
+
+/**
+ * Whether blocking this weapon leaves the guard standing. The meter falls by
+ * one a tick until the weapon arrives, then the block adds the weapon's
+ * bdefend. Right after a clean hit the meter is 45, so the first star blocked
+ * in the next half second breaks the guard.
+ */
+export function guardHolds(me, weapon) {
+  const eta = Number.isFinite(weapon?.eta) ? Math.floor(weapon.eta) : 0;
+  return Math.max(0, (me.guard ?? 0) - eta) + bdefendOf(weapon?.id) <= GUARD_BREAK;
+}
+
 /**
  * What the reflex layer wants, ahead of any decision. `null` means it has no
  * opinion and the policy's choice stands.
@@ -122,8 +148,14 @@ export function createReflex({ maxBlockTicks = BOT.BLOCK_COMMIT_FRAMES,
       // blocking. px.js lets a hit through a block only when its bdefend is over
       // 60, and a thrown star's is 12. (The older note that guards broke came
       // from energy balls in the Deep/Firen runs.)
-      return { action: 'defend', thrown: true, threat: null, eta: thrown.eta,
-               reason: `a thrown weapon ${Math.round(thrown.range)} away, ${when} — block it` };
+      // A block the meter cannot take still stops this star, but the guard
+      // breaks and the next one lands: in the 2026-09-23 runs Rudolf threw
+      // steadily from 150-220 and this block-break-stagger cycle cost most of
+      // the HP. So a worn block is marked, and an attack or roll Jev chose
+      // takes the keys instead.
+      const worn = !guardHolds(arena.me, thrown);
+      return { action: 'defend', thrown: true, worn, threat: null, eta: thrown.eta,
+               reason: `a thrown weapon ${Math.round(thrown.range)} away, ${when} — block it${worn ? ' (guard worn)' : ''}` };
     }
 
     const threat = incoming(arena, opts);
