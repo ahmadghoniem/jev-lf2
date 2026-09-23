@@ -12,7 +12,7 @@
  * subtract two numbers to get there, because the numbers arrive as tiers.
  */
 
-import { tierDamage, bucketRange } from '../lf2data/profile.mjs';
+import { tierDamage, bucketRange, damageAt } from '../lf2data/profile.mjs';
 import { mpRegenPerSecond } from './fields.mjs';
 import { REACH_SLACK } from '../lf2data/frames.mjs';
 import { STANDOFF_X, RUN_IN_MIN_X, RUN_OUT_MAX_X } from './bot.mjs';
@@ -93,13 +93,16 @@ export function buildOptions({ profile, weapons, held, nearby = [], nearest = In
 
   // --- what the character can throw from where it stands
   const rangedName = (m) => (basic && m.entry === basic.entry ? 'shoot' : `special_${label(m)}`);
+  // A short-lived projectile is closed once the enemy is past the end of it:
+  // the executor fires from where it stands, so the MP would buy nothing.
   const ranged = profile.moves.filter((m) => m.kind === 'ranged' && affordable(m)
-    && !targetDown && canDo(rangedName(m)));
+    && !targetDown && (!hasTarget || damageAt(m, nearest) > 0) && canDo(rangedName(m)));
   for (const move of dedupe(ranged, MAX_RANGED)) {
     const isBasic = basic && move.entry === basic.entry;
     options[rangedName(move)] = [
-      'Attack from where you stand; it reaches any distance.',
-      `Damage is ${move.damageTier}.`,
+      reachText(move, hasTarget ? nearest : null),
+      `Damage is ${move.damageTier}${move.falloff ? ' up close' : ''}.`,
+      effects(move),
       cost(move),
       isBasic ? "This is this fighter's ordinary attack, so it is always available."
         : 'This is a signature special move, and the only way to hurt an enemy without walking into its range.',
@@ -125,6 +128,7 @@ export function buildOptions({ profile, weapons, held, nearby = [], nearest = In
     options[label(move)] = [
       `${describeMelee(move)}.`,
       `Damage is ${move.damageTier}.`,
+      effects(move),
       inReach ? 'The enemy is already inside its reach.'
         : misaligned ? 'You are not level with the enemy, so this needs you to line up first.'
         : 'The enemy is out of its reach, so this means closing in first.',
@@ -209,13 +213,59 @@ export function buildOptions({ profile, weapons, held, nearby = [], nearest = In
   // the first real volley — the run data has 73 defend ticks with the enemy
   // more than 120 away. So the option closes unless a swing is live, a weapon
   // is inbound, or the enemy is close enough to swing at any moment.
+  // The two defences are described against each other, because each is right
+  // where the other is wrong: the block is instant but finite and leaves you
+  // where you stand, the roll takes a moment to start but nothing gets through
+  // it and it ends out of reach.
   if (threatened || weaponInbound || (hasTarget && nearest <= 100)) {
-    options.defend = 'Hold block for the moment. It absorbs a few hits and then breaks, so it is a way to survive a swing, not somewhere to stand.';
+    options.defend = 'Block what is coming. It goes up at once, so it is the answer to something about to land, and it stops thrown stars, arrows and most swings from the front; it drops by itself once nothing is coming. But you stay where you are, heavy hits that knock you down go through it, and it breaks after several blocked hits in a row.';
+  }
+  // A roll has no hurt box for its whole length, so it is the one answer that
+  // takes no damage at all. It is reached from a run, which is why it cannot
+  // answer a weapon that is about to land.
+  if (hasTarget && (threatened || weaponInbound || nearest <= 220)) {
+    options.roll_away = [
+      'Roll away from the enemy: a short run, then a tumble along the ground. Nothing can hit you during the tumble and nothing breaks it, and you end about 200 further away, out of its reach.',
+      'It takes about a third of a second to start, so it is for an enemy that is close or pressing you, not for a weapon about to land.',
+      nearest <= 100 ? 'The enemy is inside punching range, where blocking only waits for the next hit; this gets you out.' : '',
+      'You cannot attack or block until it finishes.',
+    ].filter(Boolean).join(' ');
   }
   options.wait = 'Hold position and do nothing this instant.';
 
   return options;
 }
+
+/**
+ * How far a projectile carries, and what it would do from here. A move with no
+ * range keeps its hit at any distance; a short-lived one is described band by
+ * band, which is what separates Henry's blastpush (80, but only up close) from
+ * his super arrow (50 at any distance) once they are side by side.
+ */
+function reachText(move, distance) {
+  if (!move.falloff) return 'Attack from where you stand. It flies until it hits and does the same damage at any distance.';
+  const [first, ...rest] = move.falloff;
+  const fades = rest.map((b) => `${b.injury} to about ${b.to}`).join(', ');
+  const now = distance === null ? null : damageAt(move, distance);
+  return [
+    `Attack from where you stand, but it is short-lived: its full ${first.injury} lands only within about ${first.to} of you,`,
+    fades ? `then it weakens (${fades}) and is gone beyond that.` : 'and it is gone beyond that.',
+    now === null ? ''
+      : now === first.injury ? `The enemy is close enough to take the full ${now}.`
+      : `At the enemy's distance now it would hit for only ${now}, which is ${tierDamage(now)}.`,
+  ].filter(Boolean).join(' ');
+}
+
+/**
+ * What a hit does besides its damage. Two moves with the same damage tier read
+ * identically without this, and Henry's 200 MP super arrow looked like a plain
+ * shot with a price tag, so Jev never chose it.
+ */
+const effects = (move) => [
+  move.knocksDown ? 'Knocks the enemy down in one hit, which stops its attack and buys time.'
+    : 'Only staggers a fresh enemy; it goes down after a second quick hit.',
+  move.breaksGuard ? 'Goes through a block.' : '',
+].filter(Boolean).join(' ');
 
 /**
  * What a move costs, worked out against the MP in hand, so Jev never has to do

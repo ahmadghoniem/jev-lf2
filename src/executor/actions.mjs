@@ -53,6 +53,18 @@ const SPECIAL_SEQUENCE = {
 const TURN_MS = 110;
 /** How long a run burst keeps holding the direction after the double-tap. */
 const RUN_MS = 520;
+/** Defend this long into a run starts the roll (measured: 200 ms works). */
+const ROLL_AFTER_RUN_MS = 200;
+/** Frames 102-107 at two ticks each, plus a margin. */
+const ROLL_MS = 450;
+/**
+ * Ticks from pressing the double-tap to the first frame with no hurt box: the
+ * 60 ms tap, the 60 ms gap and the run before Defend, about 320 ms, with a
+ * margin. A weapon arriving sooner than this lands during the run.
+ */
+export const ROLL_START_TICKS = 12;
+/** Every standard fighter rolls on frames 102-107 with no hurt box. */
+const hasRoll = (profile) => profile?.canRoll !== false;
 /**
  * The CPU flinches: it drops a movement key for a tick now and then so its walk
  * is not a metronome. Copied at the CPU's own rate, and deterministic so a run
@@ -136,9 +148,13 @@ export function planAction(name, { arena, profile, keys = P4_KEYS } = {}) {
     // 0.5-1 s after the star had passed, which read as blocking at nothing.
     return stance((a) => {
       const t = enemy(a);
-      const coming = incoming(a, { within: 12 }) || inboundWeapon(a) || (t && t.gap <= 100);
+      const weapon = inboundWeapon(a);
+      const coming = incoming(a, { within: 12 }) || weapon || (t && t.gap <= 100);
       if (!coming) return { hold: [] };
-      return { hold: t && !t.infront ? [keys[dirTo(a.me, t)], keys.defend] : [keys.defend] };
+      // Face what is arriving: a weapon thrown from the other side is blocked
+      // only by turning to it.
+      const side = weapon ? (weapon.dx >= 0 ? 'right' : 'left') : t ? dirTo(a.me, t) : a.me.facing;
+      return { hold: side !== a.me.facing ? [keys[side], keys.defend] : [keys.defend] };
     });
   }
 
@@ -184,6 +200,21 @@ export function planAction(name, { arena, profile, keys = P4_KEYS } = {}) {
   // Walking is precise and running covers ground; the game only reads a run from
   // a double-tap, so the same direction has to be given twice. A burst, because
   // a re-decision halfway would cancel the run.
+  // A roll is the one move with no hurt box: frames 102-107, reached by
+  // pressing Defend while running. Measured on Henry: about 450 ms and 190
+  // units of travel with nothing to hit. It goes away from the enemy.
+  if (name === 'roll_away') {
+    if (!target || !hasRoll(profile)) return null;
+    const dir = dirTo(me, target) === 'right' ? 'left' : 'right';
+    return burst(async (kb) => {
+      await kb.doubleTap(keys[dir]);
+      await sleep(ROLL_AFTER_RUN_MS);
+      await kb.tap(keys.defend, 100, { intended: true });
+      await sleep(ROLL_MS);
+      await kb.hold([]);
+    });
+  }
+
   if (name === 'run_in' || name === 'run_out') {
     if (!target) return null;
     const dir = name === 'run_out'

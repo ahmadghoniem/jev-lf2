@@ -78,6 +78,8 @@ function inspectMove(frames, entryId, isProjectile, maxDepth = 24) {
   const spawns = [];
   const visited = new Set();
   let injury = null;
+  let fall = 0;
+  let bdefend = 0;
   let landsOnFrame = null;
 
   for (let step = 0; step < maxDepth; step++) {
@@ -104,6 +106,8 @@ function inspectMove(frames, entryId, isProjectile, maxDepth = 24) {
     const hit = damagingItr(frame)[0];
     if (hit) {
       injury = hit.injury;
+      fall = hit.fall ?? 0;
+      bdefend = hit.bdefend ?? 0;
       reach = Math.max(reach, reachOf(frame));
       landsOnFrame = id;
       break;
@@ -116,7 +120,7 @@ function inspectMove(frames, entryId, isProjectile, maxDepth = 24) {
     if (typeof frame.next !== 'number' || frame.next <= 0) break;
     id = frame.next;
   }
-  return { mp, hpCost, allowedWhenShort, startupTicks: ticks, reach, spawns, injury, landsOnFrame };
+  return { mp, hpCost, allowedWhenShort, startupTicks: ticks, reach, spawns, injury, fall, bdefend, landsOnFrame };
 }
 
 /**
@@ -194,6 +198,18 @@ export function buildProfile(name, frames, objects) {
         rangeBucket: projectiles.length > 0 ? 'far' : bucketRange(m.reach),
         damage,
         damageTier: damage ? tierDamage(damage) : null,
+        // What a hit does besides damage, read the way px.js applies it. A hit
+        // lands through a block when its bdefend is over 60 (100 always does).
+        // The fall value adds up and a fighter goes down past 60: the plain
+        // arrow's 60 put Rudolf down on 14 of 36 hits, the ones that landed on
+        // an earlier hit, while a single hit over 60 floors a fresh fighter.
+        knocksDown: hitFall(m, projectiles) > 60,
+        breaksGuard: hitBdefend(m, projectiles) > 60,
+        // Some projectiles are short-lived and weaken as they go — Henry's
+        // blastpush is 80 up close and gone past about 600 — where others fly
+        // until they hit. Null for a melee move and for a projectile that keeps
+        // its hit at any distance.
+        ...projectileRange(projectiles),
         spawns: projectiles.map((p) => p.oid),
       });
     }
@@ -235,18 +251,65 @@ export function buildProfile(name, frames, objects) {
  */
 function fromAction(frames, action, maxDepth = 40) {
   let damage = 0;
+  let fall = 0;
+  let bdefend = 0;
   let moving = false;
+  // How the hit changes with distance. Each frame carries the ball `wait`
+  // ticks at its own `dvx`, so the chain is a list of distance bands. A chain
+  // that ends on 1000 is gone at the last band; one that loops (999, or back to
+  // a frame already seen) flies until it hits, and has no range.
+  // Checked against Henry's blastpush in the 2026-09-23 runs: 80 at 50-249,
+  // 55 at 250-299 and 20 at 400-449, where the bands give 80 to 220, 55 to
+  // 385 and 20 to 495.
+  const falloff = [];
+  let travelled = 0;
+  let range = null;
   const seen = new Set();
   for (let id = action, step = 0; step < maxDepth && frames.has(id) && !seen.has(id); step++) {
     seen.add(id);
     const f = frames.get(id);
-    for (const it of damagingItr(f)) damage = Math.max(damage, it.injury);
+    let injury = 0;
+    for (const it of damagingItr(f)) {
+      injury = Math.max(injury, it.injury);
+      damage = Math.max(damage, it.injury);
+      fall = Math.max(fall, it.fall ?? 0);
+      bdefend = Math.max(bdefend, it.bdefend ?? 0);
+    }
     if (Math.abs(f.dvx ?? 0) > 0) moving = true;
+    travelled += Math.abs(f.dvx ?? 0) * (f.wait ?? 0);
+    const last = falloff.at(-1);
+    if (last && last.injury === injury) last.to = travelled;
+    else falloff.push({ to: travelled, injury });
+    if (f.next === 1000) { range = travelled; break; }
     if (typeof f.next !== 'number' || f.next <= 0 || f.next >= 999) break;
     id = f.next;
   }
-  return { damage, travels: moving && damage > 0 };
+  // Under 100 of travel the thing is placed, not thrown — Firen's and Julian's
+  // explosions stand still, Firen's flame is a trail laid while he runs — and
+  // where it lands depends on the caster, so no distance band describes it.
+  const finite = range !== null && range >= 100 && damage > 0;
+  return { damage, fall, bdefend, travels: moving && damage > 0,
+           range: finite ? Math.round(range) : null,
+           falloff: finite ? falloff.filter((b) => b.injury > 0).map((b) => ({ to: Math.round(b.to), injury: b.injury })) : null };
 }
+
+/** A projectile's damage at a distance: its full hit if it has no range. */
+export function damageAt(move, distance) {
+  if (!move.falloff) return move.damage;
+  return move.falloff.find((b) => distance <= b.to)?.injury ?? 0;
+}
+
+/** The strongest projectile's range and damage bands, or none if any flies on. */
+function projectileRange(projectiles) {
+  if (!projectiles.length || projectiles.some((p) => !p.falloff)) return { range: null, falloff: null };
+  const best = projectiles.reduce((a, b) => ((b.damage ?? 0) > (a.damage ?? 0) ? b : a));
+  return { range: best.range, falloff: best.falloff };
+}
+
+const hitFall = (m, projectiles) => (m.injury != null ? m.fall
+  : Math.max(0, ...projectiles.map((p) => p.fall ?? 0)));
+const hitBdefend = (m, projectiles) => (m.injury != null ? m.bdefend
+  : Math.max(0, ...projectiles.map((p) => p.bdefend ?? 0)));
 
 /** Everything a move can spawn, keyed by object id. */
 export function buildObjectIndex(parsedById) {

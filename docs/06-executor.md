@@ -142,3 +142,27 @@ second above 400, 301-400 and 201-300 HP.
 A chosen `defend` also ends as soon as nothing is coming, by the same test
 that offers it. Held until the next decision, it outlasted the star it was
 answering by 0.5-1 s.
+
+## Block and roll, and what a projectile does at range
+
+Thrown weapons are blocked by the reflex, no longer stepped off in depth. In
+the three Henry vs Rudolf runs of 2026-09-23, 1,113 of 1,462 hp was lost while
+the reflex was stepping and 17 while blocking; a star's bdefend is 12, far under
+the 60 that px.js lets through a guard.
+
+Jev now has two defences, described against each other. `defend` goes up at
+once but stays put, breaks after several hits and lets knockdown hits through.
+`roll_away` is a double-tap away and Defend, which reaches frames 102-107 (no
+hurt box, about 200 units of travel); it takes about 12 ticks to start, so a
+chosen roll replaces the thrown-weapon block only when the weapon is at least
+that far out. Before this the block overruled every roll chosen against a star.
+
+Projectile options no longer all say "reaches any distance". Each spawned
+object's frame chain is walked as distance bands (`wait * dvx` per frame); a
+chain that ends on 1000 has a range, one that loops flies until it hits. Henry's
+blastpush is 80 to about 220, 55 to 385, 20 to 495, 5 to 605, then gone, which
+the runs bear out (80 at 50-249, 55 at 250-299, 20 at 400-449); his super arrow
+keeps 50 at any distance. The option states the damage at the enemy's current
+distance and is withdrawn once the enemy is past the end of it. Things that
+travel under 100 (explosions, Firen's flame trail) are placed, not thrown, and
+get no bands.

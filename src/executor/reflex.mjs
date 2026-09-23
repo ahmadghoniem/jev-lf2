@@ -116,13 +116,14 @@ export function createReflex({ maxBlockTicks = BOT.BLOCK_COMMIT_FRAMES,
     const thrown = inboundWeapon(arena);
     if (thrown) {
       const when = Number.isFinite(thrown.eta) ? `~${thrown.eta.toFixed(0)} ticks out` : 'closing';
-      // Always the dodge: the stance behind it picks the jump when the weapon
-      // is about to land and the depth step when there is time. The old block
-      // fallback is gone because the data says the guard never stopped these —
-      // a shuriken cost 25 hp while a block was being held, and six of them
-      // broke the guard outright.
-      return { action: 'dodge', thrown: true, threat: null,
-               reason: `a thrown weapon ${Math.round(thrown.range)} away, ${when} — get off the line` };
+      // The block, not the depth step. Against Rudolf's stars the step is where
+      // the damage came from: in the three Henry vs Rudolf runs of 2026-09-23,
+      // 1,113 of 1,462 hp was lost while the reflex was stepping, and 17 while
+      // blocking. px.js lets a hit through a block only when its bdefend is over
+      // 60, and a thrown star's is 12. (The older note that guards broke came
+      // from energy balls in the Deep/Firen runs.)
+      return { action: 'defend', thrown: true, threat: null, eta: thrown.eta,
+               reason: `a thrown weapon ${Math.round(thrown.range)} away, ${when} — block it` };
     }
 
     const threat = incoming(arena, opts);

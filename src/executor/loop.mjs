@@ -13,7 +13,7 @@
 
 import { readArena, doing, createLiveness, createHeldTracker, createItemMotion } from '../state/arena.mjs';
 import { profileFor } from '../lf2data/tables.mjs';
-import { planAction } from './actions.mjs';
+import { planAction, ROLL_START_TICKS } from './actions.mjs';
 import { createReflex } from './reflex.mjs';
 import { offer } from './policies.mjs';
 import { bucketRange } from '../lf2data/profile.mjs';
@@ -116,9 +116,14 @@ export async function runLoop({ cdp, pool, kb, run, name, policy, overlay, hz = 
       const { result, askedAt, askedAtMs } = pending;
       pending = null;
       if (Date.now() - askedAtMs > staleMs) counts.stale++;
-      // A thrown weapon is already in the air and only the block answers it, so
-      // that one reflex holds against a late answer; everything else steps aside.
-      else if (result?.action && !reflex?.thrown) {
+      // A thrown weapon is already in the air and the block answers it, so that
+      // one reflex holds against a late answer; everything else steps aside.
+      // The roll is the exception: nothing hits it either, so it may replace the
+      // block when the weapon is far enough off for the roll to start first.
+      // Without this, a roll chosen against Rudolf's stars — most of the times
+      // it is offered — was always overruled by the block.
+      else if (result?.action && (!reflex?.thrown
+               || (result.action === 'roll_away' && reflex.eta >= ROLL_START_TICKS))) {
         action = result.action; source = policy.name; stance = null;
         plannedFor = null;   // each answer owns one execution, not one ever
         recent = { last_action: action, outcome: 'pending' };
