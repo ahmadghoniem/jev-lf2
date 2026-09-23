@@ -169,7 +169,12 @@ export function createReflex({ maxBlockTicks = BOT.BLOCK_COMMIT_FRAMES,
                                restTicks = BOT.BLOCK_REST_FRAMES } = {}) {
   let blocked = 0;
   let rest = 0;
-  let evade = null; // { dir, z, still, wall }: the side chosen, and a side found blocked
+  let evade = null; // { dir, z, still }: the side being stepped to, to notice a wall
+  // The depth each stage edge was found at, kept for the run. In one run Henry
+  // stepped up into the top edge (z 326) and stood there the rest of the
+  // match, so every later "step up" went nowhere.
+  const walls = { up: null, down: null };
+  const room = (dir, z) => (walls[dir] == null ? Infinity : Math.abs(z - walls[dir]));
   return function reflex(arena, opts = {}) {
     // Leave the line before the star is on it. Standing in it and blocking
     // wears the guard out in two or three stars and then every star lands
@@ -181,19 +186,23 @@ export function createReflex({ maxBlockTicks = BOT.BLOCK_COMMIT_FRAMES,
     const mine = doing(arena.me);
     const canMove = ['neutral', 'walking', 'running'].includes(mine);
     if (lane && canMove) {
-      // `up` lowers z. Step away from the line; a line straight through us
-      // keeps the side already chosen. A side that does not move us for three
-      // ticks is the edge of the stage, and the way out is across the line.
-      let dir = lane.laneDz > 1 ? 'up' : lane.laneDz < -1 ? 'down' : (evade?.dir ?? 'up');
-      if (evade?.wall === dir) dir = dir === 'up' ? 'down' : 'up';
-      const away = (dir === 'up') === (lane.laneDz > 0) || Math.abs(lane.laneDz) <= 1;
-      const need = (LANE_CLEAR + (away ? -1 : 1) * Math.abs(lane.laneDz)) / WALK_Z;
-      if (lane.eta >= need) {
+      // `up` lowers z. Step away from the line, unless the edge of the stage
+      // on that side is too close to get clear; a line straight through us
+      // goes to the side with more room. A side that does not move us for
+      // three ticks is recorded as the edge.
+      const z = arena.me.z;
+      const side = lane.laneDz > 1 ? 'up' : lane.laneDz < -1 ? 'down'
+        : (evade?.dir ?? (room('up', z) >= room('down', z) ? 'up' : 'down'));
+      const other = side === 'up' ? 'down' : 'up';
+      const clearBy = (dir) => LANE_CLEAR + (dir === side ? -1 : 1) * Math.abs(lane.laneDz);
+      const dir = room(side, z) >= clearBy(side) ? side : other;
+      const need = clearBy(dir) / WALK_Z;
+      if (lane.eta >= need && room(dir, z) >= clearBy(dir)) {
         if (evade?.dir === dir) {
-          evade.still = Math.abs(arena.me.z - evade.z) < 0.5 ? evade.still + 1 : 0;
-          evade.z = arena.me.z;
-          if (evade.still >= 3) evade = { ...evade, wall: dir, dir: null };
-        } else evade = { dir, z: arena.me.z, still: 0, wall: evade?.wall ?? null };
+          evade.still = Math.abs(z - evade.z) < 0.5 ? evade.still + 1 : 0;
+          evade.z = z;
+          if (evade.still >= 3) { walls[dir] = z; evade = null; }
+        } else evade = { dir, z, still: 0 };
         return { action: dir === 'up' ? 'dodge_up' : 'dodge_down', thrown: true, eta: lane.eta,
                  reason: `${lane.what === 'star' ? 'a star' : 'a throw'} on our line in ~${lane.eta.toFixed(0)} ticks — step ${dir} off it` };
       }

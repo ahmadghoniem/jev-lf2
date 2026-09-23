@@ -19,7 +19,7 @@ import { P4_KEYS } from './keyboard.mjs';
 import { DRINK_TYPE, Z_TOLERANCE, isDown, doing } from '../state/arena.mjs';
 import { REACH_SLACK } from '../lf2data/frames.mjs';
 import { label } from '../state/options.mjs';
-import { incoming, inboundWeapon } from './reflex.mjs';
+import { incoming, inboundWeapon, laneDanger } from './reflex.mjs';
 import { BOT, STANDOFF_X, createNoise, hesitation } from '../state/bot.mjs';
 
 /** Standing on top of an item is what picks it up; the hit box is generous. */
@@ -151,8 +151,10 @@ function aimedAttack(keys, { tight, seq = ['attack'], needReach = false, reach =
         // fired into Rudolf's stars was knocked out of its wind-up. The game's
         // reader stays armed without a timeout, so the wait loses nothing.
         const last = seq.length > 1 && step / 5 === seq.length - 1;
-        const weapon = last ? inboundWeapon(a) : null;
-        if (weapon && weapon.eta <= startup + 2) return { hold: [] };
+        // Rudolf's wind-up counts too: the star that knocked one blastpush out
+        // was thrown a tick after Attack was pressed.
+        const danger = last ? laneDanger(a) : null;
+        if (danger && danger.eta <= startup + 2) return { hold: [] };
         const press = seq[step / 5];
         const code = press === 'forward' ? keys[dirTo(a.me, t)] : keys[press];
         step++;
