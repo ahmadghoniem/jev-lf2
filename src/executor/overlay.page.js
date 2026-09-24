@@ -304,7 +304,6 @@
     q('sub').textContent = d.reflex ? d.reflex
       : d.latencyMs != null
         ? d.latencyMs + ' ms · ' + (d.confidence != null ? 'conf ' + d.confidence.toFixed(2) : 'no answer')
-          + (d.plan ? ' · plan ' + d.plan.replace(/_/g, ' ') : '')
         : (d.policy || '');
 
     // The probabilities are the point of the panel: what else was considered,

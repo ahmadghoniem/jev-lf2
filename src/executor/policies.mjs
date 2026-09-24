@@ -9,7 +9,6 @@
 import { buildOptions } from '../state/options.mjs';
 import { semanticState, doing, unhittable, inSight } from '../state/arena.mjs';
 import { nestOptions, followUps, resolveChoice } from '../state/nest.mjs';
-import { planQuestion, PLAN_NOTE } from '../state/plan.mjs';
 import { weapons, profileFor } from '../lf2data/tables.mjs';
 import { mpRegenPerSecond } from '../state/fields.mjs';
 import { executableOptions, planAction } from './actions.mjs';
@@ -189,11 +188,10 @@ function questionSet(options, arena, profile) {
     action: {
       type: 'choice',
       instructions: 'Choose what to do next in this fight. Every option listed is available right now.'
-        + PLAN_NOTE + situationNotes(options, arena, profile),
+        + situationNotes(options, arena, profile),
       criteria: top,
     },
     ...followUps(groups),
-    ...planQuestion(arena),
   };
   if (arena.threats.length > 1) {
     questions.target = {
