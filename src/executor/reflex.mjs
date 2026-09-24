@@ -8,7 +8,7 @@
  * could be the reflexes' doing and get credited to Jev.
  */
 
-import { framesFor } from '../lf2data/tables.mjs';
+import { framesFor, profileFor } from '../lf2data/tables.mjs';
 import { nextHit, nextSpawn, REACH_SLACK } from '../lf2data/frames.mjs';
 import { Z_TOLERANCE, Y_TOLERANCE, doing, unhittable } from '../state/arena.mjs';
 import { BOT } from '../state/bot.mjs';
@@ -122,6 +122,8 @@ const LAND_ROLL_ETA = 14;
 
 /** px.js breaks a guard when a blocked hit takes the meter over this. */
 export const GUARD_BREAK = 30;
+/** What an ordinary punch adds to the guard meter when blocked (most fighters' frames 60-66). */
+const PUNCH_BDEFEND = 16;
 const bdefendCache = new Map();
 /** The most a weapon adds to the guard meter when blocked (Rudolf's star: 12-16). */
 function bdefendOf(id) {
@@ -290,6 +292,27 @@ export function createReflex({ maxBlockTicks = BOT.BLOCK_COMMIT_FRAMES,
     }
     blocked = 0;
     if (rest > 0) rest--;
+
+    // A worn guard leaves the line before the next swing tests it. The block
+    // pose lasts 13 ticks and each blocked hit restarts it (px.js frames
+    // 110/111), so a fighter who blocks with a worn guard stays in it until it
+    // breaks. Once a swing is under way the block is still the better answer
+    // (28 hp lost in the next 30 ticks against 37 without it); before one, a
+    // worn guard next to a free enemy lost 31 hp over 30 ticks when it stayed
+    // on the line and 21 when it left it. The CPU starts an attack only within
+    // 5 of depth, so the step also ends its string.
+    const worn = (arena.me.guard ?? 0) + PUNCH_BDEFEND > GUARD_BREAK;
+    const close = worn && canMove && arena.threats.find((t) => t.zGap < BOT.HIT_Z && t.yGap <= Y_TOLERANCE
+      && !t.vulnerable && t.facing === (t.dx > 0 ? 'left' : 'right')
+      && t.gap <= (profileFor(t.name)?.bestMelee?.reach ?? 0) + REACH_SLACK);
+    if (close) {
+      const z = arena.me.z;
+      const dir = close.z > z ? 'up' : close.z < z ? 'down' : (room('up', z) >= room('down', z) ? 'up' : 'down');
+      if (room(dir, z) >= BOT.HIT_Z) {
+        return { action: dir === 'up' ? 'dodge_up' : 'dodge_down',
+                 reason: `guard worn (${arena.me.guard}) with ${close.name ?? 'the enemy'} in reach on our line — step ${dir} off it` };
+      }
+    }
     return punish(arena, opts.profile);
   };
 }

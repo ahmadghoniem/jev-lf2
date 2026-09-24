@@ -167,6 +167,19 @@ distance and is withdrawn once the enemy is past the end of it. Things that
 travel under 100 (explosions, Firen's flame trail) are placed, not thrown, and
 get no bands.
 
+## Leaving the line on a worn guard
+
+A block cannot be left early: the pose lasts 13 ticks and every blocked hit
+restarts it (frames 110/111), so a string of hits keeps the fighter in it until
+the meter passes 30 and the guard breaks. Across the runs 293 guard breaks came
+out of a block, most after two blocked hits. Stepping out once a swing is on
+its way is worse than blocking it (37 hp lost over the next 30 ticks against
+28), so the reflex acts earlier. When the next punch blocked would break the
+guard (meter above 14) and a free enemy faces us on our line within its melee
+reach, it steps off the line away from the enemy. In the runs, standing there
+lost 31 hp over 30 ticks and leaving lost 21. The CPU starts an attack only
+within 5 of depth, so the step also ends its string.
+
 ## Notes from a paused game
 
 Esc pauses the game, and while it is paused a note box opens at the top of the
