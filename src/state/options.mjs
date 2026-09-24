@@ -248,7 +248,11 @@ export function buildOptions({ profile, weapons, held, nearby = [], nearest = In
   // where the other is wrong: the block is instant but finite and leaves you
   // where you stand, the roll takes a moment to start but nothing gets through
   // it and it ends out of reach.
-  if (threatened || weaponInbound || (hasTarget && nearest <= 100)) {
+  // Only against something on its way: offered whenever the enemy stood
+  // close, Henry blocked in melee range with nothing coming and a free melee
+  // attack on the list, which the observer marked. A swing that does start is
+  // the reflex's to block.
+  if (threatened || weaponInbound) {
     options.defend = 'Block what is coming. It goes up at once, so it is the answer to something about to land, and it stops thrown stars, arrows and most swings from the front; it drops by itself once nothing is coming. But you stay where you are, heavy hits that knock you down go through it, and it breaks after several blocked hits in a row.'
       + (guardWorn ? ' Your guard is worn from the hits just taken: the next blocked hit breaks it, and the one after that lands in full while you stagger.' : '');
   }

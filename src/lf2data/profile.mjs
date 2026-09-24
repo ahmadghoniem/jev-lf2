@@ -153,8 +153,10 @@ const isEntryFrame = (frame) => frame.state === undefined || ENTRY_STATES.has(fr
  * and reads as flying until it hits. Over every Henry vs Rudolf run of
  * 2026-09-23 it landed 57% of the time from 100 to 499 away and 24% from 500
  * to 599; Rudolf drank 510-600 away through 55 ticks of arrows and lost no HP.
+ * By 50-unit band over 34 runs it lands 55-70% of the time from 50 to 449 and
+ * 43% from 450 to 499, so its reach is taken as 450.
  */
-const MEASURED_RANGE = { henry_arrow1: 500 };
+const MEASURED_RANGE = { henry_arrow1: 450 };
 
 export function buildProfile(name, frames, objects) {
   // What a spawn does depends on the frame it starts on: John's heal and his

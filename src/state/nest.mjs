@@ -27,7 +27,6 @@ export const GROUPS = [
 ];
 
 const which = (group) => `which_${group}`;
-const firstSentence = (text) => text.match(/^.*?[.!?](?=\s|$)/)?.[0] ?? text;
 
 /**
  * @param options  option name -> description, as built by buildOptions
@@ -50,9 +49,11 @@ export function nestOptions(options) {
       continue;
     }
     const group = GROUPS.find((g) => g.name === name);
-    // Each member by its first sentence, which says what it does and where it
-    // reaches; the follow-up carries the full descriptions.
-    top[name] = [group.text, ...names.map((n) => `${n}: ${firstSentence(members[n])}`)].join(' ');
+    // Each member in full. Summarised by first sentences, the kinds lost to
+    // the options described in full: in one run the specials were chosen 0
+    // times in 92 offers with MP full all game, against 38 of 175 the run
+    // before, when each was listed with its damage, reach and cost.
+    top[name] = [group.text, ...names.map((n) => `${n}: ${members[n]}`)].join(' ');
   }
   return { top, groups };
 }
