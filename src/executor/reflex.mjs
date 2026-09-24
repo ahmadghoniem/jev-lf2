@@ -189,8 +189,13 @@ export function createReflex({ maxBlockTicks = BOT.BLOCK_COMMIT_FRAMES,
     // and nothing hits it until it lands. px.js takes the press on frame 182
     // (falling forward) or 188 (backward), within the few frames a press is
     // remembered, so Jump is tapped through the fall up to that frame.
-    // Without it Henry rode every knockdown to the floor and lay there.
-    if (FLIP_WINDOW.has(arena.me.frame) && (arena.me.hp ?? 1) > 0) {
+    // Only with nothing on its way, though. Lying on the floor is the one
+    // state no star hit in seven runs, and Rudolf's volley goes on over it;
+    // flipped up into the volley, Henry landed standing on the star's line and
+    // took damage 1.5 to 4 times as fast (27-30 hp per 100 ticks before the
+    // flip, 39-112 after), most of it standing still just after landing.
+    if (FLIP_WINDOW.has(arena.me.frame) && (arena.me.hp ?? 1) > 0
+        && !laneDanger(arena) && !inboundWeapon(arena)) {
       return { action: 'recover', owns: true, reason: 'knocked into the air — Jump to flip upright' };
     }
 
