@@ -131,8 +131,12 @@ export function buildOptions({ profile, nearby = [], nearest = Infinity, mp = 0,
 
   // --- what it can do with its hands, and whether anything is in reach
   // A dash attack at an enemy nearer than the dash carries goes past it.
+  // A melee special is named like the ranged ones, so it is grouped with them
+  // and fired by their executor. Named by its frame alone it had no executor
+  // and was never offered: Davis's many_punch and singlong, 2026-09-24.
+  const meleeName = (m) => (m.category === 'special' ? `special_${label(m)}` : label(m));
   const melee = profile.moves.filter((m) => m.kind === 'melee' && !m.needsWeapon
-    && affordable(m) && !targetDown && canDo(label(m))
+    && affordable(m) && !targetDown && canDo(meleeName(m))
     && !(m.name === 'dash_attack' && hasTarget && nearest < DASH_MIN_GAP));
   // The ordinary attack always belongs on the list. It costs nothing, it is the
   // archetype in one option, and the cap would otherwise spend all four slots on
@@ -144,8 +148,9 @@ export function buildOptions({ profile, nearby = [], nearest = Infinity, mp = 0,
   if (basicMove && !shortlist.some((m) => m.entry === basicMove.entry)) shortlist.push(basicMove);
   for (const move of shortlist) {
     const inReach = aligned && nearest <= move.reach + REACH_SLACK;
-    options[label(move)] = [
+    options[meleeName(move)] = [
       `${describeMelee(move)}.`,
+      move.category === 'special' ? 'This is a signature special move, fired up close.' : '',
       `Damage is ${move.damageTier}.`,
       effects(move),
       inReach ? 'The enemy is already inside its reach.'
@@ -165,11 +170,16 @@ export function buildOptions({ profile, nearby = [], nearest = Infinity, mp = 0,
   }
 
   // --- a drink lying on the ground
+  // Milk restores health and beer restores MP: the game's CPU passes on milk
+  // above 370 hp and on beer above 250 MP (px.js). Beer was offered here as
+  // health, at low health.
   for (const item of nearby) {
-    if (item.type !== 6 || healthFraction >= DRINK_BELOW) continue;
+    if (item.type !== 6) continue;
+    const beer = plainName(item.name) === 'beer';
+    if (beer ? mp > BEER_BELOW_MP : healthFraction >= DRINK_BELOW) continue;
     options[`drink_${slug(plainName(item.name))}`] = [
       `Walk over and drink the ${plainName(item.name)}, ${bucketRange(item.distance)} away.`,
-      'It restores health, but you are defenceless the whole way there and while drinking.',
+      `It restores ${beer ? 'MP' : 'health'}, but you are defenceless the whole way there and while drinking.`,
       item.aligned === false ? 'It is not level with you, so you must step to its depth to pick it up.' : '',
     ].filter(Boolean).join(' ');
   }
@@ -302,6 +312,8 @@ export function mpCost(move, { mp, hp, profile }) {
 
 /** Below this fraction of health a potion is worth the walk; above it, the branch closes. */
 const DRINK_BELOW = 0.75;
+/** Beer is offered at or below this much MP, as the CPU drinks it. */
+const BEER_BELOW_MP = 250;
 
 /**
  * Jev is documented as distracted by large irrelevant state, and most of a
@@ -343,7 +355,7 @@ const FRIENDLY = {
   rudolf_weapon: "Rudolf's throwing star", henry_arrow1: 'arrow',
 };
 /** Option names are read back as identifiers, so keep them to letters, digits, `_`. */
-const slug = (s) => String(s).toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+export const slug = (s) => String(s).toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
 
 export const plainName = (...names) => {
   for (const n of names) if (n && FRIENDLY[n]) return FRIENDLY[n];

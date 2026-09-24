@@ -138,6 +138,7 @@ export async function runLoop({ cdp, pool, kb, run, name, policy, overlay, hz = 
 
     if (!arena) { await kb.releaseAll(); if (!sync) await pace(t0, period); continue; }
     kb.facing = arena.me.facing;
+    kb.gameKeys = arena.me.keyHistory;
 
     if (!arena.me.alive) {
       deadStreak++;
@@ -268,6 +269,13 @@ export async function runLoop({ cdp, pool, kb, run, name, policy, overlay, hz = 
       plannedFor = null;
       if (action === 'roll_away') rollUntil = Date.now() + ROLL_OWNS_MS;
       standing = null;
+    } else if (!reflex && source === 'reflex') {
+      // A reflex's keys end with the reflex. With no fresh answer to hand back
+      // to, the last one stayed on: when eight decision calls in a row timed
+      // out (2026-09-24T20-09-01, from tick 1379), a lane dodge was held for
+      // 275 ticks into the top edge of the stage.
+      action = 'wait'; source = 'idle'; stance = null;
+      plannedFor = null;
     }
 
     // --- ask for the next one, without waiting for it

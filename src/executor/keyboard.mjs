@@ -130,6 +130,9 @@ export function comboReader() {
  * noise. Returns whether pressing Defend now is the third or fourth press of
  * one, given the presses before it.
  */
+/** px.js `P3` codes, as slots. */
+const SLOT_OF_CODE = { 9: 'defend', 0: 'jump', 5: 'attack', 8: 'up', 2: 'down', 4: 'left', 6: 'right' };
+
 export function startsShout(history) {
   const [a, b, c] = [history.at(-3), history.at(-2), history.at(-1)];
   return (b === 'defend' && (c === 'attack' || c === 'jump'))
@@ -148,6 +151,12 @@ export function keyboard(cdp, bindings = P4_KEYS) {
   let unshouted = 0;
   let facing = null;
   const history = []; // the last presses the game counted, as slots
+  // The game's own press history, read each tick, and every press sent since.
+  // Our own count alone missed shouts: a key let go for one game frame (33 ms)
+  // is a new press to the game, but under FRAME_MS (50) it was not counted
+  // here, and "Stay" was shouted in 8 of 12 games on 2026-09-24 evening.
+  let game = null;
+  let since = [];
 
   /** Breaks a team-command pattern with one depth tap before the Defend. */
   async function unshout() {
@@ -183,7 +192,9 @@ export function keyboard(cdp, bindings = P4_KEYS) {
     if (!allowed.has(code) || down.has(code)) return;
     const slot = slotOf.get(code);
     if (!intended && combo.completes(slot)) await defuse();
-    if (slot === 'defend' && startsShout(history)) await unshout();
+    if (slot === 'defend' && (startsShout(history)
+        || (game && startsShout([...game.map((c) => SLOT_OF_CODE[c]), ...since])))) await unshout();
+    since.push(slot);
     // A key let go and pressed again inside one frame never looks up to the
     // game, so it is no new press and does not reset the reader. Counted as
     // one, it hid an armed Defend-Forward: a special cut off by a new answer
@@ -242,6 +253,13 @@ export function keyboard(cdp, bindings = P4_KEYS) {
 
     /** Which way the fighter faces, read each tick, so a defuse does not turn it. */
     set facing(dir) { facing = dir; },
+
+    /** The game's press history (px.js `P3`), read each tick. */
+    set gameKeys(codes) {
+      if (!Array.isArray(codes)) return;
+      game = codes.slice(-4);
+      since = [];
+    },
 
     get stats() { return { dispatched, defused, unshouted, down: [...down] }; },
   };

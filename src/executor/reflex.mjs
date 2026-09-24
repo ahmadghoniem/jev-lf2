@@ -64,6 +64,9 @@ export function inboundWeapon(arena) {
   // in the air, not carried, and closing at our lane gets the same answer.
   for (const item of arena.items ?? []) {
     if (!item.hostile) continue;
+    // Moving away: it has passed. Blocked anyway, a star that went by 23 off
+    // our line turned Henry away from Rudolf (2026-09-24T20-37-48, tick 1175).
+    if (item.speed < 0) continue;
     const eta = item.speed > 0 ? item.range / item.speed : Infinity;
     // Inside the CPU's 150, answer as it does. Beyond it, only when the weapon
     // is fast enough that waiting would leave no time to clear the lane: a
@@ -326,10 +329,33 @@ export function createReflex({ maxBlockTicks = BOT.BLOCK_COMMIT_FRAMES,
  * inside its reach, or a shot inside its range while the MP covers it. Depth
  * within `BOT.AIM_MAX_Z`, where a hit still lands.
  */
+/** The standing attack's first frame, where its pick box is. */
+const PUNCH_FRAME = 60;
+/** Half the width of an item lying on the ground (a weapon's body is 19 wide). */
+const ITEM_HALF = 10;
+
+/**
+ * An item lying inside the standing attack's pick box (its itr kind 2, px.js):
+ * Attack from a stance picks it up instead of attacking. In
+ * 2026-09-24T20-06-11 the punish reflex picked up a baseball bat 14 in front
+ * of Henry, and its next press threw it.
+ */
+export function itemUnderHand(arena) {
+  const f = framesFor(arena.me.id)?.[PUNCH_FRAME];
+  const box = f?.itr?.find((i) => i.kind === 2);
+  if (!box) return null;
+  const from = box.x - (f.centerx ?? 0);
+  const to = from + box.w;
+  const ahead = arena.me.facing === 'right' ? 1 : -1;
+  return (arena.items ?? []).find((i) => !i.inFlight && Math.abs(i.dz) < (box.zwidth ?? BOT.HIT_Z)
+    && ahead * i.dx + ITEM_HALF >= from && ahead * i.dx - ITEM_HALF <= to) ?? null;
+}
+
 export function punish(arena, profile) {
   const t = arena.threats[0];
   const basic = profile?.basicAttack;
   if (!t || !basic || !t.vulnerable || unhittable(t)) return null;
+  if (itemUnderHand(arena)) return null;
   if (!['neutral', 'walking'].includes(doing(arena.me))) return null;
   if (t.zGap > BOT.AIM_MAX_Z) return null;
   const inReach = basic.kind === 'ranged'

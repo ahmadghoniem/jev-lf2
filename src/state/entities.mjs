@@ -104,6 +104,7 @@ const READ_LIVE = `function (identity) {
       const t = typeof v;
       if (t === 'number' || t === 'boolean' || t === 'string') e[k] = v;
     }
+    if (Array.isArray(o.P3)) e.P3 = o.P3.slice();
     out.push(e);
   }
   return JSON.stringify(out);

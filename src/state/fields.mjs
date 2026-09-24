@@ -26,6 +26,10 @@ export const F = {
   // sets it to 45, and it falls by one a tick. A blocked hit that takes it over
   // 30 breaks the guard (frame 112).
   guard: 'h3',
+  // The game's own record of the last five presses (px.js `P3`, pushed by
+  // `eg` once per new press): 9 Defend, 0 Jump, 5 Attack, 8 Up, 2 Down,
+  // 4 Left, 6 Right. The team shouts are read from its last four.
+  keyHistory: 'P3',
 };
 
 /** MP has no max field in the pool; `je` was seen at 505 while `Ke` is 500. */
@@ -57,4 +61,5 @@ export const readFighter = (e) => ({
   destX: e[F.destX],
   destZ: e[F.destZ],
   guard: e[F.guard] ?? 0,
+  keyHistory: e[F.keyHistory] ?? null,
 });

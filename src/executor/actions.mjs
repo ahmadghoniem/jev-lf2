@@ -19,8 +19,8 @@ import { P4_KEYS } from './keyboard.mjs';
 import { DRINK_TYPE, doing, unhittable, inSight } from '../state/arena.mjs';
 import { REACH_SLACK } from '../lf2data/frames.mjs';
 import { framesFor } from '../lf2data/tables.mjs';
-import { label } from '../state/options.mjs';
-import { incoming, inboundWeapon, laneDanger } from './reflex.mjs';
+import { label, plainName, slug } from '../state/options.mjs';
+import { incoming, inboundWeapon, laneDanger, itemUnderHand } from './reflex.mjs';
 import { BOT, createNoise, hesitation, standoffOf, DASH_MIN_GAP } from '../state/bot.mjs';
 
 /** Standing on top of an item is what picks it up; the hit box is generous. */
@@ -184,6 +184,9 @@ function aimedAttack(keys, { seq = ['attack'], needReach = false, reach = 45, st
         const danger = last ? laneDanger(a) : null;
         if (danger && danger.eta <= startup + 2) return { hold: [] };
         const press = seq[step / 5];
+        // A plain Attack over an item picks it up; step off its line first.
+        const item = seq.length === 1 && press === 'attack' ? itemUnderHand(a) : null;
+        if (item) return { hold: [item.dz >= 0 ? keys.up : keys.down] };
         const code = press === 'forward' ? keys[dirTo(a.me, t)] : keys[press];
         step++;
         return { hold: [], tap: [code], special: seq.length > 1 };
@@ -230,7 +233,16 @@ export function planAction(name, { arena, profile, keys = P4_KEYS } = {}) {
   const { me, threats, held } = arena;
   const target = threats[0];
 
-  if (name === 'wait') return stance(() => ({ hold: [] }));
+  // Waiting faces the enemy. A block and a special cover only the side faced,
+  // and after a roll away Henry waited with his back to Rudolf until a star
+  // turned him (2026-09-24T21-05-38, ticks 1376-1410).
+  if (name === 'wait') {
+    return stance((a) => {
+      const t = enemy(a);
+      return t && !t.infront && ['neutral', 'walking'].includes(doing(a.me))
+        ? { hold: [], tap: [keys[dirTo(a.me, t)]] } : { hold: [] };
+    });
+  }
   if (name === 'defend') {
     // Blocking only covers the side you face, so turning is part of blocking.
     // It lasts only while something is coming, by the same test that offers
@@ -244,7 +256,9 @@ export function planAction(name, { arena, profile, keys = P4_KEYS } = {}) {
       if (!incoming(a, { within: 12 }) && !weapon) return { hold: [] };
       // Face what is arriving: a weapon thrown from the other side is blocked
       // only by turning to it.
-      const side = weapon ? (weapon.dx >= 0 ? 'right' : 'left') : t ? dirTo(a.me, t) : a.me.facing;
+      // One level with us is passing through, and its side says nothing.
+      const side = weapon && Math.abs(weapon.dx) > PASSING_DX ? (weapon.dx > 0 ? 'right' : 'left')
+        : t ? dirTo(a.me, t) : a.me.facing;
       return { hold: side !== a.me.facing ? [keys[side], keys.defend] : [keys.defend] };
     });
   }
@@ -324,7 +338,7 @@ export function planAction(name, { arena, profile, keys = P4_KEYS } = {}) {
   if (name === 'punish') {
     return target ? stance((a) => {
       const t = enemy(a);
-      if (!t) return { hold: [] };
+      if (!t || itemUnderHand(a)) return { hold: [] };
       return t.infront ? { hold: [], tap: [keys.attack] } : { hold: [], tap: [keys[dirTo(a.me, t)]] };
     }) : null;
   }
@@ -346,6 +360,7 @@ export function planAction(name, { arena, profile, keys = P4_KEYS } = {}) {
   // target, then one tap. The punch only taps when the target is inside its
   // reach, so it stops whiffing from out of range.
   if (name === 'shoot' || name === 'punch') {
+    if (itemUnderHand(arena)) return null;
     const melee = name !== 'shoot';
     // A shot with a measured reach walks in until it is inside it, like the
     // blastpush does with its full-damage band.
@@ -379,10 +394,13 @@ export function planAction(name, { arena, profile, keys = P4_KEYS } = {}) {
     // band. The answer is chosen against where the enemy was half a second ago;
     // in one run Rudolf had backed off to 280 by the time Henry pressed, and two
     // 150-MP blastpushes did 13 and 7.
+    // A melee special walks in to its own reach first, as the punch does.
     const fullBand = move.falloff?.[0]?.to;
+    const melee = move.kind === 'melee';
     return stance(aimedAttack(keys, { seq: SPECIAL_SEQUENCE[move.input], profile,
                                       startup: move.startupTicks ?? 5,
-                                      needReach: !!fullBand, reach: (fullBand ?? 0) - REACH_SLACK }));
+                                      needReach: melee || !!fullBand,
+                                      reach: melee ? (move.reach ?? 0) : (fullBand ?? 0) - REACH_SLACK }));
   }
 
   // punish a helpless enemy: close the distance, then hit once in range
@@ -401,7 +419,8 @@ export function planAction(name, { arena, profile, keys = P4_KEYS } = {}) {
 
   // go and drink something: walk to it, then press attack on top of it
   if (name.startsWith('drink_')) {
-    const pick = (a) => a.items.find((i) => i.type === DRINK_TYPE) ?? null;
+    const pick = (a) => a.items.find((i) => i.type === DRINK_TYPE
+      && `drink_${slug(plainName(i.name))}` === name) ?? null;
     if (!pick(arena)) return null;
     return stance((a) => {
       const item = pick(a);
@@ -516,6 +535,10 @@ function chargeStance(keys, { dash, reach }) {
     ticks++;
     if (phase === 'ready') {
       if (!t || unhittable(t) || !ACTIONABLE.has(now)) return { hold: [] };
+      // A run carries along its line, so it starts from the enemy's. Started
+      // from 111 of depth away, run attacks swung left and right past Firen
+      // (2026-09-24T20-28-06, ticks 1652-1705).
+      if (Math.abs(t.z - a.me.z) > BOT.AIM_MAX_Z) return { hold: depthTo(a, keys, t.z) };
       dir = dirTo(a.me, t);
       phase = now === 'running' && a.me.facing === dir ? 'run' : 'tap';
       ticks = 0;
@@ -532,11 +555,21 @@ function chargeStance(keys, { dash, reach }) {
       }
       // Closer than a dash carries, the dash goes past the enemy (Henry ended
       // 166 behind Rudolf that way), so the run's own attack is used instead.
-      if (dash && t && t.gap >= DASH_MIN_GAP) { phase = 'dash'; ticks = 0; return { hold: [keys[dir]], tap: [keys.jump] }; }
-      if (dash) { phase = 'done'; return { hold: [keys[dir]], tap: [keys.attack] }; }
+      // Depth is steered during the run, and the swing waits until it is level.
+      const steer = t ? depthTo(a, keys, t.z) : [];
+      const level = t && Math.abs(t.z - a.me.z) < BOT.HIT_Z;
+      if (!level && ticks >= CHARGE_GIVE_UP) { phase = 'done'; return { hold: [] }; }
+      if (dash && t && t.gap >= DASH_MIN_GAP) {
+        if (!level) return { hold: [keys[dir], ...steer] };
+        phase = 'dash'; ticks = 0; return { hold: [keys[dir]], tap: [keys.jump] };
+      }
+      if (dash) {
+        if (!level) return { hold: [keys[dir], ...steer] };
+        phase = 'done'; return { hold: [keys[dir]], tap: [keys.attack] };
+      }
       // The old burst swung about 8 ticks into the run; sooner once in reach.
       const there = !t || dirTo(a.me, t) !== dir || t.gap <= reach + RUN_SKID || ticks >= 8;
-      if (!there) return { hold: [keys[dir]] };
+      if (!there || !level) return { hold: [keys[dir], ...steer] };
       phase = 'done';
       return { hold: [keys[dir]], tap: [keys.attack] };
     }
@@ -551,6 +584,10 @@ function chargeStance(keys, { dash, reach }) {
   run.busy = () => phase !== 'ready' && phase !== 'done';
   return run;
 }
+/** Ticks into a run after which a charge that never got level gives up. */
+const CHARGE_GIVE_UP = 16;
+/** A weapon closer than this sideways is passing through, not coming from a side. */
+const PASSING_DX = 12;
 /** Ticks a run away is held once running, about half a second. */
 const RUN_TICKS = 16;
 /** Ground a run needs ahead to start, and the ground at which it is stopped. */
