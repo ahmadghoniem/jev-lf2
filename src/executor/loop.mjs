@@ -197,7 +197,7 @@ export async function runLoop({ cdp, pool, kb, run, name, policy, overlay, hz = 
       const { result, askedAt, askedAtMs } = pending;
       pending = null;
       if (result?.action) answered = { action: result.action, askedAtMs };
-      plan.update(result?.answers?.plan?.choice, arena);
+      plan.update(result?.answers?.plan?.choice);
       if (Date.now() - askedAtMs > staleMs) counts.stale++;
       // A thrown weapon is already in the air and the block answers it, so that
       // one reflex holds against a late answer; everything else steps aside.
@@ -265,7 +265,7 @@ export async function runLoop({ cdp, pool, kb, run, name, policy, overlay, hz = 
       const record = { settled: false, askedAt, askedAtMs: Date.now(), result: null };
       pending = record;
       counts.decisions++;
-      policy.decide({ arena, options, questions, recent: { ...recent, ...plan.recent(arena) } }).then((result) => {
+      policy.decide({ arena, options, questions, recent: { ...recent, ...plan.recent() } }).then((result) => {
         record.result = result; record.settled = true;
         run?.judgement({
           tick: askedAt, schema, criteria: { action: options },
