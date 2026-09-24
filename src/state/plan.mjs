@@ -25,7 +25,7 @@ export function planQuestion(arena) {
       type: 'choice',
       instructions: 'Which game plan should the next few seconds follow? '
         + 'Your plan so far is under recent.plan, with how long it has held and the hp it has won and lost. '
-        + 'Choose afresh: keep it while it is working, and change it when it is not, for example when it deals little damage, or when the enemy\'s hp, MP or distance has changed.',
+        + 'Keep it unless the fight has changed, or unless it has dealt little damage for more than about 10 s; then choose the plan that fits now.',
       criteria: PLANS,
     },
   };
