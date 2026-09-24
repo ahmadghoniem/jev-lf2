@@ -24,7 +24,8 @@ export function planQuestion(arena) {
     plan: {
       type: 'choice',
       instructions: 'Which game plan should the next few seconds follow? '
-        + 'Your plan so far is under recent.plan; keep it unless the fight has changed.',
+        + 'Your plan so far is under recent.plan, with how long it has held and the hp it has won and lost. '
+        + 'Choose afresh: keep it while it is working, and change it when it is not, for example when it deals little damage, or when the enemy\'s hp, MP or distance has changed.',
       criteria: PLANS,
     },
   };
@@ -33,18 +34,30 @@ export function planQuestion(arena) {
 /** Added to the action question: the action carries out the plan. */
 export const PLAN_NOTE = ' If recent.plan is set, it is the game plan you chose a moment ago: pick the action that carries it out, unless the fight has changed.';
 
-/** Keeps the plan across answers, with the time it has held. */
+/**
+ * Keeps the plan across answers, with the time it has held and the hp dealt
+ * and taken since. Without a result to judge it by, a plan was kept all game:
+ * one Davis run answered `bait` 129 times of 129 and dealt 215.
+ */
 export function createPlanMemory(now = () => Date.now()) {
   let plan = null;
   let since = 0;
+  let start = null; // { me, foe: { slot, hp } } at the plan's start
+  const hpOf = (arena) => ({ me: arena.me.hp, foe: arena.threats[0] && { slot: arena.threats[0].slot, hp: arena.threats[0].hp } });
   return {
-    update(choice) {
+    update(choice, arena) {
       if (!choice || !(choice in PLANS)) return;
-      if (choice !== plan) { plan = choice; since = now(); }
+      if (choice !== plan) { plan = choice; since = now(); start = arena ? hpOf(arena) : null; }
     },
     get current() { return plan; },
-    recent() {
-      return plan ? { plan: `${plan.replace(/_/g, ' ')} (for ${Math.round((now() - since) / 1000)} s)` } : {};
+    recent(arena) {
+      if (!plan) return {};
+      const s = Math.round((now() - since) / 1000);
+      if (!start || !arena) return { plan: `${plan.replace(/_/g, ' ')} (for ${s} s)` };
+      const t = arena.threats.find((x) => x.slot === start.foe?.slot);
+      const dealt = t ? Math.max(0, start.foe.hp - t.hp) : null;
+      const taken = Math.max(0, start.me - arena.me.hp);
+      return { plan: `${plan.replace(/_/g, ' ')} (for ${s} s; dealt ${dealt ?? 'unknown'} hp, taken ${taken} hp)` };
     },
   };
 }
