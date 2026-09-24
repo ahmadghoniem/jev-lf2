@@ -16,6 +16,21 @@ import { tierDamage, bucketRange, damageAt } from '../lf2data/profile.mjs';
 import { mpRegenPerSecond } from './fields.mjs';
 import { REACH_SLACK } from '../lf2data/frames.mjs';
 import { standoffOf, RUN_IN_MIN_X, RUN_OUT_MAX_X, DASH_MIN_GAP } from './bot.mjs';
+import { framesFor } from '../lf2data/tables.mjs';
+
+/**
+ * Whether a move fires an energy ball: an object whose first frame is state
+ * 3000. The CPU blocks every one of these that comes within 200 of it while it
+ * is free to act (docs/07-cpu-ai.md); arrows, stars and blasts are not in it.
+ */
+const firesBall = (move) => (move.spawns ?? []).some((id) => {
+  const f = framesFor(id);
+  const first = f && Object.values(f)[0];
+  return first?.state === 3000;
+});
+
+/** An enemy in one of these can turn and block. */
+const FREE_TO_BLOCK = new Set(['neutral', 'walking', 'running', 'blocking']);
 
 /** How a weapon's four swing types read as options. */
 const SWING_STYLES = {
@@ -126,6 +141,9 @@ export function buildOptions({ profile, weapons, held, nearby = [], nearest = In
       isBasic ? "This is this fighter's ordinary attack, so it is always available."
         : 'This is a signature special move, and the only way to hurt an enemy without walking into its range.',
       window ? 'The enemy is helpless right now, so this cannot be answered or blocked.' : '',
+      hasTarget && firesBall(move) && FREE_TO_BLOCK.has(enemyDoing)
+        ? 'The enemy is free to act, and a computer enemy blocks every energy ball that comes near it while it is free; this lands when it is busy attacking, hurt, in the air or getting up.'
+        : '',
       behind ? 'You will turn to face the enemy first.' : '',
       move.mp > 0 ? 'The MP is spent even on a miss.' : '',
     ].filter(Boolean).join(' ');

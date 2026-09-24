@@ -32,6 +32,18 @@ export const BOT = {
   ALIGN_Z: 15,
   ALIGN_Z_TIGHT: 5,
 
+  // --- where to stand to hit without being hit (docs/07-cpu-ai.md)
+  // A hit connects while the depth gap is under the attack's zwidth, 16 when
+  // the data leaves it unset (px.js). The CPU starts its own attacks only
+  // within ALIGN_Z_TIGHT (5) and blocks only within BLOCK_Z (9). So Jev aims
+  // AIM_Z off the enemy's line: his hits land, and the CPU neither swings,
+  // throws nor blocks. In the Henry v Rudolf runs, 170-300 away cost 39 hp
+  // per 100 ticks on Rudolf's line and 11 when 5 or more off it.
+  HIT_Z: 16,
+  AIM_Z: 11,
+  AIM_MIN_Z: 9,
+  AIM_MAX_Z: 13,
+
   // --- answering a thrown weapon (TI2f dodge block)
   // A projectile inside DODGE_X of us and DODGE_Z of our depth is stepped off
   // the line; the tighter pair is used for the weapons that arrive faster.

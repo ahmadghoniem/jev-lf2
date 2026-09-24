@@ -98,9 +98,11 @@ const meleeReach = (profile) => profile?.bestMelee?.reach ?? profile?.basicAttac
  * the lane during the wind-up is chased before the sequence ever starts, which
  * a fixed burst frozen at plan time could not do.
  */
-function aimedAttack(keys, { tight, seq = ['attack'], needReach = false, reach = 45, startup = 5,
+function aimedAttack(keys, { seq = ['attack'], needReach = false, reach = 45, startup = 5,
                              profile = null }) {
   let step = 0;
+  let side = null;    // the side of the enemy's line aimed from (see `aimSide`)
+  let outTicks = 0;   // ticks spent stepping off the line before this attack
   const started = () => step > 0 && step < seq.length * 5;
   const run = (a) => {
     const t = enemy(a);
@@ -130,9 +132,10 @@ function aimedAttack(keys, { tight, seq = ['attack'], needReach = false, reach =
       if (danger && danger.eta < seq.length * 5 + startup) return { hold: [] };
     }
     // Out of sight nothing lands, so walk on until it is back in view.
+    side = aimSide(side, a, t);
     if (!inSight(t, profile)) {
       if (started()) step = 0;
-      return { hold: toward(a, keys, t) };
+      return { hold: toward(a, keys, t, { zOff: side * BOT.AIM_Z }) };
     }
     // An enemy that goes down while the sequence is being played would take
     // the MP and nothing else — the observer saw blastpush fired into a
@@ -148,11 +151,20 @@ function aimedAttack(keys, { tight, seq = ['attack'], needReach = false, reach =
     // and forward pressed, attack not) is neither a move nor a safe state to
     // resume from. A completed sequence is not restarted — that would be a
     // second cast paid for by the same answer.
-    if (Math.abs(dz) > tight) {
+    // Aim from beside the enemy's line rather than on it: too far off and
+    // nothing connects, so step in; nearer than the CPU blocks from, step out
+    // first, for at most AIM_OUT_TICKS so a stage edge cannot hold it forever.
+    if (Math.abs(dz) > BOT.AIM_MAX_Z) {
       if (step > 0 && step < seq.length * 5) step = 0;
-      return { hold: [dz < 0 ? keys.up : keys.down] };
+      return { hold: depthTo(a, keys, t.z + side * BOT.AIM_Z) };
     }
-    if (needReach && !started() && t.gap > reach + REACH_SLACK) return { hold: toward(a, keys, t) };
+    if (step === 0 && Math.abs(dz) < BOT.AIM_MIN_Z && outTicks < AIM_OUT_TICKS) {
+      outTicks++;
+      return { hold: depthTo(a, keys, t.z + side * BOT.AIM_Z) };
+    }
+    if (needReach && !started() && t.gap > reach + REACH_SLACK) {
+      return { hold: toward(a, keys, t, { zOff: side * BOT.AIM_Z }) };
+    }
     if (!t.infront) return { hold: [], tap: [keys[dirTo(a.me, t)]] };
     // One press every fifth tick: ~166 ms between press starts, which keeps
     // the presses distinct the way the 60 ms press + 90 ms gap tuned by
@@ -181,7 +193,7 @@ function aimedAttack(keys, { tight, seq = ['attack'], needReach = false, reach =
     // Rudolf's stars) is pressed again while it plays, as long as the target
     // is still on the line and the MP holds: the next one then leaves at once,
     // where a fresh answer starts over from Defend, about a second later.
-    if (seq.length > 1 && repeats(a.me) && Math.abs(dz) <= tight && t.infront) {
+    if (seq.length > 1 && repeats(a.me) && Math.abs(dz) <= BOT.AIM_MAX_Z && t.infront) {
       return { hold: [], tap: [keys.attack], special: true };
     }
     return { hold: [] };
@@ -241,9 +253,11 @@ export function planAction(name, { arena, profile, keys = P4_KEYS } = {}) {
   // lane question without walking into the melee.
   if (name === 'close_distance') {
     if (!target) return null;
+    let side = null;
     return stance((a) => {
       const t = enemy(a);
       if (!t) return { hold: [] };
+      side = aimSide(side, a, t);
       // While a weapon is inbound through our lane, depth is not corrected: the
       // enemy's projectile travels along the enemy's lane, so aligning with the
       // enemy is walking into its fire. The CPU suppresses lane-following while
@@ -251,7 +265,7 @@ export function planAction(name, { arena, profile, keys = P4_KEYS } = {}) {
       // depth until the lane is clear; this holds only the sideways keys.
       const w = weaponOnLane(a);
       const stopAt = standoffFor(profile, a.me.mp);
-      let hold = toward(a, keys, t, { stopAt, noDepth: !!w });
+      let hold = toward(a, keys, t, { stopAt, noDepth: !!w, zOff: side * BOT.AIM_Z });
       // The walk flinch, copied from the CPU: a direction key dropped for a
       // tick now and then, so the approach is not a metronome.
       if (moveNoise(hesitation(1)) === 0) hold = [];
@@ -318,16 +332,15 @@ export function planAction(name, { arena, profile, keys = P4_KEYS } = {}) {
   // different answer, and every attack was dropped from the offer whenever
   // one of his stars was in the air, which against a steady thrower is often.
 
-  // plain attacks: line up in the lane, face the target, then one tap. A melee
-  // hit needs the CPU's tight 5 of depth; a fired shot is fine within the
-  // looser 12. The punch only taps when the target is inside its reach, so it
-  // stops whiffing from out of range.
+  // plain attacks: step to the aiming depth beside the enemy's line, face the
+  // target, then one tap. The punch only taps when the target is inside its
+  // reach, so it stops whiffing from out of range.
   if (name === 'shoot' || name === 'punch' || name.startsWith('swing_')) {
     const melee = name !== 'shoot';
     // A shot with a measured reach walks in until it is inside it, like the
     // blastpush does with its full-damage band.
     const shotRange = !melee ? profile?.basicAttack?.range : null;
-    return stance(aimedAttack(keys, { tight: melee ? BOT.ALIGN_Z_TIGHT : Z_TOLERANCE, profile,
+    return stance(aimedAttack(keys, { profile,
                                        needReach: melee || !!shotRange,
                                        reach: melee ? meleeReach(profile) : (shotRange ?? 0) - REACH_SLACK }));
   }
@@ -357,7 +370,7 @@ export function planAction(name, { arena, profile, keys = P4_KEYS } = {}) {
     // in one run Rudolf had backed off to 280 by the time Henry pressed, and two
     // 150-MP blastpushes did 13 and 7.
     const fullBand = move.falloff?.[0]?.to;
-    return stance(aimedAttack(keys, { tight: Z_TOLERANCE, seq: SPECIAL_SEQUENCE[move.input], profile,
+    return stance(aimedAttack(keys, { seq: SPECIAL_SEQUENCE[move.input], profile,
                                       startup: move.startupTicks ?? 5,
                                       needReach: !!fullBand, reach: (fullBand ?? 0) - REACH_SLACK }));
   }
@@ -380,11 +393,13 @@ export function planAction(name, { arena, profile, keys = P4_KEYS } = {}) {
   if (name === 'rush_attack') {
     if (!target) return null;
     const reach = meleeReach(profile);
+    let side = null;
     return stance((a) => {
       const t = enemy(a);
       if (!t) return { hold: [] };
-      if (t.gap <= reach + REACH_SLACK && t.zGap <= Z_TOLERANCE) return { hold: [], tap: [keys.attack] };
-      return { hold: toward(a, keys, t) };
+      side = aimSide(side, a, t);
+      if (t.gap <= reach + REACH_SLACK && t.zGap <= BOT.AIM_MAX_Z) return { hold: [], tap: [keys.attack] };
+      return { hold: toward(a, keys, t, { zOff: side * BOT.AIM_Z }) };
     });
   }
 
@@ -592,11 +607,11 @@ const dirTo = (me, t) => (t && t.x >= me.x ? 'right' : 'left');
  * looser `Z_TOLERANCE`, since lining up is free and a missed shot is not.
  */
 function toward(arena, keys, t, { stopAt = 0, xDead = BOT.X_DEADZONE, zDead = BOT.Z_DEADZONE,
-                             noDepth = false } = {}) {
+                             noDepth = false, zOff = 0 } = {}) {
   if (!t) return [];
   const out = [];
   const dx = t.x - arena.me.x;
-  const dz = t.z - arena.me.z;
+  const dz = t.z + zOff - arena.me.z;
   // The x dead zone is the CPU's own 6, not the tighter depth one. At 3 the key
   // flickered on and off — and flipped sides — as dx wobbled ±4 around zero with
   // the enemy standing on top of us, which read as the fighter tapping left and
@@ -608,6 +623,26 @@ function toward(arena, keys, t, { stopAt = 0, xDead = BOT.X_DEADZONE, zDead = BO
   }
   return out;
 }
+
+/**
+ * Which side of the enemy's line to aim from: +1 for the larger depth, -1 for
+ * the smaller. It follows the side Jev stands on once he is clearly off the
+ * line, and keeps the last choice while he is near it, so it does not flip
+ * as the gap passes zero.
+ */
+function aimSide(prev, arena, t) {
+  if (prev == null || Math.abs(t.z - arena.me.z) >= BOT.AIM_MIN_Z) return arena.me.z >= t.z ? 1 : -1;
+  return prev;
+}
+
+/** The depth keys that walk toward depth `z`, with a dead zone of 1. */
+function depthTo(arena, keys, z) {
+  const dz = z - arena.me.z;
+  return dz < -1 ? [keys.up] : dz > 1 ? [keys.down] : [];
+}
+
+/** At most this long stepping off the line before an attack: ~0.3 s. */
+const AIM_OUT_TICKS = 8;
 
 /**
  * A weapon that is going to pass through our lane: in the air, inside the

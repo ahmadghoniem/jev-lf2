@@ -140,6 +140,8 @@ function situationNotes(options, arena, profile) {
   return [
     [dry,
       `The enemy has only ${dry?.mp} MP, less than its cheapest special move (${dry?.cheapest}), so for about ${dry?.seconds} s it has only its plain attacks. This is the time to press it: close in and hit, since nothing big can come back.`],
+    [near && near.gap < 100 && profileFor(near.name)?.basicAttack?.kind === 'ranged',
+      'This enemy fights from range: when you come within about 100, its computer runs away about half the time, so chasing it rarely lands unless its back is to the edge of the stage.'],
     [near && !inSight(near, profile),
       'The enemy is off the screen, too far for any shot to land, so there is nothing to fire at until it is back on screen.'],
     [near?.doing === 'drinking',

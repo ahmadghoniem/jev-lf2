@@ -54,7 +54,8 @@ const attacks = Object.keys(optsDown).filter((k) =>
   k === 'punch' || k.startsWith('special_') || k === 'shoot' || k.endsWith('attack'));
 console.log('3) attack options with the enemy down:', attacks.length ? attacks.join(',') : '(none)');
 
-// --- 4. the tap-flip: enemy wobbling ±4 on top of us must produce no key at all
+// --- 4. the tap-flip: enemy wobbling ±4 on top of us must produce no sideways
+// key at all (the depth key that steps off its line is expected)
 const keys = { up: 'KeyI', down: 'Comma', left: 'KeyJ', right: 'KeyL', attack: 'KeyK', jump: 'Space', defend: 'Period' };
 const arena = (dx) => ({ me, threats: [{ slot: 11, x: dx, z: 0, y: 0, dx, dz: 0, gap: Math.abs(dx), zGap: 0, range: Math.abs(dx), infront: dx >= 0, aligned: true }], items: [], held: null, flying: [], nearest: Math.abs(dx) });
 let flips = 0, presses = 0;
@@ -62,7 +63,7 @@ let last = null;
 for (const dx of [-4, 1, -3, 2, -4, 1]) {
   const plan = planAction('close_distance', { arena: arena(dx), profile, keys });
   const h = plan.step(arena(dx));
-  const now = (h.hold[0] ?? null);
+  const now = h.hold.find((k) => k === keys.left || k === keys.right) ?? null;
   if (now && last && now !== last) flips++;
   if (now) presses++;
   last = now;
