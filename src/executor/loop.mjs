@@ -288,7 +288,10 @@ export async function runLoop({ cdp, pool, kb, run, name, policy, overlay, hz = 
       if (plan?.kind === 'burst') {
         counts.bursts++;
         plannedFor = null;
-        burst = plan.run(kb).finally(() => { burst = null; });
+        // Keys a stance or the block left down would play into the burst: a
+        // dash attack started over a held Defend and a left from the block's
+        // turn jumped Henry the wrong way and spent 18 MP on a special.
+        burst = kb.hold([]).then(() => plan.run(kb)).finally(() => { burst = null; });
       } else if (plan?.kind === 'stance') {
         stance = plan.step;
         const step = stance(arena);

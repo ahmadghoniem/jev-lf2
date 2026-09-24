@@ -343,6 +343,16 @@ const VULNERABLE = new Set([...HELPLESS, 'recovering']);
  */
 export const isDown = (doingValue) => doingValue === 'knocked_down' || doingValue === 'in_the_air';
 
+/**
+ * Whether a shot or swing started now cannot land. A jump is over in about 20
+ * ticks, so from further off a shot arrives after the landing; treating every
+ * jump as down held Henry's specials while Rudolf hopped 200-380 away, which
+ * the observer saw as passing up open chances.
+ */
+export const JUMP_CLEAR_GAP = 200;
+export const unhittable = (t) => !!t && (t.doing === 'knocked_down'
+  || (t.doing === 'in_the_air' && t.gap < JUMP_CLEAR_GAP));
+
 /** What a fighter is doing, read off its current frame rather than inferred. */
 export function doing(f) {
   const frames = framesFor(f.id);

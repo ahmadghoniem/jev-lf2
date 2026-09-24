@@ -7,11 +7,12 @@
  */
 
 import { buildOptions } from '../state/options.mjs';
-import { semanticState, doing, isDown } from '../state/arena.mjs';
+import { semanticState, doing, unhittable } from '../state/arena.mjs';
+import { nestOptions, followUps, resolveChoice } from '../state/nest.mjs';
 import { weapons } from '../lf2data/tables.mjs';
 import { executableOptions, planAction } from './actions.mjs';
 import { wouldWhiff, incoming, inboundWeapon, guardHolds, GUARD_BREAK } from './reflex.mjs';
-import { STANDOFF_X } from '../state/bot.mjs';
+import { standoffOf } from '../state/bot.mjs';
 
 /** Below this much MP, spending it is flagged as a last resort. */
 const MP_LOW = 100;
@@ -41,7 +42,7 @@ export function offer(arena, profile) {
     vulnerable: near?.vulnerable ?? false,
     enemyDoing: near?.doing ?? null,
     aligned: near?.aligned ?? true,
-    targetDown: isDown(near?.doing),
+    targetDown: unhittable(near),
     hasTarget: !!near,
     targetOnScreen: near?.onScreen ?? true,
     threatened: !!incoming(arena, { within: 12 }),
@@ -87,15 +88,16 @@ export function heuristicPolicy(profile) {
 export function jevPolicy(client, profile, { deadlineMs = 1400 } = {}) {
   return {
     name: 'jev',
-    questions: questionSet,
-    async decide({ arena, options, questions = questionSet(options, arena), recent }) {
+    questions: (options, arena) => questionSet(options, arena, profile),
+    async decide({ arena, options, questions = questionSet(options, arena, profile), recent }) {
       const state = semanticState({ arena, profile, recent });
       const t0 = Date.now();
       const answer = await client.ask({ state, questions, deadlineMs });
       const latencyMs = Date.now() - t0;
       if (!answer) return { action: null, latencyMs, state, questions };
       return {
-        action: answer.answers?.action?.choice ?? null,
+        action: resolveChoice(answer.answers?.action?.choice ?? null, answer.answers,
+          nestOptions(options).groups),
         answers: answer.answers,
         usage: answer.usage,
         requestId: answer.requestId,
@@ -116,7 +118,7 @@ function roomBehind(arena) {
  * The situation notes appended to the action question, each only when it
  * holds. They say in words what the arena says in numbers.
  */
-function situationNotes(options, arena) {
+function situationNotes(options, arena, profile) {
   const near = arena.threats[0];
   const canShoot = Object.keys(options).some((o) => o === 'shoot' || o.startsWith('special_'));
   return [
@@ -130,7 +132,7 @@ function situationNotes(options, arena) {
       'The enemy is at the tail end of an attack. It has nothing live, but it may have released a weapon a moment ago, so check the air before walking in.'],
     [near && !near.aligned,
       'You and the enemy are at different depths, so nothing fired from here will connect until you line up on its depth.'],
-    [near?.aligned && canShoot && near.gap <= STANDOFF_X,
+    [near?.aligned && canShoot && near.gap <= standoffOf(profile),
       'You are level with the enemy and inside your firing range, so the shot reaches from where you stand — holding this distance beats walking in, where it can hit back.'],
     [near && near.gap <= 80,
       'The enemy is inside punching range. Standing here means trading blows with it, and a block here only waits for the next hit — rolling away or stepping back gets you out of its reach while your shots still fly, and a thrower at this distance is throwing almost point-blank.'],
@@ -144,7 +146,7 @@ function situationNotes(options, arena) {
       'The enemy is holding or withdrawing rather than closing, so you may have to move to keep it inside your range.'],
     [doing(arena.me) === 'blocking',
       'You are holding a block. It absorbs a few hits and then breaks, so the moment the swing passes, answer with an attack rather than blocking again.'],
-    [near && isDown(near.doing),
+    [unhittable(near),
       'The enemy is on the floor or in the air, so nothing you fire can connect — spend no MP until it is back on its feet.'],
     [inboundWeapon(arena) && !guardWorn(arena),
       'A weapon that was thrown at you is still in the air and closing, so nothing you throw will stop it — block it, or roll away if it is still far enough off for the roll to start.'],
@@ -157,15 +159,21 @@ function situationNotes(options, arena) {
   ].filter(([when]) => when).map(([, text]) => ` ${text}`).join('');
 }
 
-/** Independent questions, evaluated in parallel by the service. */
-function questionSet(options, arena) {
+/**
+ * Independent questions, evaluated in parallel by the service. Options of one
+ * kind are offered once in the action question, and a follow-up per kind
+ * picks between them in the same request (see `src/state/nest.mjs`).
+ */
+function questionSet(options, arena, profile) {
+  const { top, groups } = nestOptions(options);
   const questions = {
     action: {
       type: 'choice',
       instructions: 'Choose what to do next in this fight. Every option listed is available right now.'
-        + situationNotes(options, arena),
-      criteria: options,
+        + situationNotes(options, arena, profile),
+      criteria: top,
     },
+    ...followUps(groups),
     commit: {
       type: 'noul',
       instructions: 'Is this the moment to commit to an attack rather than reposition?',

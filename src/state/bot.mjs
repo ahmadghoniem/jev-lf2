@@ -73,6 +73,17 @@ export const BOT = {
 /** Where a fighter that can shoot wants to stand: just inside its firing band. */
 export const STANDOFF_X = BOT.RANGED_MIN_X + 50;
 
+/**
+ * The stand-off for a fighter whose ordinary attack is a shot with a measured
+ * reach: well inside that reach rather than the generic 150, where Henry,
+ * whose arrow carries 500, walked in to within a few ticks of Rudolf's stars.
+ */
+export function standoffOf(profile) {
+  if (!profile?.hasRanged) return 0;
+  const reach = profile.basicAttack?.kind === 'ranged' ? profile.basicAttack.range : null;
+  return reach ? Math.max(STANDOFF_X, Math.round(reach * 0.6)) : STANDOFF_X;
+}
+
 /** A run is only worth offering once walking would be slow: beyond the band. */
 export const RUN_IN_MIN_X = 200;
 

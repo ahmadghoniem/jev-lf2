@@ -16,11 +16,11 @@
 
 import { setTimeout as sleep } from 'node:timers/promises';
 import { P4_KEYS } from './keyboard.mjs';
-import { DRINK_TYPE, Z_TOLERANCE, isDown, doing } from '../state/arena.mjs';
+import { DRINK_TYPE, Z_TOLERANCE, doing, unhittable } from '../state/arena.mjs';
 import { REACH_SLACK } from '../lf2data/frames.mjs';
 import { label } from '../state/options.mjs';
 import { incoming, inboundWeapon, laneDanger } from './reflex.mjs';
-import { BOT, STANDOFF_X, createNoise, hesitation } from '../state/bot.mjs';
+import { BOT, createNoise, hesitation, standoffOf } from '../state/bot.mjs';
 
 /** Standing on top of an item is what picks it up; the hit box is generous. */
 const PICKUP_RANGE = 40;
@@ -77,7 +77,7 @@ const moveNoise = createNoise(7);
  * affordable; below that the stand-off is zero and this walks all the way in.
  */
 export const standoffFor = (profile, mp = Infinity) =>
-  (profile?.hasRanged && mp >= (profile.cheapestRangedMp ?? 0) ? STANDOFF_X : 0);
+  (profile?.hasRanged && mp >= (profile.cheapestRangedMp ?? 0) ? standoffOf(profile) : 0);
 
 /** How far a bare-handed hit reaches, for deciding when to press attack. */
 const meleeReach = (profile) => profile?.bestMelee?.reach ?? profile?.basicAttack?.reach ?? 45;
@@ -124,7 +124,7 @@ function aimedAttack(keys, { tight, seq = ['attack'], needReach = false, reach =
     // one run 232 of 397 block-pose ticks came from specials. So one is not
     // started while a star or a throw would arrive before it fires; the
     // reflex steps off the line first, and the special starts after.
-    if (step === 0 && seq.length > 1) {
+    if (step === 0) {
       const danger = laneDanger(a);
       if (danger && danger.eta < seq.length * 5 + startup) return { hold: [] };
     }
@@ -136,7 +136,7 @@ function aimedAttack(keys, { tight, seq = ['attack'], needReach = false, reach =
     // An enemy that goes down while the sequence is being played would take
     // the MP and nothing else — the observer saw blastpush fired into a
     // falling Rudolf — so the last press waits until it is up again.
-    if (spendsMp && isDown(t.doing)) {
+    if (spendsMp && unhittable(t)) {
       if (started()) step = 0;
       return { hold: [] };
     }
@@ -301,17 +301,11 @@ export function planAction(name, { arena, profile, keys = P4_KEYS } = {}) {
     });
   }
 
-  // The decision that chose this move was made ~350 ms ago, so the enemy may
-  // have gone down since. Nothing refunds MP, so re-check at the moment of
-  // firing: an MP-costing move is not spent on a target that cannot be hit.
-  if (target && isDown(target.doing) && mpCost(profile, name) > 0) {
-    return stance(() => ({ hold: [] }));
-  }
-
-  // No attack starts while a weapon is already on its way through our lane:
-  // the dodge owns that lane until it is clear, and an attack started now would
-  // still be in its recovery when the weapon arrives.
-  if (isAttackOption(name) && weaponOnLane(arena)) return null;
+  // An enemy that is down, and a weapon on our lane, are both waited out by
+  // the attack itself, tick by tick. Checked once here instead, a special
+  // planned while Rudolf was in a jump stayed a do-nothing until the next
+  // different answer, and every attack was dropped from the offer whenever
+  // one of his stars was in the air, which against a steady thrower is often.
 
   // plain attacks: line up in the lane, face the target, then one tap. A melee
   // hit needs the CPU's tight 5 of depth; a fired shot is fine within the
@@ -514,13 +508,6 @@ const opposite = (dir) => (dir === 'right' ? 'left' : 'right');
 const ACTIONABLE = new Set(['neutral', 'walking', 'running']);
 /** Reads it takes the game to show a run after the double-tap (about 4 measured), with margin. */
 const RUN_START_TICKS = 10;
-
-/** The MP a named option costs, or 0 for the free moves. */
-function mpCost(profile, name) {
-  if (name === 'shoot') return profile?.basicAttack?.mp ?? 0;
-  if (name.startsWith('special_')) return findSpecial(profile, name)?.mp ?? 0;
-  return profile?.moves?.find((m) => label(m) === name)?.mp ?? 0;
-}
 
 /** The move an option name refers to, matched the way the name was built. */
 const findSpecial = (profile, name) =>

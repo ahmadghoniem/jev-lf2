@@ -15,7 +15,7 @@
 import { tierDamage, bucketRange, damageAt } from '../lf2data/profile.mjs';
 import { mpRegenPerSecond } from './fields.mjs';
 import { REACH_SLACK } from '../lf2data/frames.mjs';
-import { STANDOFF_X, RUN_IN_MIN_X, RUN_OUT_MAX_X } from './bot.mjs';
+import { standoffOf, RUN_IN_MIN_X, RUN_OUT_MAX_X } from './bot.mjs';
 
 /** How a weapon's four swing types read as options. */
 const SWING_STYLES = {
@@ -67,7 +67,7 @@ export function buildOptions({ profile, weapons, held, nearby = [], nearest = In
   // Where a fighter that can fire wants to stand, and so where "close the
   // distance" stops meaning "walk into it". A fighter with nothing to fire has
   // to close all the way, and its stand-off is zero.
-  const standoff = profile.hasRanged ? STANDOFF_X : 0;
+  const standoff = standoffOf(profile);
 
   const misaligned = hasTarget && !aligned;
   // A target on the floor or in the air cannot be hit by anything fired from
