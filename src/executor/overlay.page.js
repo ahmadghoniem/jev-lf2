@@ -19,6 +19,7 @@
   const ID = 'jev-overlay';
   document.getElementById(ID)?.remove();
   document.getElementById(ID + '-style')?.remove();
+  document.getElementById('jev-subpick')?.remove();
   window.__jevNoteCleanup?.();
 
   const style = document.createElement('style');
@@ -145,6 +146,40 @@
       margin-top: .6vmin; font-family: Consolas, "Courier New", monospace;
       font-size: 1.35vmin; color: rgb(190, 208, 255);
     }
+    /* A kind of option (every special, every melee attack) is one row in the
+       list; the follow-up that picked within it opens beside that row. */
+    #jev-overlay .jv-row .jv-more { color: #f0a830; margin-left: .4vmin; }
+    #jev-subpick {
+      position: fixed; z-index: 99999; pointer-events: none; display: none;
+      width: 30vmin; min-width: 260px;
+      font-family: Consolas, "Courier New", monospace; font-size: 1.45vmin;
+      color: rgb(190, 208, 255);
+      background: rgba(16, 32, 108, 0.96);
+      border: 0.28vmin solid rgb(90, 119, 216);
+      border-left: 0.75vmin solid #f0a830;
+      border-radius: 1.1vmin; box-shadow: 0 0 2.4vmin rgba(0, 0, 0, 0.7);
+      padding: .6vmin .9vmin .8vmin;
+    }
+    #jev-subpick.open { display: block; }
+    #jev-subpick .js-head {
+      color: #f0a830; font-family: Arial, Helvetica, sans-serif; font-weight: bold;
+      font-size: 1.35vmin; letter-spacing: .14vmin; margin-bottom: .45vmin;
+    }
+    #jev-subpick .jv-row {
+      display: grid; grid-template-columns: 1fr auto; gap: .5vmin;
+      align-items: center; margin: .14vmin 0;
+    }
+    #jev-subpick .jv-row.top { color: #fff; }
+    #jev-subpick .jv-row.cold { opacity: .45; }
+    #jev-subpick .jv-name {
+      position: relative; padding: .12vmin .45vmin; border-radius: .3vmin;
+      overflow: hidden; white-space: nowrap; text-overflow: ellipsis; isolation: isolate;
+    }
+    #jev-subpick .jv-fill {
+      position: absolute; left: 0; top: 0; bottom: 0; z-index: -1;
+      background: rgba(90, 119, 216, .5);
+    }
+    #jev-subpick .jv-row.top .jv-fill { background: rgba(240, 168, 48, .42); }
     #jev-overlay .jv-flash { animation: jv-flash .5s ease-out; }
     @keyframes jv-flash {
       from { background: rgba(240, 168, 48, .38); }
@@ -182,6 +217,10 @@
     </div>
   `;
   document.body.appendChild(el);
+
+  const subpick = document.createElement('div');
+  subpick.id = 'jev-subpick';
+  document.body.appendChild(subpick);
 
   // --- the note box. It follows the game's own pause flag rather than
   // guessing from Esc presses, so it can never be open while the fight runs.
@@ -277,16 +316,37 @@
       ? '<span>' + offered + ' options offered</span><span>'
         + (d.commit === true ? 'commit' : d.commit === false ? 'hold' : '') + '</span>'
       : '<span>' + offered + ' options offered</span><span></span>';
-    q('options').innerHTML = probs.map(([name, p], i) =>
-      '<div class="jv-row' + (i === 0 ? ' top' : '') + (p < 0.05 ? ' cold' : '') + '">'
+    const followUps = d.followUps || {};
+    const row = (name, p, i, attrs = '') =>
+      '<div class="jv-row' + (i === 0 ? ' top' : '') + (p < 0.05 ? ' cold' : '') + '"' + attrs + '>'
       + '<span class="jv-name"><span class="jv-fill" style="width:' + Math.round(p * 100) + '%"></span>'
-      + name.replace(/_/g, ' ') + '</span>'
-      + '<span>' + Math.round(p * 100) + '%</span></div>').join('')
+      + name.replace(/_/g, ' ') + (followUps[name] ? '<span class="jv-more">&#9656;</span>' : '') + '</span>'
+      + '<span>' + Math.round(p * 100) + '%</span></div>';
+    q('options').innerHTML = probs.map(([name, p], i) => row(name, p, i, ' data-kind="' + name + '"')).join('')
       // Before the first answer there are no probabilities, but the options are
       // already chosen; listing them shows what Jev is about to pick between.
       || (d.options || []).map((name) =>
         '<div class="jv-row cold"><span class="jv-name">' + name.replace(/_/g, ' ')
         + '</span><span>&middot;</span></div>').join('');
+
+    // The sub-menu: when the chosen row is a kind, the follow-up that picked
+    // within it, beside that row, with the member actually played on top.
+    const chosen = probs.length ? probs[0][0] : null;
+    const sub = chosen && followUps[chosen];
+    if (sub) {
+      const members = Object.entries(sub.probabilities).sort((a, b) => b[1] - a[1]);
+      subpick.innerHTML = '<div class="js-head">WHICH ' + chosen.replace(/_/g, ' ').toUpperCase() + '</div>'
+        + members.map(([name, p], i) => row(name, p, i)).join('');
+      const anchor = el.querySelector('[data-kind="' + chosen + '"]') || el;
+      const box = el.getBoundingClientRect();
+      const at = anchor.getBoundingClientRect();
+      subpick.style.left = (box.right + 8) + 'px';
+      subpick.classList.add('open');
+      // Level with the row, kept on screen.
+      subpick.style.top = Math.max(8, Math.min(at.top - 6, window.innerHeight - subpick.offsetHeight - 8)) + 'px';
+    } else {
+      subpick.classList.remove('open');
+    }
 
     q('hp').style.width = pct(d.hp, d.hpMax);
     q('dark').style.width = pct(d.darkHp != null ? d.darkHp : d.hp, d.hpMax);
@@ -306,6 +366,7 @@
       : '';
 
     el.classList.toggle('dead', !!d.dead);
+    subpick.style.opacity = d.dead ? '.4' : '';
 
     if (d.action !== lastAction) {
       lastAction = d.action;

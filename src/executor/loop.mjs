@@ -227,6 +227,11 @@ export async function runLoop({ cdp, pool, kb, run, name, policy, overlay, hz = 
         confidence: result?.answers?.action?.confidence ?? null,
         probabilities: result?.answers?.action?.probabilities ?? null,
         commit: result?.answers?.commit?.noul ?? null,
+        // The follow-up per grouped kind ("which special"), keyed by the kind
+        // as it appears among the probabilities above.
+        followUps: Object.fromEntries(Object.entries(result?.answers ?? {})
+          .filter(([k]) => k.startsWith('which_'))
+          .map(([k, a]) => [k.slice('which_'.length), { probabilities: a.probabilities ?? {}, choice: a.choice }])),
       };
       forceDraw = true;
     }

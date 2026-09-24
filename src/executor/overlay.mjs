@@ -64,7 +64,8 @@ export function createOverlay(cdp, { enabled = true, minIntervalMs = 100 } = {})
     async remove() {
       if (!installed) return;
       await cdp.evaluate("document.getElementById('jev-overlay')?.remove();"
-        + "document.getElementById('jev-overlay-style')?.remove(); window.__jevNoteCleanup?.();"
+        + "document.getElementById('jev-overlay-style')?.remove(); document.getElementById('jev-subpick')?.remove();"
+        + ' window.__jevNoteCleanup?.();'
         + 'delete window.__jev; delete window.__jevGameRef;');
       installed = false;
     },
