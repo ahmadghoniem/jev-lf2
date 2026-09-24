@@ -18,7 +18,6 @@ import { createReflex, laneDanger } from './reflex.mjs';
 import { offer } from './policies.mjs';
 import { stageWidth as readStageWidth } from './setup.mjs';
 import { bucketRange } from '../lf2data/profile.mjs';
-import { LINE_ACTIONS, baseAction } from '../state/line.mjs';
 
 /**
  * An answer about a fight this old is about a different fight. Measured in
@@ -179,7 +178,7 @@ export async function runLoop({ cdp, pool, kb, run, name, policy, overlay, hz = 
     if (reflex?.thrown && reflex.action === 'defend' && source === policy.name && planned?.busy?.()) reflex = null;
     // A block the guard meter cannot take only delays the hit by one star, so
     // an attack or roll Jev chose goes ahead of it.
-    if (reflex?.worn && answered && !HOLDS.has(baseAction(answered.action))
+    if (reflex?.worn && answered && !HOLDS.has(answered.action)
         && Date.now() - answered.askedAtMs <= staleMs) {
       counts.wornYields = (counts.wornYields ?? 0) + 1;
       if (source === 'reflex') standing = answered;
@@ -204,7 +203,7 @@ export async function runLoop({ cdp, pool, kb, run, name, policy, overlay, hz = 
       // Without this, a roll chosen against Rudolf's stars — most of the times
       // it is offered — was always overruled by the block.
       else if (result?.action && (!(reflex?.thrown || reflex?.owns)
-               || (reflex.worn && !HOLDS.has(baseAction(result.action)))
+               || (reflex.worn && !HOLDS.has(result.action))
                || (result.action === 'roll_away' && reflex.eta >= ROLL_START_TICKS))) {
         // Each answer owns one execution, except that the same answer arriving
         // while a special is half played lets it finish. A special takes 15
@@ -228,14 +227,9 @@ export async function runLoop({ cdp, pool, kb, run, name, policy, overlay, hz = 
         probabilities: result?.answers?.action?.probabilities ?? null,
         // The follow-up per grouped kind ("which special"), keyed by the kind
         // as it appears among the probabilities above.
-        // The line question hangs off each movement it applies to.
-        followUps: Object.fromEntries([
-          ...Object.entries(result?.answers ?? {})
-            .filter(([k]) => k.startsWith('which_'))
-            .map(([k, a]) => [k.slice('which_'.length), { probabilities: a.probabilities ?? {}, choice: a.choice }]),
-          ...(result?.answers?.line ? LINE_ACTIONS.map((m) => [m, { title: 'WHICH LINE',
-            probabilities: result.answers.line.probabilities ?? {}, choice: result.answers.line.choice }]) : []),
-        ]),
+        followUps: Object.fromEntries(Object.entries(result?.answers ?? {})
+          .filter(([k]) => k.startsWith('which_'))
+          .map(([k, a]) => [k.slice('which_'.length), { probabilities: a.probabilities ?? {}, choice: a.choice }])),
       };
       forceDraw = true;
     }

@@ -19,7 +19,6 @@ import { P4_KEYS } from './keyboard.mjs';
 import { DRINK_TYPE, Z_TOLERANCE, doing, unhittable, inSight } from '../state/arena.mjs';
 import { REACH_SLACK } from '../lf2data/frames.mjs';
 import { framesFor } from '../lf2data/tables.mjs';
-import { LINE_ACTIONS, OFF_LINE } from '../state/line.mjs';
 import { label } from '../state/options.mjs';
 import { incoming, inboundWeapon, laneDanger } from './reflex.mjs';
 import { BOT, createNoise, hesitation, standoffOf, DASH_MIN_GAP } from '../state/bot.mjs';
@@ -192,26 +191,6 @@ function aimedAttack(keys, { tight, seq = ['attack'], needReach = false, reach =
   return run;
 }
 /**
- * Wraps a movement stance so its depth keys aim `OFF_LINE` above or below the
- * enemy rather than level with it. The side is the one already stood on, kept
- * for the stance's life so it does not flicker as the gap passes zero.
- */
-function offLine(step, keys) {
-  let side = null;
-  return (a) => {
-    const out = step(a);
-    const t = enemy(a);
-    if (!t) return out;
-    side ??= a.me.z > t.z ? 1 : -1;
-    const dz = t.z + side * OFF_LINE - a.me.z;
-    const hold = (out.hold ?? []).filter((k) => k !== keys.up && k !== keys.down);
-    if (dz < -BOT.Z_DEADZONE) hold.push(keys.up);
-    if (dz > BOT.Z_DEADZONE) hold.push(keys.down);
-    return { ...out, hold };
-  };
-}
-
-/**
  * Whether Attack pressed now carries the move on into another paid copy of
  * itself: some frame still ahead in this animation takes Attack to a frame
  * that costs MP (Davis's 246 -> 247), and the bar can pay for it.
@@ -236,15 +215,6 @@ const CAN_START = new Set(['neutral', 'walking', 'blocking']);
 export function planAction(name, { arena, profile, keys = P4_KEYS } = {}) {
   const { me, threats, held } = arena;
   const target = threats[0];
-
-  // A movement played off the enemy's line (see src/state/line.mjs): the
-  // same stance, with its depth keys aimed at a line beside the enemy's.
-  if (name.includes('@')) {
-    const [base, mod] = name.split('@');
-    if (mod !== 'off' || !LINE_ACTIONS.includes(base) || !target) return null;
-    const plan = planAction(base, { arena, profile, keys });
-    return plan?.kind === 'stance' ? stance(offLine(plan.step, keys)) : plan;
-  }
 
   if (name === 'wait') return stance(() => ({ hold: [] }));
   if (name === 'defend') {

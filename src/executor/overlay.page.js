@@ -332,7 +332,7 @@
     const sub = chosen && followUps[chosen];
     if (sub) {
       const members = Object.entries(sub.probabilities).sort((a, b) => b[1] - a[1]);
-      subpick.innerHTML = '<div class="js-head">' + (sub.title || 'WHICH ' + chosen.replace(/_/g, ' ').toUpperCase()) + '</div>'
+      subpick.innerHTML = '<div class="js-head">WHICH ' + chosen.replace(/_/g, ' ').toUpperCase() + '</div>'
         + members.map(([name, p], i) => row(name, p, i)).join('');
       const anchor = el.querySelector('[data-kind="' + chosen + '"]') || el;
       const box = el.getBoundingClientRect();
