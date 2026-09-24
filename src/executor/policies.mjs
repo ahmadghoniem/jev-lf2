@@ -9,6 +9,7 @@
 import { buildOptions } from '../state/options.mjs';
 import { semanticState, doing, unhittable, inSight } from '../state/arena.mjs';
 import { nestOptions, followUps, resolveChoice } from '../state/nest.mjs';
+import { lineQuestion, withLine } from '../state/line.mjs';
 import { weapons, profileFor } from '../lf2data/tables.mjs';
 import { mpRegenPerSecond } from '../state/fields.mjs';
 import { executableOptions, planAction } from './actions.mjs';
@@ -97,8 +98,8 @@ export function jevPolicy(client, profile, { deadlineMs = 1400 } = {}) {
       const latencyMs = Date.now() - t0;
       if (!answer) return { action: null, latencyMs, state, questions };
       return {
-        action: resolveChoice(answer.answers?.action?.choice ?? null, answer.answers,
-          nestOptions(options).groups),
+        action: withLine(resolveChoice(answer.answers?.action?.choice ?? null, answer.answers,
+          nestOptions(options).groups), answer.answers),
         answers: answer.answers,
         usage: answer.usage,
         requestId: answer.requestId,
@@ -192,6 +193,7 @@ function questionSet(options, arena, profile) {
       criteria: top,
     },
     ...followUps(groups),
+    ...lineQuestion(options, arena),
   };
   if (arena.threats.length > 1) {
     questions.target = {
