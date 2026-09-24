@@ -112,6 +112,9 @@ export function laneDanger(arena) {
   return worst;
 }
 
+/** Falling frames up to the one that takes the flip (182 forward, 188 backward). */
+const FLIP_WINDOW = new Set([180, 181, 182, 186, 187, 188]);
+
 /** px.js breaks a guard when a blocked hit takes the meter over this. */
 export const GUARD_BREAK = 30;
 const bdefendCache = new Map();
@@ -178,6 +181,15 @@ export function createReflex({ maxBlockTicks = BOT.BLOCK_COMMIT_FRAMES,
     // defending"). The older depth step failed because it started only once
     // the star was within 150, too late at 2.5 depth a tick; this starts on
     // Rudolf's wind-up and only when there is time to get clear.
+    // Knocked into the air, Jump on the way down flips the fighter upright,
+    // and nothing hits it until it lands. px.js takes the press on frame 182
+    // (falling forward) or 188 (backward), within the few frames a press is
+    // remembered, so Jump is tapped through the fall up to that frame.
+    // Without it Henry rode every knockdown to the floor and lay there.
+    if (FLIP_WINDOW.has(arena.me.frame) && (arena.me.hp ?? 1) > 0) {
+      return { action: 'recover', owns: true, reason: 'knocked into the air — Jump to flip upright' };
+    }
+
     const lane = laneDanger(arena);
     const mine = doing(arena.me);
     const canMove = ['neutral', 'walking', 'running'].includes(mine);

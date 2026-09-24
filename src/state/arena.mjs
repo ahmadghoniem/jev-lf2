@@ -317,10 +317,32 @@ const LOCKED_STATES = {
   8: 'broken_guard',
   10: 'caught',
   13: 'frozen',
-  15: 'throwing',
   17: 'drinking',
   18: 'burning',
 };
+
+/**
+ * State 15 is the game's "other" state, and it covers moves that have little
+ * in common. All of it used to read as `throwing`, and helpless: Jev was told
+ * a Rudolf landing from a jump (2-3 ticks) "cannot move or block" and offered
+ * a rush at it, and his 1-second clone cast read the same as that. So it is
+ * told apart by the frame's name: the landing crouch and the skid out of a
+ * run are over before any answer arrives; a weapon throw and a cast (Rudolf's
+ * vanish and his double) are real windows.
+ */
+function otherState(frames, n) {
+  let name = null;
+  for (let i = n; i >= n - 12 && !name; i--) {
+    if (frames[i]?.state !== 15 && i !== n) break;
+    name = frames[i]?.name ?? null;
+  }
+  if (!name) return 'casting';
+  if (name === 'crouch' || name === 'crouch2') return 'landing';
+  if (name === 'stop_running') return 'skidding';
+  if (name.startsWith('picking')) return 'picking_up';
+  if (name.endsWith('_thw')) return 'throwing';
+  return 'casting';
+}
 
 /**
  * The subset of vulnerability that is genuinely unanswerable: a locked animation
@@ -332,7 +354,7 @@ const LOCKED_STATES = {
  * damage arriving from the weapon while the fighter reads as recovering. Walking
  * in on that is a trade, not a punish, which is the distinction this set draws.
  */
-const HELPLESS = new Set(Object.values(LOCKED_STATES));
+const HELPLESS = new Set([...Object.values(LOCKED_STATES), 'throwing', 'casting']);
 
 /** Doing values that mean the next moment is a free hit, or close to it. */
 const VULNERABLE = new Set([...HELPLESS, 'recovering']);
@@ -372,6 +394,7 @@ export function doing(f) {
   // committed, unable to block, and the classic moment to be punished in.
   if (frame.state === 3) return 'recovering';
   if (LOCKED_STATES[frame.state]) return LOCKED_STATES[frame.state];
+  if (frame.state === 15) return otherState(frames, f.frame);
   if (frame.state === 2) return 'running';
   if (frame.state === 1) return 'walking';
   if (frame.state === 4) return 'in_the_air';

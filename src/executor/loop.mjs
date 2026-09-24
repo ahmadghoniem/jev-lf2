@@ -202,7 +202,7 @@ export async function runLoop({ cdp, pool, kb, run, name, policy, overlay, hz = 
       // block when the weapon is far enough off for the roll to start first.
       // Without this, a roll chosen against Rudolf's stars — most of the times
       // it is offered — was always overruled by the block.
-      else if (result?.action && (!reflex?.thrown
+      else if (result?.action && (!(reflex?.thrown || reflex?.owns)
                || (reflex.worn && !HOLDS.has(result.action))
                || (result.action === 'roll_away' && reflex.eta >= ROLL_START_TICKS))) {
         // Each answer owns one execution, except that the same answer arriving

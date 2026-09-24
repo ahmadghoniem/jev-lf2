@@ -278,6 +278,9 @@ export function planAction(name, { arena, profile, keys = P4_KEYS } = {}) {
   // since it sees the stage edge; this only holds the key. Always the step,
   // never the jump: Rudolf's shuriken hits an airborne body, and in three runs
   // 45 of 65 jump dodges were hit within 25 ticks against 34 of 77 steps.
+  // The air recovery, chosen by the reflex: Jump, pressed afresh each time the
+  // last tap lets go, since the game reads a press rather than a hold.
+  if (name === 'recover') return stance(() => ({ hold: [], tap: [keys.jump] }));
   if (name === 'dodge_up' || name === 'dodge_down') {
     const key = name === 'dodge_up' ? keys.up : keys.down;
     return stance(() => ({ hold: [key] }));
