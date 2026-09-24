@@ -17,25 +17,14 @@ export const BOT = {
   // --- walking to a destination (TI2f)
   // The two axes are corrected independently and each has a dead zone: the
   // sideways key stops within X_DEADZONE of the target x, the depth key within
-  // Z_DEADZONE of the target z. Arriving inside ARRIVE_X/ARRIVE_Z clears the
-  // destination outright, which is how the CPU stops walking rather than walking
-  // through the enemy. There is no stand-off logic anywhere in it: the stop is
-  // the arrival radius.
+  // Z_DEADZONE of the target z.
   X_DEADZONE: 6,
   Z_DEADZONE: 3,
-  ARRIVE_X: 90,
-  ARRIVE_Z: 90,
-
-  // --- what "level with the enemy" means (TI2f, Cr0f)
-  // A chase counts as level inside 15 of depth; a melee attack needs the tighter
-  // 5. Our own Z_TOLERANCE of 12 is looser than the CPU's own attack alignment.
-  ALIGN_Z: 15,
-  ALIGN_Z_TIGHT: 5,
 
   // --- where to stand to hit without being hit (docs/07-cpu-ai.md)
   // A hit connects while the depth gap is under the attack's zwidth, 16 when
   // the data leaves it unset (px.js). The CPU starts its own attacks only
-  // within ALIGN_Z_TIGHT (5) and blocks only within BLOCK_Z (9). So Jev aims
+  // within 5 of depth and blocks only within 9. So Jev aims
   // AIM_Z off the enemy's line: his hits land, and the CPU neither swings,
   // throws nor blocks. In the Henry v Rudolf runs, 170-300 away cost 39 hp
   // per 100 ticks on Rudolf's line and 11 when 5 or more off it.
@@ -44,33 +33,21 @@ export const BOT = {
   AIM_MIN_Z: 9,
   AIM_MAX_Z: 13,
 
-  // --- answering a thrown weapon (TI2f dodge block)
-  // A projectile inside DODGE_X of us and DODGE_Z of our depth is stepped off
-  // the line; the tighter pair is used for the weapons that arrive faster.
-  // Beyond DODGE_X the CPU adds distance sideways instead of stepping in depth.
+  // --- a weapon worth answering (TI2f)
+  // The CPU steps off the line of a projectile inside DODGE_X of it and DODGE_Z
+  // of its depth. It does so for only three objects (docs/07-cpu-ai.md); we
+  // use the same box for every thrown weapon.
   DODGE_X: 150,
   DODGE_Z: 25,
-  DODGE_X_TIGHT: 80,
-  DODGE_Z_TIGHT: 20,
 
   // --- firing bands (Cr0f)
-  // A ranged move is chosen at 100..500 away and within 30 of our depth; a mid
-  // move at 160; melee only inside 80 and the tight depth. The CPU fires from
-  // distance and closes only when nothing reaches. This is the evidence for
-  // holding at range instead of walking into the enemy.
+  // The CPU's ranged moves start at 100 away; its mid-range ones reach 160.
   RANGED_MIN_X: 100,
-  RANGED_MAX_X: 500,
-  RANGED_Z: 30,
   MID_X: 160,
-  MID_Z: 55,
-  MELEE_X: 80,
 
   // --- blocking (TI2f)
-  // The block is gated on the enemy actually being in an attack frame, being
-  // level to 9, and facing us; then it holds for BLOCK_COMMIT_FRAMES and
-  // re-decides. It is a parry with a cooldown, never a wall — which is why the
-  // CPU is not seen standing in a guard while it is hit.
-  BLOCK_Z: 9,
+  // The block holds for BLOCK_COMMIT_FRAMES and re-decides after a rest. It is
+  // a parry with a cooldown, never a wall.
   BLOCK_COMMIT_FRAMES: 10,
   BLOCK_REST_FRAMES: 8,
 

@@ -6,9 +6,9 @@
  *   node scripts/check-dodge.mjs
  */
 
-import { createItemMotion, readArena } from '../src/state/arena.mjs';
+import { createItemMotion } from '../src/state/arena.mjs';
 import { planAction } from '../src/executor/actions.mjs';
-import { createReflex, inboundWeapon } from '../src/executor/reflex.mjs';
+import { inboundWeapon } from '../src/executor/reflex.mjs';
 import { profileFor } from '../src/lf2data/tables.mjs';
 
 const profile = profileFor('firen');

@@ -16,7 +16,7 @@
 
 import { setTimeout as sleep } from 'node:timers/promises';
 import { P4_KEYS } from './keyboard.mjs';
-import { DRINK_TYPE, Z_TOLERANCE, doing, unhittable, inSight } from '../state/arena.mjs';
+import { DRINK_TYPE, doing, unhittable, inSight } from '../state/arena.mjs';
 import { REACH_SLACK } from '../lf2data/frames.mjs';
 import { framesFor } from '../lf2data/tables.mjs';
 import { label, firesBall, FREE_TO_BLOCK } from '../state/options.mjs';
@@ -619,8 +619,8 @@ const dirTo = (me, t) => (t && t.x >= me.x ? 'right' : 'left');
  * `stopAt` is the range to hold: past it the sideways key is dropped even
  * though the gap is still real, which is what keeps a ranged fighter from
  * walking into the melee. Depth is still corrected, because depth is what makes
- * a fired move connect. The depth dead zone is the CPU's own 3 rather than the
- * looser `Z_TOLERANCE`, since lining up is free and a missed shot is not.
+ * a fired move connect. The depth dead zone is the CPU's own 3. `zOff` aims
+ * the depth beside the target's rather than at it (see `BOT.AIM_Z`).
  */
 function toward(arena, keys, t, { stopAt = 0, xDead = BOT.X_DEADZONE, zDead = BOT.Z_DEADZONE,
                              noDepth = false, zOff = 0 } = {}) {

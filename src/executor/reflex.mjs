@@ -202,7 +202,7 @@ export function createReflex({ maxBlockTicks = BOT.BLOCK_COMMIT_FRAMES,
                reason: 'holding the enemy — punch it while the grip lasts' };
     }
     const lane = laneDanger(arena);
-    // Landing from the flip is a 2-3 tick crouch on the same line, and the
+    // Landing from a jump or a fall is a 2-3 tick crouch on the same line, and the
     // next star was usually already on its way: 7 of 9 landings in two runs
     // were hit within 12 ticks. The crouch cannot walk, but px.js takes
     // Defend there as a roll (frame 215 -> 102), which nothing hits.
