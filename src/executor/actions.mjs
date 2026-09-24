@@ -663,44 +663,6 @@ const AIM_OUT_TICKS = 8;
 /** At most this long holding a ball's last press for a busy enemy: ~0.7 s. */
 const BALL_WAIT_TICKS = 20;
 
-/** Actions that own the depth keys, or must not have one added mid-move. */
-const KEEPS_OWN_DEPTH = new Set(['defend', 'land_roll', 'roll_away', 'punch_held', 'hold_grip',
-  'punish', 'dodge_up', 'dodge_down']);
-
-/**
- * The depth keeper: under any action that leaves the depth keys free, step
- * off the enemy's line whenever it is within `BOT.AIM_MIN_Z` of ours. The CPU
- * walks back onto our line every tick, and in four runs Jev spent half his
- * time within 5 of it, losing 60 hp per 100 ticks there against 19 at the
- * aiming depth. Stateful, one per run: it keeps its side, and changes side
- * when four ticks of pressing leave the depth unchanged (a stage edge).
- */
-export function createDepthKeeper(keys) {
-  let side = null;
-  let lastZ = null;
-  let still = 0;
-  return function keep(arena, action, step) {
-    const hold = step.hold ?? [];
-    const t = arena.threats[0];
-    const base = typeof action === 'string' ? action.split('@')[0] : '';
-    if (!t || !base || isAttackOption(base) || KEEPS_OWN_DEPTH.has(base)
-        || step.tap?.length || hold.includes(keys.up) || hold.includes(keys.down)
-        || !['neutral', 'walking', 'running'].includes(doing(arena.me))) {
-      lastZ = null; still = 0;
-      return hold;
-    }
-    const dz = arena.me.z - t.z;
-    if (Math.abs(dz) >= BOT.AIM_MIN_Z) { side = dz >= 0 ? 1 : -1; lastZ = null; still = 0; return hold; }
-    side ??= dz >= 0 ? 1 : -1;
-    if (lastZ != null && Math.abs(arena.me.z - lastZ) < 0.5) still++;
-    else still = 0;
-    if (still >= 4) { side = -side; still = 0; }
-    lastZ = arena.me.z;
-    const key = depthTo(arena, keys, t.z + side * BOT.AIM_Z)[0];
-    return key ? [...hold, key] : hold;
-  };
-}
-
 /**
  * A weapon that is going to pass through our lane: in the air, inside the
  * CPU's own dodge range and depth. While one is, closing in does not follow

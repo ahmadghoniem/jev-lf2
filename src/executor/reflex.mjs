@@ -84,6 +84,9 @@ export function inboundWeapon(arena) {
 export const LANE_CLEAR = 20;
 /** Depth a standard fighter walks in a tick (walking_speedz 2.5 for Henry and Rudolf). */
 const WALK_Z = 2.5;
+
+/** How far ahead a swing is looked for when deciding to step out of it. */
+const STEP_LOOKAHEAD = 10;
 /** How far off a thrower in its wind-up is still worth leaving the lane for. */
 const THROW_RANGE = 450;
 
@@ -260,6 +263,22 @@ export function createReflex({ maxBlockTicks = BOT.BLOCK_COMMIT_FRAMES,
                reason: `a thrown weapon ${Math.round(thrown.range)} away, ${when} — block it${worn ? ' (guard worn)' : ''}` };
     }
 
+    // A swing seen early enough is stepped out of rather than blocked: a hit
+    // lands only inside 16 of depth (the default zwidth, px.js), and a block
+    // roots Jev on the line while the CPU keeps swinging. In four runs 500 of
+    // the ticks spent on the enemy's line were blocking, most ending in a
+    // broken guard. Late swings are still blocked as before.
+    const early = incoming(arena, { ...opts, within: STEP_LOOKAHEAD });
+    const foe = early && arena.threats.find((x) => x.slot === early.slot);
+    if (foe && canMove) {
+      const z = arena.me.z;
+      const need = Math.max(0, BOT.HIT_Z - foe.zGap) / WALK_Z;
+      const dir = foe.z > z ? 'up' : foe.z < z ? 'down' : (room('up', z) >= room('down', z) ? 'up' : 'down');
+      if (early.ticks >= need + 1 && room(dir, z) >= BOT.HIT_Z) {
+        return { action: dir === 'up' ? 'dodge_up' : 'dodge_down', eta: early.ticks,
+                 reason: `a swing from slot ${early.slot} in ${early.ticks} ticks — step ${dir} out of its reach` };
+      }
+    }
     const threat = incoming(arena, opts);
     if (threat) {
       // Inside the rest window the guard stays down on purpose: the swing has

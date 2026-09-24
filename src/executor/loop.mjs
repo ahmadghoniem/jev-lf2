@@ -13,7 +13,7 @@
 
 import { readArena, doing, createLiveness, createHeldTracker, createItemMotion } from '../state/arena.mjs';
 import { profileFor } from '../lf2data/tables.mjs';
-import { planAction, ROLL_START_TICKS, createDepthKeeper } from './actions.mjs';
+import { planAction, ROLL_START_TICKS } from './actions.mjs';
 import { createReflex, laneDanger } from './reflex.mjs';
 import { offer } from './policies.mjs';
 import { stageWidth as readStageWidth } from './setup.mjs';
@@ -81,7 +81,6 @@ export async function runLoop({ cdp, pool, kb, run, name, policy, overlay, hz = 
   // And the reflex layer's own state, so its block is a finite parry with a rest
   // between rather than a guard held until it breaks.
   const reflexFor = createReflex();
-  const keepDepth = createDepthKeeper(keys);
 
   const profile = profileFor(name);
   if (!profile) throw new Error(`no derived profile for ${name} — rebuild build/_profiles.json`);
@@ -301,7 +300,7 @@ export async function runLoop({ cdp, pool, kb, run, name, policy, overlay, hz = 
       } else if (plan?.kind === 'stance') {
         stance = plan.step;
         const step = stance(arena);
-        await kb.hold(keepDepth(arena, action, step));
+        await kb.hold(step.hold ?? []);
         for (const code of step.tap ?? []) await kb.tap(code, undefined, { intended: !!step.special });
       } else {
         await kb.hold([]);
