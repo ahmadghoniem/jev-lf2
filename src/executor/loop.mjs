@@ -355,6 +355,7 @@ export async function runLoop({ cdp, pool, kb, run, name, policy, overlay, hz = 
   // A note typed in the last moments is still waiting in the page.
   fromPage(await overlay?.update({ ...shown, counts }, { force: true }));
   counts.defused = kb.stats.defused ?? 0;
+  counts.unshouted = kb.stats.unshouted ?? 0;
   return counts;
 }
 

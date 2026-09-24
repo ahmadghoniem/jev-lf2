@@ -118,6 +118,6 @@ await cdp.close();
 
 console.log(`\n${counts.ticks} ticks, ${counts.decisions} decisions, ${counts.misses} missed, `
   + `${counts.stale} stale, ${counts.reflexes} reflex ticks, ${counts.bursts} bursts, ${counts.dead} dead ticks, `
-  + `${counts.defused} specials defused — ${counts.outcome}`);
+  + `${counts.defused} specials defused, ${counts.unshouted} shouts prevented — ${counts.outcome}`);
 console.log(`run: ${run.dir} (${manifest.counts.judgements} judgement rows)`);
 if (counts.timing) console.log(`loop: ${JSON.stringify(counts.timing)}`);

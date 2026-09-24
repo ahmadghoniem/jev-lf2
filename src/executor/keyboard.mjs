@@ -122,6 +122,20 @@ export function comboReader() {
   };
 }
 
+/**
+ * The game's team commands (px.js, the `P3` key history of a human fighter):
+ * the last four presses Defend-Defend-Defend-Defend shout "Stay",
+ * Defend-Attack-Defend-Attack "Move" and Defend-Jump-Defend-Jump "Come here".
+ * Repeated blocks and block-then-attack produced them in play, where they are
+ * noise. Returns whether pressing Defend now is the third or fourth press of
+ * one, given the presses before it.
+ */
+export function startsShout(history) {
+  const [a, b, c] = [history.at(-3), history.at(-2), history.at(-1)];
+  return (b === 'defend' && (c === 'attack' || c === 'jump'))
+    || (a === 'defend' && b === 'defend' && c === 'defend');
+}
+
 export function keyboard(cdp, bindings = P4_KEYS) {
   const allowed = new Set(Object.values(bindings));
   const slotOf = new Map(Object.entries(bindings).map(([slot, code]) => [code, slot]));
@@ -131,7 +145,20 @@ export function keyboard(cdp, bindings = P4_KEYS) {
   const releasedAt = new Map(); // code -> when it last went up
   let dispatched = 0;
   let defused = 0;
+  let unshouted = 0;
   let facing = null;
+  const history = []; // the last presses the game counted, as slots
+
+  /** Breaks a team-command pattern with one depth tap before the Defend. */
+  async function unshout() {
+    const slot = ['up', 'down'].find((s) => bindings[s] && !down.has(bindings[s]));
+    if (!slot) return;
+    unshouted++;
+    await press(bindings[slot], { intended: true });
+    await sleep(FRAME_MS);
+    await release(bindings[slot]);
+    await sleep(FRAME_MS);
+  }
 
   /**
    * Resets an armed special reader with one press of a direction it is not
@@ -156,12 +183,17 @@ export function keyboard(cdp, bindings = P4_KEYS) {
     if (!allowed.has(code) || down.has(code)) return;
     const slot = slotOf.get(code);
     if (!intended && combo.completes(slot)) await defuse();
+    if (slot === 'defend' && startsShout(history)) await unshout();
     // A key let go and pressed again inside one frame never looks up to the
     // game, so it is no new press and does not reset the reader. Counted as
     // one, it hid an armed Defend-Forward: a special cut off by a new answer
     // left the stance holding Forward, and the next arrow fired a 150-MP
     // blastpush.
-    if (!(Date.now() - (releasedAt.get(code) ?? -Infinity) < FRAME_MS)) combo.press(slot);
+    if (!(Date.now() - (releasedAt.get(code) ?? -Infinity) < FRAME_MS)) {
+      combo.press(slot);
+      history.push(slot);
+      if (history.length > 4) history.shift();
+    }
     down.add(code); dispatched++;
     await cdp.keyEvent('keyDown', code);
   }
@@ -211,7 +243,7 @@ export function keyboard(cdp, bindings = P4_KEYS) {
     /** Which way the fighter faces, read each tick, so a defuse does not turn it. */
     set facing(dir) { facing = dir; },
 
-    get stats() { return { dispatched, defused, down: [...down] }; },
+    get stats() { return { dispatched, defused, unshouted, down: [...down] }; },
   };
 }
 
