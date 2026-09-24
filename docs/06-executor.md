@@ -187,8 +187,14 @@ fires out of it (frame 110 carries `hit_Fa` and the others). Of 23 guard breaks
 that began in a special on 2026-09-24, 9 followed a different answer cutting the
 special off, which left the fighter in the pose with nothing to follow, and 4
 followed the block reflex pressing Defend again, which restarts the special's
-input. A different answer now waits until the special is done, or 700 ms at
-most, and the block reflex stays off while a special is half played.
+input. A different answer now waits while the fighter is still in that block
+pose, and the block reflex stays off for the same span. Once the pose ends the
+wait ends too: either the special fired, or it did not and the fighter is
+standing. An earlier version waited on a 700 ms timer instead, and in 4 of 11
+holds the special had not fired and the fighter stood still and lost 30-65 hp.
+
+`JEV_OFF=worn,hold` turns off the worn-guard step and this hold, for on/off
+games.
 
 ## Notes from a paused game
 

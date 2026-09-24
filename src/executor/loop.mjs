@@ -40,8 +40,8 @@ const DEAD_CONFIRM_TICKS = 15;
 const DECIDED_TICKS = 90;
 /** How long a chosen roll keeps the reflex off: run-up, tumble, and a margin. */
 const ROLL_OWNS_MS = 1000;
-/** The longest an answer waits behind a half-played special: its 15 ticks and a margin. */
-const SPECIAL_HOLD_MS = 700;
+/** A/B switch: JEV_OFF=hold turns the special hold off. */
+const HOLD = !(process.env.JEV_OFF ?? '').split(',').includes('hold');
 
 export async function runLoop({ cdp, pool, kb, run, name, policy, overlay, hz = 30, noSync = false,
                                decideEveryMs = 500, seconds = 120, onTick, keys,
@@ -180,8 +180,12 @@ export async function runLoop({ cdp, pool, kb, run, name, policy, overlay, hz = 
     // at its last press stands in the star's line out of its block pose (111 hp
     // were lost that way in one run). A swing is treated the same: the pose
     // already blocks it, and a second Defend press only restarts the special
-    // (4 of 23 guard breaks that began in a special, 2026-09-24).
-    if (reflex?.action === 'defend' && source === policy.name && planned?.busy?.()) reflex = null;
+    // (4 of 23 guard breaks that began in a special, 2026-09-24). That holds
+    // only while the pose lasts: a special that did not fire leaves the
+    // fighter standing, and there the block is needed again.
+    const special = source === policy.name && planned?.busy?.();
+    const keying = HOLD && special && doing(arena.me) === 'blocking';
+    if (reflex?.action === 'defend' && ((reflex.thrown && special) || keying)) reflex = null;
     // A block the guard meter cannot take only delays the hit by one star, so
     // an attack or roll Jev chose goes ahead of it.
     if (reflex?.worn && answered && !HOLDS.has(answered.action)
@@ -207,7 +211,7 @@ export async function runLoop({ cdp, pool, kb, run, name, policy, overlay, hz = 
       // off left the fighter standing in that pose with nothing to follow until
       // the guard broke: 9 of 23 guard breaks that began in a special,
       // 2026-09-24. The special takes about half a second to finish.
-      else if (result?.action && result.action !== action && source === policy.name && planned?.busy?.()) {
+      else if (keying && result?.action && result.action !== action) {
         counts.heldForSpecial = (counts.heldForSpecial ?? 0) + 1;
         standing = { action: result.action, askedAtMs, heldAtMs: Date.now() };
       }
@@ -254,12 +258,12 @@ export async function runLoop({ cdp, pool, kb, run, name, policy, overlay, hz = 
     // away, and the fighter stood in a dropped guard until the next decision:
     // the observer's "blocks the volley but never hits back while Rudolf
     // reloads".
-    // An answer held behind a special takes over once the special is done, or
-    // once it has waited longer than a special takes (a last press held back
-    // for a star can wait indefinitely).
+    // An answer held behind a special takes over as soon as the fighter leaves
+    // the block pose: either the special fired, or it did not and the fighter
+    // is standing with nothing to follow (30-65 hp lost in 4 of 11 holds while
+    // a timer kept it waiting).
     if (!reflex && standing && Date.now() - standing.askedAtMs <= staleMs
-        && (source === 'reflex' || (standing.heldAtMs
-            && (!planned?.busy?.() || Date.now() - standing.heldAtMs > SPECIAL_HOLD_MS)))) {
+        && (source === 'reflex' || (standing.heldAtMs && !keying))) {
       action = standing.action; source = policy.name; stance = null;
       plannedFor = null;
       if (action === 'roll_away') rollUntil = Date.now() + ROLL_OWNS_MS;

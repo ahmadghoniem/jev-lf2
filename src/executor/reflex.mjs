@@ -301,7 +301,8 @@ export function createReflex({ maxBlockTicks = BOT.BLOCK_COMMIT_FRAMES,
     // worn guard next to a free enemy lost 31 hp over 30 ticks when it stayed
     // on the line and 21 when it left it. The CPU starts an attack only within
     // 5 of depth, so the step also ends its string.
-    const worn = (arena.me.guard ?? 0) + PUNCH_BDEFEND > GUARD_BREAK;
+    const worn = !(process.env.JEV_OFF ?? '').split(',').includes('worn')
+      && (arena.me.guard ?? 0) + PUNCH_BDEFEND > GUARD_BREAK;
     const close = worn && canMove && arena.threats.find((t) => t.zGap < BOT.HIT_Z && t.yGap <= Y_TOLERANCE
       && !t.vulnerable && t.facing === (t.dx > 0 ? 'left' : 'right')
       && t.gap <= (profileFor(t.name)?.bestMelee?.reach ?? 0) + REACH_SLACK);
