@@ -116,8 +116,6 @@ export function laneDanger(arena) {
 const LANDING = 215;
 /** A star this close is rolled through on landing; the roll lasts about 13 ticks. */
 const LAND_ROLL_ETA = 14;
-/** Falling frames up to the one that takes the flip (182 forward, 188 backward). */
-const FLIP_WINDOW = new Set([180, 181, 182, 186, 187, 188]);
 
 /** px.js breaks a guard when a blocked hit takes the meter over this. */
 export const GUARD_BREAK = 30;
@@ -185,20 +183,11 @@ export function createReflex({ maxBlockTicks = BOT.BLOCK_COMMIT_FRAMES,
     // defending"). The older depth step failed because it started only once
     // the star was within 150, too late at 2.5 depth a tick; this starts on
     // Rudolf's wind-up and only when there is time to get clear.
-    // Knocked into the air, Jump on the way down flips the fighter upright,
-    // and nothing hits it until it lands. px.js takes the press on frame 182
-    // (falling forward) or 188 (backward), within the few frames a press is
-    // remembered, so Jump is tapped through the fall up to that frame.
-    // Only with nothing on its way, though. Lying on the floor is the one
-    // state no star hit in seven runs, and Rudolf's volley goes on over it;
-    // flipped up into the volley, Henry landed standing on the star's line and
-    // took damage 1.5 to 4 times as fast (27-30 hp per 100 ticks before the
-    // flip, 39-112 after), most of it standing still just after landing.
-    if (FLIP_WINDOW.has(arena.me.frame) && (arena.me.hp ?? 1) > 0
-        && !laneDanger(arena) && !inboundWeapon(arena)) {
-      return { action: 'recover', owns: true, reason: 'knocked into the air — Jump to flip upright' };
-    }
-
+    // No air recovery. Jump on the way down flips a fighter upright (px.js,
+    // frame 182 or 188), but the flip lands it standing, where the lying
+    // fighter is out of reach: in six runs with the flip Henry took 34-112 hp
+    // per 100 ticks against 27-30 in the three before it, and nothing ever
+    // hit him while he lay on the floor.
     const lane = laneDanger(arena);
     // Landing from the flip is a 2-3 tick crouch on the same line, and the
     // next star was usually already on its way: 7 of 9 landings in two runs

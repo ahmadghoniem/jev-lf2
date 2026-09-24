@@ -15,7 +15,7 @@
 import { tierDamage, bucketRange, damageAt } from '../lf2data/profile.mjs';
 import { mpRegenPerSecond } from './fields.mjs';
 import { REACH_SLACK } from '../lf2data/frames.mjs';
-import { standoffOf, RUN_IN_MIN_X, RUN_OUT_MAX_X } from './bot.mjs';
+import { standoffOf, RUN_IN_MIN_X, RUN_OUT_MAX_X, DASH_MIN_GAP } from './bot.mjs';
 
 /** How a weapon's four swing types read as options. */
 const SWING_STYLES = {
@@ -132,8 +132,10 @@ export function buildOptions({ profile, weapons, held, nearby = [], nearest = In
   }
 
   // --- what it can do with its hands, and whether anything is in reach
+  // A dash attack at an enemy nearer than the dash carries goes past it.
   const melee = profile.moves.filter((m) => m.kind === 'melee' && !m.needsWeapon
-    && affordable(m) && !targetDown && canDo(label(m)));
+    && affordable(m) && !targetDown && canDo(label(m))
+    && !(m.name === 'dash_attack' && hasTarget && nearest < DASH_MIN_GAP));
   // The ordinary attack always belongs on the list. It costs nothing, it is the
   // archetype in one option, and the cap would otherwise spend all four slots on
   // heavier variants and drop the one move that is always available.

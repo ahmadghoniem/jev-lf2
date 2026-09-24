@@ -369,6 +369,17 @@ const VULNERABLE = new Set([...HELPLESS, 'recovering']);
 export const JUMP_CLEAR_GAP = 200;
 
 /**
+ * A fighter falling after a hit lands and lies out of reach, so from further
+ * off than this a shot arrives on a body on the floor: a 200-MP super arrow
+ * was fired from 424 at a falling Rudolf.
+ */
+export const FALL_CLEAR_GAP = 100;
+const falling = (t) => t.frame >= 180 && t.frame <= 191;
+export const unhittable = (t) => !!t && (t.doing === 'knocked_down'
+  || (t.doing === 'in_the_air' && t.gap < JUMP_CLEAR_GAP)
+  || (falling(t) && t.gap >= FALL_CLEAR_GAP));
+
+/**
  * Whether a shot can reach the enemy: on the screen, or inside the fighter's
  * measured shot range. Henry's arrow flies on past the edge of the view, and
  * the runs have it landing about 6 in 10 from 400-449, but the screen alone
@@ -377,8 +388,6 @@ export const JUMP_CLEAR_GAP = 200;
  */
 export const inSight = (t, profile) => !!t && (t.onScreen !== false
   || (profile?.basicAttack?.kind === 'ranged' && t.gap <= (profile.basicAttack.range ?? 0)));
-export const unhittable = (t) => !!t && (t.doing === 'knocked_down'
-  || (t.doing === 'in_the_air' && t.gap < JUMP_CLEAR_GAP));
 
 /** What a fighter is doing, read off its current frame rather than inferred. */
 export function doing(f) {

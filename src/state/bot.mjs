@@ -87,6 +87,9 @@ export function standoffOf(profile) {
 /** A run is only worth offering once walking would be slow: beyond the band. */
 export const RUN_IN_MIN_X = 200;
 
+/** Nearer than this a dash overshoots: it carries about 150 before the swing lands. */
+export const DASH_MIN_GAP = 120;
+
 /** Walking away is worth upgrading to a run inside melee range. */
 export const RUN_OUT_MAX_X = BOT.MID_X;
 

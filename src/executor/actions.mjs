@@ -20,7 +20,7 @@ import { DRINK_TYPE, Z_TOLERANCE, doing, unhittable, inSight } from '../state/ar
 import { REACH_SLACK } from '../lf2data/frames.mjs';
 import { label } from '../state/options.mjs';
 import { incoming, inboundWeapon, laneDanger } from './reflex.mjs';
-import { BOT, createNoise, hesitation, standoffOf } from '../state/bot.mjs';
+import { BOT, createNoise, hesitation, standoffOf, DASH_MIN_GAP } from '../state/bot.mjs';
 
 /** Standing on top of an item is what picks it up; the hit box is generous. */
 const PICKUP_RANGE = 40;
@@ -278,9 +278,6 @@ export function planAction(name, { arena, profile, keys = P4_KEYS } = {}) {
   // since it sees the stage edge; this only holds the key. Always the step,
   // never the jump: Rudolf's shuriken hits an airborne body, and in three runs
   // 45 of 65 jump dodges were hit within 25 ticks against 34 of 77 steps.
-  // The air recovery, chosen by the reflex: Jump, pressed afresh each time the
-  // last tap lets go, since the game reads a press rather than a hold.
-  if (name === 'recover') return stance(() => ({ hold: [], tap: [keys.jump] }));
   if (name === 'land_roll') return stance(() => ({ hold: [], tap: [keys.defend] }));
   if (name === 'dodge_up' || name === 'dodge_down') {
     const key = name === 'dodge_up' ? keys.up : keys.down;
@@ -495,7 +492,10 @@ function chargeStance(keys, { dash, reach }) {
         if (ticks > RUN_START_TICKS) { phase = 'done'; return { hold: [] }; }
         return { hold: [keys[dir]] };
       }
-      if (dash) { phase = 'dash'; ticks = 0; return { hold: [keys[dir]], tap: [keys.jump] }; }
+      // Closer than a dash carries, the dash goes past the enemy (Henry ended
+      // 166 behind Rudolf that way), so the run's own attack is used instead.
+      if (dash && t && t.gap >= DASH_MIN_GAP) { phase = 'dash'; ticks = 0; return { hold: [keys[dir]], tap: [keys.jump] }; }
+      if (dash) { phase = 'done'; return { hold: [keys[dir]], tap: [keys.attack] }; }
       // The old burst swung about 8 ticks into the run; sooner once in reach.
       const there = !t || dirTo(a.me, t) !== dir || t.gap <= reach + RUN_SKID || ticks >= 8;
       if (!there) return { hold: [keys[dir]] };
