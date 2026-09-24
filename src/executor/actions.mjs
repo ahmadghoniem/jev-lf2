@@ -18,6 +18,7 @@ import { setTimeout as sleep } from 'node:timers/promises';
 import { P4_KEYS } from './keyboard.mjs';
 import { DRINK_TYPE, Z_TOLERANCE, doing, unhittable, inSight } from '../state/arena.mjs';
 import { REACH_SLACK } from '../lf2data/frames.mjs';
+import { framesFor } from '../lf2data/tables.mjs';
 import { label } from '../state/options.mjs';
 import { incoming, inboundWeapon, laneDanger } from './reflex.mjs';
 import { BOT, createNoise, hesitation, standoffOf, DASH_MIN_GAP } from '../state/bot.mjs';
@@ -176,11 +177,35 @@ function aimedAttack(keys, { tight, seq = ['attack'], needReach = false, reach =
       step++;
       return { hold: [] };
     }
+    // A special that repeats on Attack (Davis's ball, Henry's multiple shot,
+    // Rudolf's stars) is pressed again while it plays, as long as the target
+    // is still on the line and the MP holds: the next one then leaves at once,
+    // where a fresh answer starts over from Defend, about a second later.
+    if (seq.length > 1 && repeats(a.me) && Math.abs(dz) <= tight && t.infront) {
+      return { hold: [], tap: [keys.attack], special: true };
+    }
     return { hold: [] };
   };
   // A half-played sequence, which a repeat of the same answer should not restart.
   run.busy = started;
   return run;
+}
+/**
+ * Whether Attack pressed now carries the move on into another paid copy of
+ * itself: some frame still ahead in this animation takes Attack to a frame
+ * that costs MP (Davis's 246 -> 247), and the bar can pay for it.
+ */
+function repeats(me) {
+  const frames = framesFor(me.id);
+  let n = me.frame;
+  for (let i = 0; i < 8 && frames?.[n]; i++) {
+    const to = frames[n].transitions?.a;
+    if (to != null && frames[to]?.mp > 0) return me.mp >= frames[to].mp;
+    const next = frames[n].next;
+    if (!next || next === 999 || next === n || next <= 0) return false;
+    n = next;
+  }
+  return false;
 }
 /** States a hit leaves a fighter in, where key presses do nothing. */
 const HURT = new Set(['staggered', 'broken_guard', 'knocked_down', 'in_the_air']);

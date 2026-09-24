@@ -9,7 +9,8 @@
 import { buildOptions } from '../state/options.mjs';
 import { semanticState, doing, unhittable, inSight } from '../state/arena.mjs';
 import { nestOptions, followUps, resolveChoice } from '../state/nest.mjs';
-import { weapons } from '../lf2data/tables.mjs';
+import { weapons, profileFor } from '../lf2data/tables.mjs';
+import { mpRegenPerSecond } from '../state/fields.mjs';
 import { executableOptions, planAction } from './actions.mjs';
 import { wouldWhiff, incoming, inboundWeapon, guardHolds, GUARD_BREAK } from './reflex.mjs';
 import { standoffOf } from '../state/bot.mjs';
@@ -115,13 +116,30 @@ function roomBehind(arena) {
 }
 
 /**
+ * How long the enemy's bar keeps it from every special it has, in seconds,
+ * or null while it can afford one. Read from its own move list, so the same
+ * note holds for any fighter.
+ */
+function enemyDry(t) {
+  const specials = (profileFor(t?.name)?.moves ?? []).filter((m) => m.mp > 20 && !m.allowedWhenShort);
+  if (!t || !specials.length) return null;
+  const cheapest = Math.min(...specials.map((m) => m.mp));
+  const mp = t.mp ?? 0;
+  if (mp >= cheapest) return null;
+  return { mp, cheapest, seconds: Math.ceil((cheapest - mp) / mpRegenPerSecond(t.hp ?? 500)) };
+}
+
+/**
  * The situation notes appended to the action question, each only when it
  * holds. They say in words what the arena says in numbers.
  */
 function situationNotes(options, arena, profile) {
   const near = arena.threats[0];
   const canShoot = Object.keys(options).some((o) => o === 'shoot' || o.startsWith('special_'));
+  const dry = enemyDry(near);
   return [
+    [dry,
+      `The enemy has only ${dry?.mp} MP, less than its cheapest special move (${dry?.cheapest}), so for about ${dry?.seconds} s it has only its plain attacks. This is the time to press it: close in and hit, since nothing big can come back.`],
     [near && !inSight(near, profile),
       'The enemy is off the screen, too far for any shot to land, so there is nothing to fire at until it is back on screen.'],
     [near?.doing === 'drinking',

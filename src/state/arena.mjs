@@ -454,6 +454,7 @@ export function semanticState({ arena, profile, recent = {} }) {
       doing: t.doing,
       vulnerable: t.vulnerable,
       hp: health(t),
+      mp: `${Math.min(t.mp ?? 0, MP_CAP)} of ${MP_CAP}`,
       // Where it is heading, not where it is. Only a COM has a destination to
       // read; a human-controlled fighter leaves this null.
       heading: t.hasDest ? (t.approach ? 'closing on you' : 'withdrawing or holding') : null,
