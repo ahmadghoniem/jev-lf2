@@ -19,7 +19,7 @@ import { P4_KEYS } from './keyboard.mjs';
 import { DRINK_TYPE, Z_TOLERANCE, doing, unhittable, inSight } from '../state/arena.mjs';
 import { REACH_SLACK } from '../lf2data/frames.mjs';
 import { framesFor } from '../lf2data/tables.mjs';
-import { label } from '../state/options.mjs';
+import { label, firesBall, FREE_TO_BLOCK } from '../state/options.mjs';
 import { incoming, inboundWeapon, laneDanger } from './reflex.mjs';
 import { BOT, createNoise, hesitation, standoffOf, DASH_MIN_GAP } from '../state/bot.mjs';
 
@@ -99,8 +99,9 @@ const meleeReach = (profile) => profile?.bestMelee?.reach ?? profile?.basicAttac
  * a fixed burst frozen at plan time could not do.
  */
 function aimedAttack(keys, { seq = ['attack'], needReach = false, reach = 45, startup = 5,
-                             profile = null }) {
+                             profile = null, ball = false }) {
   let step = 0;
+  let ballWait = 0;   // ticks the last press of a ball has waited for a busy enemy
   let side = null;    // the side of the enemy's line aimed from (see `aimSide`)
   let outTicks = 0;   // ticks spent stepping off the line before this attack
   const started = () => step > 0 && step < seq.length * 5;
@@ -181,6 +182,13 @@ function aimedAttack(keys, { seq = ['attack'], needReach = false, reach = 45, st
         // was thrown a tick after Attack was pressed.
         const danger = last ? laneDanger(a) : null;
         if (danger && danger.eta <= startup + 2) return { hold: [] };
+        // An energy ball is blocked by a CPU that is free to act, every time
+        // (docs/07-cpu-ai.md), so its last press waits for the enemy to be
+        // busy, for up to BALL_WAIT_TICKS, then fires anyway.
+        if (last && ball && FREE_TO_BLOCK.has(t.doing) && ballWait < BALL_WAIT_TICKS) {
+          ballWait++;
+          return { hold: [] };
+        }
         const press = seq[step / 5];
         const code = press === 'forward' ? keys[dirTo(a.me, t)] : keys[press];
         step++;
@@ -318,6 +326,14 @@ export function planAction(name, { arena, profile, keys = P4_KEYS } = {}) {
   // never the jump: Rudolf's shuriken hits an airborne body, and in three runs
   // 45 of 65 jump dodges were hit within 25 ticks against 34 of 77 steps.
   if (name === 'land_roll') return stance(() => ({ hold: [], tap: [keys.defend] }));
+  // The punish reflex: face the enemy, then the ordinary attack.
+  if (name === 'punish') {
+    return target ? stance((a) => {
+      const t = enemy(a);
+      if (!t) return { hold: [] };
+      return t.infront ? { hold: [], tap: [keys.attack] } : { hold: [], tap: [keys[dirTo(a.me, t)]] };
+    }) : null;
+  }
   // No arrow held: a direction with Attack throws the held enemy instead.
   if (name === 'punch_held') return stance(() => ({ hold: [], tap: [keys.attack] }));
   if (name === 'hold_grip') return stance(() => ({ hold: [] }));
@@ -370,7 +386,7 @@ export function planAction(name, { arena, profile, keys = P4_KEYS } = {}) {
     // in one run Rudolf had backed off to 280 by the time Henry pressed, and two
     // 150-MP blastpushes did 13 and 7.
     const fullBand = move.falloff?.[0]?.to;
-    return stance(aimedAttack(keys, { seq: SPECIAL_SEQUENCE[move.input], profile,
+    return stance(aimedAttack(keys, { seq: SPECIAL_SEQUENCE[move.input], profile, ball: firesBall(move),
                                       startup: move.startupTicks ?? 5,
                                       needReach: !!fullBand, reach: (fullBand ?? 0) - REACH_SLACK }));
   }
@@ -643,6 +659,47 @@ function depthTo(arena, keys, z) {
 
 /** At most this long stepping off the line before an attack: ~0.3 s. */
 const AIM_OUT_TICKS = 8;
+
+/** At most this long holding a ball's last press for a busy enemy: ~0.7 s. */
+const BALL_WAIT_TICKS = 20;
+
+/** Actions that own the depth keys, or must not have one added mid-move. */
+const KEEPS_OWN_DEPTH = new Set(['defend', 'land_roll', 'roll_away', 'punch_held', 'hold_grip',
+  'punish', 'dodge_up', 'dodge_down']);
+
+/**
+ * The depth keeper: under any action that leaves the depth keys free, step
+ * off the enemy's line whenever it is within `BOT.AIM_MIN_Z` of ours. The CPU
+ * walks back onto our line every tick, and in four runs Jev spent half his
+ * time within 5 of it, losing 60 hp per 100 ticks there against 19 at the
+ * aiming depth. Stateful, one per run: it keeps its side, and changes side
+ * when four ticks of pressing leave the depth unchanged (a stage edge).
+ */
+export function createDepthKeeper(keys) {
+  let side = null;
+  let lastZ = null;
+  let still = 0;
+  return function keep(arena, action, step) {
+    const hold = step.hold ?? [];
+    const t = arena.threats[0];
+    const base = typeof action === 'string' ? action.split('@')[0] : '';
+    if (!t || !base || isAttackOption(base) || KEEPS_OWN_DEPTH.has(base)
+        || step.tap?.length || hold.includes(keys.up) || hold.includes(keys.down)
+        || !['neutral', 'walking', 'running'].includes(doing(arena.me))) {
+      lastZ = null; still = 0;
+      return hold;
+    }
+    const dz = arena.me.z - t.z;
+    if (Math.abs(dz) >= BOT.AIM_MIN_Z) { side = dz >= 0 ? 1 : -1; lastZ = null; still = 0; return hold; }
+    side ??= dz >= 0 ? 1 : -1;
+    if (lastZ != null && Math.abs(arena.me.z - lastZ) < 0.5) still++;
+    else still = 0;
+    if (still >= 4) { side = -side; still = 0; }
+    lastZ = arena.me.z;
+    const key = depthTo(arena, keys, t.z + side * BOT.AIM_Z)[0];
+    return key ? [...hold, key] : hold;
+  };
+}
 
 /**
  * A weapon that is going to pass through our lane: in the air, inside the

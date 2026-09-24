@@ -10,7 +10,7 @@
 
 import { framesFor } from '../lf2data/tables.mjs';
 import { nextHit, nextSpawn, REACH_SLACK } from '../lf2data/frames.mjs';
-import { Z_TOLERANCE, Y_TOLERANCE, doing } from '../state/arena.mjs';
+import { Z_TOLERANCE, Y_TOLERANCE, doing, unhittable } from '../state/arena.mjs';
 import { BOT } from '../state/bot.mjs';
 
 /**
@@ -271,6 +271,27 @@ export function createReflex({ maxBlockTicks = BOT.BLOCK_COMMIT_FRAMES,
     }
     blocked = 0;
     if (rest > 0) rest--;
-    return null;
+    return punish(arena, opts.profile);
   };
+}
+
+/**
+ * Hit an enemy stuck in a recovery the moment it is in reach, as the CPU does:
+ * it swings 1 time in 3 every tick a target is in range (docs/07-cpu-ai.md),
+ * where an answer from Jev arrives up to a second later, after the window.
+ * The ordinary attack only, read from the fighter's own profile: a swing
+ * inside its reach, or a shot inside its range while the MP covers it. Depth
+ * within `BOT.AIM_MAX_Z`, where a hit still lands.
+ */
+export function punish(arena, profile) {
+  const t = arena.threats[0];
+  const basic = profile?.basicAttack;
+  if (!t || !basic || !t.vulnerable || unhittable(t)) return null;
+  if (!['neutral', 'walking'].includes(doing(arena.me))) return null;
+  if (t.zGap > BOT.AIM_MAX_Z) return null;
+  const inReach = basic.kind === 'ranged'
+    ? t.gap <= (basic.range ?? 0) && (arena.me.mp ?? 0) >= (basic.mp ?? 0)
+    : t.gap <= (basic.reach ?? 0) + REACH_SLACK;
+  if (!inReach) return null;
+  return { action: 'punish', reason: `${t.name ?? 'the enemy'} is ${t.doing} in reach — hit it now` };
 }

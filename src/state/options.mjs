@@ -23,14 +23,14 @@ import { framesFor } from '../lf2data/tables.mjs';
  * 3000. The CPU blocks every one of these that comes within 200 of it while it
  * is free to act (docs/07-cpu-ai.md); arrows, stars and blasts are not in it.
  */
-const firesBall = (move) => (move.spawns ?? []).some((id) => {
+export const firesBall = (move) => (move.spawns ?? []).some((id) => {
   const f = framesFor(id);
   const first = f && Object.values(f)[0];
   return first?.state === 3000;
 });
 
 /** An enemy in one of these can turn and block. */
-const FREE_TO_BLOCK = new Set(['neutral', 'walking', 'running', 'blocking']);
+export const FREE_TO_BLOCK = new Set(['neutral', 'walking', 'running', 'blocking']);
 
 /** How a weapon's four swing types read as options. */
 const SWING_STYLES = {
