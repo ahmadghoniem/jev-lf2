@@ -188,6 +188,16 @@ export function createReflex({ maxBlockTicks = BOT.BLOCK_COMMIT_FRAMES,
     // fighter is out of reach: in six runs with the flip Henry took 34-112 hp
     // per 100 ticks against 27-30 in the three before it, and nothing ever
     // hit him while he lay on the floor.
+    // Holding an enemy by the neck (walking into a dizzy one grabs it). The
+    // held frame takes Attack as a punch (its cpoint `aaction`), for the
+    // catcher's own data, and nothing can hit the pair meanwhile. Left to
+    // the policy, the hold ran out untouched: 22 ticks of a run_attack
+    // stance holding the arrow key at tick 784 of 2026-09-24T02-44-46.
+    const grip = framesFor(arena.me.id)?.[arena.me.frame]?.cpoint?.find((c) => c.kind === 1);
+    if (grip) {
+      return { action: grip.aaction ? 'punch_held' : 'hold_grip', owns: true,
+               reason: 'holding the enemy — punch it while the grip lasts' };
+    }
     const lane = laneDanger(arena);
     // Landing from the flip is a 2-3 tick crouch on the same line, and the
     // next star was usually already on its way: 7 of 9 landings in two runs

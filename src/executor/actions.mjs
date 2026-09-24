@@ -334,6 +334,9 @@ export function planAction(name, { arena, profile, keys = P4_KEYS } = {}) {
   // never the jump: Rudolf's shuriken hits an airborne body, and in three runs
   // 45 of 65 jump dodges were hit within 25 ticks against 34 of 77 steps.
   if (name === 'land_roll') return stance(() => ({ hold: [], tap: [keys.defend] }));
+  // No arrow held: a direction with Attack throws the held enemy instead.
+  if (name === 'punch_held') return stance(() => ({ hold: [], tap: [keys.attack] }));
+  if (name === 'hold_grip') return stance(() => ({ hold: [] }));
   if (name === 'dodge_up' || name === 'dodge_down') {
     const key = name === 'dodge_up' ? keys.up : keys.down;
     return stance(() => ({ hold: [key] }));
