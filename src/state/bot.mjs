@@ -81,7 +81,11 @@ export const STANDOFF_X = BOT.RANGED_MIN_X + 50;
 export function standoffOf(profile) {
   if (!profile?.hasRanged) return 0;
   const reach = profile.basicAttack?.kind === 'ranged' ? profile.basicAttack.range : null;
-  return reach ? Math.max(STANDOFF_X, Math.round(reach * 0.6)) : STANDOFF_X;
+  // 0.8 of the shot's reach, not 0.6: the CPU throws and shoots only inside
+  // 300-350 (docs/07-cpu-ai.md). In the Henry v Rudolf runs of 2026-09-24,
+  // standing 170-300 away on Rudolf's line cost 39 hp per 100 ticks and 300-450
+  // cost 0.3; the old 270 sat just inside his throwing range.
+  return reach ? Math.max(STANDOFF_X, Math.round(reach * 0.8)) : STANDOFF_X;
 }
 
 /** A run is only worth offering once walking would be slow: beyond the band. */
