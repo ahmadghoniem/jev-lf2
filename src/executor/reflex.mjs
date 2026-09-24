@@ -112,6 +112,10 @@ export function laneDanger(arena) {
   return worst;
 }
 
+/** The crouch after a jump or a flip lands, where Defend starts a roll. */
+const LANDING = 215;
+/** A star this close is rolled through on landing; the roll lasts about 13 ticks. */
+const LAND_ROLL_ETA = 14;
 /** Falling frames up to the one that takes the flip (182 forward, 188 backward). */
 const FLIP_WINDOW = new Set([180, 181, 182, 186, 187, 188]);
 
@@ -191,6 +195,14 @@ export function createReflex({ maxBlockTicks = BOT.BLOCK_COMMIT_FRAMES,
     }
 
     const lane = laneDanger(arena);
+    // Landing from the flip is a 2-3 tick crouch on the same line, and the
+    // next star was usually already on its way: 7 of 9 landings in two runs
+    // were hit within 12 ticks. The crouch cannot walk, but px.js takes
+    // Defend there as a roll (frame 215 -> 102), which nothing hits.
+    if (arena.me.frame === LANDING && lane && lane.eta <= LAND_ROLL_ETA) {
+      return { action: 'land_roll', owns: true, eta: lane.eta,
+               reason: `${lane.what === 'star' ? 'a star' : 'a throw'} on our line in ~${lane.eta.toFixed(0)} ticks as we land — roll through it` };
+    }
     const mine = doing(arena.me);
     const canMove = ['neutral', 'walking', 'running'].includes(mine);
     if (lane && canMove) {

@@ -281,6 +281,7 @@ export function planAction(name, { arena, profile, keys = P4_KEYS } = {}) {
   // The air recovery, chosen by the reflex: Jump, pressed afresh each time the
   // last tap lets go, since the game reads a press rather than a hold.
   if (name === 'recover') return stance(() => ({ hold: [], tap: [keys.jump] }));
+  if (name === 'land_roll') return stance(() => ({ hold: [], tap: [keys.defend] }));
   if (name === 'dodge_up' || name === 'dodge_down') {
     const key = name === 'dodge_up' ? keys.up : keys.down;
     return stance(() => ({ hold: [key] }));
