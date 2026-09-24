@@ -351,7 +351,7 @@ export function planAction(name, { arena, profile, keys = P4_KEYS } = {}) {
   // plain attacks: step to the aiming depth beside the enemy's line, face the
   // target, then one tap. The punch only taps when the target is inside its
   // reach, so it stops whiffing from out of range.
-  if (name === 'shoot' || name === 'punch' || name.startsWith('swing_')) {
+  if (name === 'shoot' || name === 'punch') {
     const melee = name !== 'shoot';
     // A shot with a measured reach walks in until it is inside it, like the
     // blastpush does with its full-damage band.
@@ -361,7 +361,7 @@ export function planAction(name, { arena, profile, keys = P4_KEYS } = {}) {
                                        reach: melee ? meleeReach(profile) : (shotRange ?? 0) - REACH_SLACK }));
   }
 
-  if (name === 'jump_attack' || name.startsWith('jump_swing_')) {
+  if (name === 'jump_attack') {
     return burst(async (kb) => {
       await face(kb, keys, me, target);
       await kb.tap(keys.jump);
@@ -370,10 +370,10 @@ export function planAction(name, { arena, profile, keys = P4_KEYS } = {}) {
     });
   }
 
-  if (name === 'run_attack' || name.startsWith('run_swing_')) {
+  if (name === 'run_attack') {
     return target ? stance(chargeStance(keys, { dash: false, reach: meleeReach(profile) })) : null;
   }
-  if (name === 'dash_attack' || name.startsWith('dash_swing_')) {
+  if (name === 'dash_attack') {
     return target ? stance(chargeStance(keys, { dash: true, reach: meleeReach(profile) })) : null;
   }
 
@@ -391,20 +391,6 @@ export function planAction(name, { arena, profile, keys = P4_KEYS } = {}) {
                                       needReach: !!fullBand, reach: (fullBand ?? 0) - REACH_SLACK }));
   }
 
-  if (name === 'throw_weapon') {
-    return held ? burst(async (kb) => {
-      await face(kb, keys, me, target);
-      await kb.tap(keys.attack);
-    }) : null;
-  }
-  if (name === 'drop_weapon') {
-    return held ? burst(async (kb) => {
-      await kb.tap(keys.defend);
-      await sleep(80);
-      await kb.tap(keys.attack);
-    }) : null;
-  }
-
   // punish a helpless enemy: close the distance, then hit once in range
   if (name === 'rush_attack') {
     if (!target) return null;
@@ -419,10 +405,9 @@ export function planAction(name, { arena, profile, keys = P4_KEYS } = {}) {
     });
   }
 
-  // go and get something: walk to it, then press attack on top of it
-  if (name.startsWith('pick_up_') || name.startsWith('drink_')) {
-    const wantDrink = name.startsWith('drink_');
-    const pick = (a) => a.items.find((i) => (i.type === DRINK_TYPE) === wantDrink) ?? null;
+  // go and drink something: walk to it, then press attack on top of it
+  if (name.startsWith('drink_')) {
+    const pick = (a) => a.items.find((i) => i.type === DRINK_TYPE) ?? null;
     if (!pick(arena)) return null;
     return stance((a) => {
       const item = pick(a);
@@ -674,10 +659,8 @@ const weaponOnLane = (arena) =>
 
 /** Options that press attack and cannot be cancelled once started. */
 export const isAttackOption = (name) => name === 'shoot' || name === 'punch'
-  || name.startsWith('swing_') || name.startsWith('jump_swing_') || name === 'jump_attack'
-  || name.startsWith('run_swing_') || name === 'run_attack'
-  || name.startsWith('dash_swing_') || name === 'dash_attack'
-  || name.startsWith('special_') || name === 'throw_weapon' || name === 'rush_attack';
+  || name === 'jump_attack' || name === 'run_attack' || name === 'dash_attack'
+  || name.startsWith('special_') || name === 'rush_attack';
 
 function away(arena, keys, t) {
   if (!t) return [];

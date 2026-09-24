@@ -13,6 +13,7 @@
  */
 
 import { damagingItr, reachOfFrame } from './frames.mjs';
+import { BOT } from '../state/bot.mjs';
 
 /** Distance buckets, in game units. Tuned to LF2's own numbers: a character is
  *  about 60 wide, a walk step ~5/tick, a dash covers ~150 before it lands. */
@@ -101,7 +102,9 @@ function inspectMove(frames, entryId, isProjectile, maxDepth = 24) {
     }
 
     for (const o of frame.opoint) {
-      spawns.push({ oid: o.oid, action: o.action ?? 0, dvx: o.dvx ?? 0, dvy: o.dvy ?? 0 });
+      // A `facing` of 10 or more spawns floor(facing / 10) copies (px.js).
+      spawns.push({ oid: o.oid, action: o.action ?? 0, dvx: o.dvx ?? 0, dvy: o.dvy ?? 0,
+                    count: (o.facing ?? 0) >= 10 ? Math.floor(o.facing / 10) : 1 });
     }
     const hit = damagingItr(frame)[0];
     if (hit) {
@@ -195,7 +198,7 @@ export function buildProfile(name, frames, objects) {
       seen.add(key);
 
       const m = inspectMove(frames, target, (s) => isProjectile(spawnInfo(s)));
-      const projectiles = m.spawns.map(spawnInfo).filter(isProjectile);
+      const projectiles = m.spawns.map(spawnInfo).filter(isProjectile).map(fanned);
       const damage = m.injury ?? (projectiles.length ? Math.max(...projectiles.map((p) => p.damage ?? 0)) : null);
       if ((damage === null || damage === 0) && projectiles.length === 0) continue;
 
@@ -314,6 +317,37 @@ function fromAction(frames, action, maxDepth = 40) {
 export function damageAt(move, distance) {
   if (!move.falloff) return move.damage;
   return move.falloff.find((b) => distance <= b.to)?.injury ?? 0;
+}
+
+/**
+ * A volley's damage at each distance. px.js sends copy `u` of `n` with a
+ * depth speed of `10u/(n-1) - 5` a tick, taken off its forward speed, so the
+ * outer copies drift off the target's line and miss once they are more than
+ * `BOT.HIT_Z` of depth away. Henry's five arrows: all five land within 54,
+ * three within 124, one beyond. Only a projectile with distance bands is
+ * worked out; one that flies until it hits keeps its single-copy damage.
+ */
+function fanned(p) {
+  const n = p.count ?? 1;
+  if (n <= 1 || !p.falloff) return p;
+  const speed = Math.abs(p.dvx ?? 0);
+  const limits = Array.from({ length: n }, (_, u) => {
+    const d = Math.abs((10 * u) / (n - 1) - 5);
+    return d === 0 ? Infinity : (BOT.HIT_Z * (speed - d)) / d;
+  });
+  const cuts = [...new Set([...limits.filter(Number.isFinite), ...p.falloff.map((b) => b.to)])]
+    .sort((a, b) => a - b).filter((c) => c <= p.range);
+  const falloff = [];
+  let from = 0;
+  for (const to of cuts) {
+    const single = p.falloff.find((b) => to <= b.to)?.injury ?? 0;
+    const injury = single * limits.filter((l) => l > from).length;
+    const last = falloff.at(-1);
+    if (last && last.injury === injury) last.to = Math.round(to);
+    else falloff.push({ to: Math.round(to), injury });
+    from = to;
+  }
+  return { ...p, falloff, damage: Math.max(...falloff.map((b) => b.injury)) };
 }
 
 /** The strongest projectile's range and damage bands, or none if any flies on. */

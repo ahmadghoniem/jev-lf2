@@ -9,7 +9,7 @@
 import { buildOptions } from '../state/options.mjs';
 import { semanticState, doing, unhittable, inSight } from '../state/arena.mjs';
 import { nestOptions, followUps, resolveChoice } from '../state/nest.mjs';
-import { weapons, profileFor } from '../lf2data/tables.mjs';
+import { profileFor } from '../lf2data/tables.mjs';
 import { mpRegenPerSecond } from '../state/fields.mjs';
 import { executableOptions, planAction } from './actions.mjs';
 import { wouldWhiff, incoming, inboundWeapon, guardHolds, GUARD_BREAK } from './reflex.mjs';
@@ -29,11 +29,8 @@ export function offer(arena, profile) {
   const near = arena.threats[0];
   const options = buildOptions({
     profile,
-    weapons,
     canDo: (name) => planAction(name, { arena, profile }) !== null,
-    held: arena.held,
-    // A weapon in flight is not a pickup — offering it as one invites a walk
-    // straight down the line the weapon is travelling along.
+    // Something in flight is not a pickup.
     nearby: arena.items.filter((i) => !i.inFlight).slice(0, 3).map((i) => ({ ...i, distance: i.range })),
     nearest: arena.nearest,
     mp: arena.me.mp,

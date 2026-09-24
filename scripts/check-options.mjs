@@ -9,7 +9,7 @@
 import { buildOptions } from '../src/state/options.mjs';
 import { executableOptions, planAction, standoffFor } from '../src/executor/actions.mjs';
 import { createReflex } from '../src/executor/reflex.mjs';
-import { profileFor, weapons } from '../src/lf2data/tables.mjs';
+import { profileFor } from '../src/lf2data/tables.mjs';
 
 const profile = profileFor('davis');
 const me = { x: 0, z: 0, facing: 'right', mp: 500, hp: 400, hpMax: 500 };
@@ -20,7 +20,7 @@ const foe = (x, z) => ({ slot: 1, name: 'John', x, z, facing: 'left', hp: 500, f
 
 const at = (x, z) => ({ me, threats: [foe(x, z)], items: [], held: null, flying: [] });
 const build = (arena, over = {}) => buildOptions({
-  profile, weapons, held: null, nearest: Math.abs(arena.threats[0].dx),
+  profile, nearest: Math.abs(arena.threats[0].dx),
   mp: 500, hp: 400, hpMax: 500, hasTarget: true,
   aligned: arena.threats[0].aligned, ...over });
 

@@ -11,7 +11,7 @@
 import { createItemMotion } from '../src/state/arena.mjs';
 import { buildOptions } from '../src/state/options.mjs';
 import { planAction } from '../src/executor/actions.mjs';
-import { profileFor, weapons } from '../src/lf2data/tables.mjs';
+import { profileFor } from '../src/lf2data/tables.mjs';
 
 const profile = profileFor('firen');
 
@@ -48,7 +48,7 @@ console.log('2) closing across a mid-flight pause:', closings.map((c) => (c ? 'c
 // --- 3. no attack options while the enemy is down
 const me = { slot: 0, x: 0, z: 0, y: 0, facing: 'right', hp: 400, hpMax: 500, mp: 500, frame: 0, waiting: 0, alive: true, name: 'Firen', human: true };
 const foeDown = { slot: 11, x: 300, z: 0, y: 0, facing: 'left', hp: 300, frame: 230, waiting: 3, alive: true, name: 'John', human: false, team: 1 };
-const optsDown = buildOptions({ profile, weapons, held: null, nearest: 300, mp: 500, hp: 400, hpMax: 500,
+const optsDown = buildOptions({ profile, nearest: 300, mp: 500, hp: 400, hpMax: 500,
   hasTarget: true, aligned: true, enemyDoing: 'knocked_down', targetDown: true, canDo: () => true });
 const attacks = Object.keys(optsDown).filter((k) =>
   k === 'punch' || k.startsWith('special_') || k === 'shoot' || k.endsWith('attack'));

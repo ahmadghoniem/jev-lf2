@@ -2,13 +2,12 @@
  * Turns the live arena into the labelled options Jev chooses between.
  *
  * The rule is not "code decides, Jev obeys". Code does the arithmetic — which
- * attacks can reach, what each one costs, what a held weapon hits for — and
+ * attacks can reach and what each one costs — and
  * then hands Jev every option that is actually available, each described in
  * words, including how hard it hits and what it risks. Choosing among them is
  * the judgement, and that is Jev's.
  *
- * So Jev is the one that decides a crossbow shot beats closing to punch, or
- * that the baseball bat's dash swing is worth the commitment. It never has to
+ * So Jev is the one that decides a shot beats closing to punch. It never has to
  * subtract two numbers to get there, because the numbers arrive as tiers.
  */
 
@@ -33,17 +32,6 @@ export const firesBall = (move) => (move.spawns ?? []).some((id) => {
 export const FREE_TO_BLOCK = new Set(['neutral', 'walking', 'running', 'blocking']);
 
 /** How a weapon's four swing types read as options. */
-const SWING_STYLES = {
-  normal: { input: 'a', label: 'swing', risk: 'low',
-            note: 'a plain swing from standing: the quickest to come out and the quickest to recover' },
-  jump: { input: 'j+a', label: 'jump_swing', risk: 'medium',
-          note: 'jump first, then swing on the way down; it reaches over a low enemy but leaves you in the air' },
-  run: { input: 'run+a', label: 'run_swing', risk: 'medium',
-         note: 'run in and swing, so the swing itself carries you into range' },
-  dash: { input: 'dash+a', label: 'dash_swing', risk: 'high',
-          note: 'the heaviest and slowest swing, a dash that commits you to the follow-through' },
-};
-
 /** Room the roll needs behind the fighter to end out of reach. */
 const ROLL_ROOM = 180;
 /**
@@ -58,16 +46,16 @@ const WALK_OUT_ROOM = 40;
  * Every action worth offering this tick.
  *
  * @param profile    its entry from build/_profiles.json
- * @param weapons    build/_weapons.json
- * @param held       the weapon entity in hand, or null
- * @param nearby     weapon and drink entities on the ground, with distances
+ * @param nearby     things lying on the ground, with distances; only drinks
+ *                   are offered (weapons are left out: offered thousands of
+ *                   times across 52 runs and never chosen)
  * @param nearest    distance to the closest threat, in game units
  * @param targetDown nothing started now can hit the nearest enemy: it is on
  *                   the floor, or in a jump close by (`unhittable` in arena.mjs)
  * @param roomBehind ground between the fighter and the stage edge behind it
  * @param canDo      whether the executor can actually carry an option out
  */
-export function buildOptions({ profile, weapons, held, nearby = [], nearest = Infinity, mp = 0,
+export function buildOptions({ profile, nearby = [], nearest = Infinity, mp = 0,
                                hp = null, hpMax = null, behind = false, vulnerable = false,
                                enemyDoing = null, aligned = true, targetDown = false,
                                hasTarget = false, threatened = false, targetOnScreen = true,
@@ -108,16 +96,8 @@ export function buildOptions({ profile, weapons, held, nearby = [], nearest = In
       : `The enemy is ${window} at the end of an attack, so it cannot swing again yet — but it may already have a weapon in the air. Close in and hit it before it recovers.`;
   }
 
-  // Two branches below are opened by the situation, not merely filled by it. A
-  // potion is only an option when there is health to win back, and a weapon on
-  // the ground is only an option when it beats what the hands would otherwise
-  // swing. Jev is documented as distracted by large irrelevant state, so a
-  // branch that is closed reads better than one that is merely pointless.
+  // A potion is only an option when there is health to win back.
   const healthFraction = hpMax ? hp / hpMax : 1;
-  const heldTable = held ? weapons[held.id] : null;
-  const carriedSwing = heldTable
-    ? Math.max(...Object.values(heldTable.attacks).map((r) => r.injury))
-    : (profile.bestMelee?.damage ?? 0);
 
   // --- what the character can throw from where it stands
   const rangedName = (m) => (basic && m.entry === basic.entry ? 'shoot' : `special_${label(m)}`);
@@ -184,52 +164,13 @@ export function buildOptions({ profile, weapons, held, nearby = [], nearest = In
     ].filter(Boolean).join(' ');
   }
 
-  // --- what the weapon in hand is worth, per swing type. Only ever listed while
-  // the weapon is confirmed to be in hand, so the swing is real.
-  if (held && !targetDown) {
-    const table = weapons[held.id];
-    const weaponName = plainName(table?.name, held.name);
-    if (table) {
-      for (const [attack, row] of Object.entries(table.attacks)) {
-        const style = SWING_STYLES[attack];
-        if (!style) continue;
-        options[`${style.label}_${slug(weaponName)}`] = [
-          `${weaponName} — ${style.note}.`,
-          `Damage is ${tierDamage(row.injury)}.`,
-          `Risk is ${style.risk}.`,
-          'This is available because the weapon is in your hands right now.',
-        ].filter(Boolean).join(' ');
-      }
-    }
-    options.throw_weapon = `Throw the ${weaponName} at the enemy. It travels, so distance does not matter, but you lose the weapon.`;
-    options.drop_weapon = `Drop what you are holding and fight bare-handed.`;
-  }
-
-  // --- what is lying on the ground, priced the same way
+  // --- a drink lying on the ground
   for (const item of nearby) {
-    const table = weapons[item.id];
-    const where = bucketRange(item.distance);
-    if (item.type === 6) {
-      if (healthFraction >= DRINK_BELOW) continue;
-      options[`drink_${slug(plainName(item.name))}`] = [
-        `Walk over and drink the ${plainName(item.name)}, ${where} away.`,
-        'It restores health, but you are defenceless the whole way there and while drinking.',
-        item.aligned === false ? 'It is not level with you, so you must step to its depth to pick it up.' : '',
-      ].filter(Boolean).join(' ');
-      continue;
-    }
-    if (!table) continue;
-    const best = Math.max(...Object.values(table.attacks).map((r) => r.injury));
-    if (best <= carriedSwing) continue;
-    const farther = item.distance > nearest;
-    options[`pick_up_${slug(plainName(table.name, item.name))}`] = [
-      `Walk over and pick up the ${plainName(table.name, item.name)}, ${where} away.`,
-      'You cannot attack or block while walking to it, and the enemy is free to hit you the whole way.',
-      `Its best swing is ${tierDamage(best)}, against ${tierDamage(carriedSwing)} from ${held ? 'what you are holding' : 'your bare hands'}.`,
+    if (item.type !== 6 || healthFraction >= DRINK_BELOW) continue;
+    options[`drink_${slug(plainName(item.name))}`] = [
+      `Walk over and drink the ${plainName(item.name)}, ${bucketRange(item.distance)} away.`,
+      'It restores health, but you are defenceless the whole way there and while drinking.',
       item.aligned === false ? 'It is not level with you, so you must step to its depth to pick it up.' : '',
-      farther ? 'The enemy is closer to you than the weapon is, so it will reach you before you reach it.' : '',
-      held ? 'You would drop what you are already holding to take it.' : '',
-      item.contested ? 'Someone else is closer to it than you are.' : '',
     ].filter(Boolean).join(' ');
   }
 
