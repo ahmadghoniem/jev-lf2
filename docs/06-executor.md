@@ -180,6 +180,16 @@ reach, it steps off the line away from the enemy. In the runs, standing there
 lost 31 hp over 30 ticks and leaving lost 21. The CPU starts an attack only
 within 5 of depth, so the step also ends its string.
 
+## A special is not cut off once its Defend is pressed
+
+Defend puts the fighter in the 13-tick block pose, and the rest of the special
+fires out of it (frame 110 carries `hit_Fa` and the others). Of 23 guard breaks
+that began in a special on 2026-09-24, 9 followed a different answer cutting the
+special off, which left the fighter in the pose with nothing to follow, and 4
+followed the block reflex pressing Defend again, which restarts the special's
+input. A different answer now waits until the special is done, or 700 ms at
+most, and the block reflex stays off while a special is half played.
+
 ## Notes from a paused game
 
 Esc pauses the game, and while it is paused a note box opens at the top of the
