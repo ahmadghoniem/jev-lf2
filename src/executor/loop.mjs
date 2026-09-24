@@ -18,6 +18,7 @@ import { createReflex, laneDanger } from './reflex.mjs';
 import { offer } from './policies.mjs';
 import { stageWidth as readStageWidth } from './setup.mjs';
 import { bucketRange } from '../lf2data/profile.mjs';
+import { createPlanMemory } from '../state/plan.mjs';
 
 /**
  * An answer about a fight this old is about a different fight. Measured in
@@ -61,6 +62,7 @@ export async function runLoop({ cdp, pool, kb, run, name, policy, overlay, hz = 
   let plannedFor = null;   // which action it was planned for
   let lastAsk = 0;
   let recent = {};
+  const plan = createPlanMemory();
   let shown = { policy: policy.name };   // what the overlay is currently saying
   let forceDraw = false;                 // set when an answer lands, cleared once drawn
   let deadStreak = 0;                    // consecutive not-alive reads (debounce)
@@ -195,6 +197,7 @@ export async function runLoop({ cdp, pool, kb, run, name, policy, overlay, hz = 
       const { result, askedAt, askedAtMs } = pending;
       pending = null;
       if (result?.action) answered = { action: result.action, askedAtMs };
+      plan.update(result?.answers?.plan?.choice);
       if (Date.now() - askedAtMs > staleMs) counts.stale++;
       // A thrown weapon is already in the air and the block answers it, so that
       // one reflex holds against a late answer; everything else steps aside.
@@ -213,7 +216,7 @@ export async function runLoop({ cdp, pool, kb, run, name, policy, overlay, hz = 
         action = result.action; source = policy.name; stance = null;
         if (!finishing) plannedFor = null;
         if (action === 'roll_away') rollUntil = Date.now() + ROLL_OWNS_MS;
-        recent = { last_action: action };
+        recent = { ...recent, last_action: action };
         standing = { action, askedAtMs };
       } else if (result?.action) {
         // Overruled by the block for now, but still the answer for when the
@@ -222,6 +225,7 @@ export async function runLoop({ cdp, pool, kb, run, name, policy, overlay, hz = 
       } else counts.misses++;
       shown = {
         ...shown,
+        plan: plan.current,
         latencyMs: result?.latencyMs ?? null,
         confidence: result?.answers?.action?.confidence ?? null,
         probabilities: result?.answers?.action?.probabilities ?? null,
@@ -261,7 +265,7 @@ export async function runLoop({ cdp, pool, kb, run, name, policy, overlay, hz = 
       const record = { settled: false, askedAt, askedAtMs: Date.now(), result: null };
       pending = record;
       counts.decisions++;
-      policy.decide({ arena, options, questions, recent }).then((result) => {
+      policy.decide({ arena, options, questions, recent: { ...recent, ...plan.recent() } }).then((result) => {
         record.result = result; record.settled = true;
         run?.judgement({
           tick: askedAt, schema, criteria: { action: options },
