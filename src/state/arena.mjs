@@ -345,6 +345,16 @@ const VULNERABLE = new Set([...HELPLESS, 'recovering']);
  * the observer saw as passing up open chances.
  */
 export const JUMP_CLEAR_GAP = 200;
+
+/**
+ * Whether a shot can reach the enemy: on the screen, or inside the fighter's
+ * measured shot range. Henry's arrow flies on past the edge of the view, and
+ * the runs have it landing about 6 in 10 from 400-449, but the screen alone
+ * cut every shot off at 367 (the half-view less a body): with Rudolf 320-375
+ * away the observer marked two chances to fire that were never offered.
+ */
+export const inSight = (t, profile) => !!t && (t.onScreen !== false
+  || (profile?.basicAttack?.kind === 'ranged' && t.gap <= (profile.basicAttack.range ?? 0)));
 export const unhittable = (t) => !!t && (t.doing === 'knocked_down'
   || (t.doing === 'in_the_air' && t.gap < JUMP_CLEAR_GAP));
 

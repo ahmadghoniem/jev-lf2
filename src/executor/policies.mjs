@@ -7,7 +7,7 @@
  */
 
 import { buildOptions } from '../state/options.mjs';
-import { semanticState, doing, unhittable } from '../state/arena.mjs';
+import { semanticState, doing, unhittable, inSight } from '../state/arena.mjs';
 import { nestOptions, followUps, resolveChoice } from '../state/nest.mjs';
 import { weapons } from '../lf2data/tables.mjs';
 import { executableOptions, planAction } from './actions.mjs';
@@ -44,7 +44,7 @@ export function offer(arena, profile) {
     aligned: near?.aligned ?? true,
     targetDown: unhittable(near),
     hasTarget: !!near,
-    targetOnScreen: near?.onScreen ?? true,
+    targetOnScreen: near ? inSight(near, profile) : true,
     threatened: !!incoming(arena, { within: 12 }),
     helpless: !!near?.helpless,
     weaponInbound: !!inboundWeapon(arena),
@@ -122,7 +122,7 @@ function situationNotes(options, arena, profile) {
   const near = arena.threats[0];
   const canShoot = Object.keys(options).some((o) => o === 'shoot' || o.startsWith('special_'));
   return [
-    [near && !near.onScreen,
+    [near && !inSight(near, profile),
       'The enemy is off the screen, too far for any shot to land, so there is nothing to fire at until it is back on screen.'],
     [near?.doing === 'drinking',
       'The enemy is drinking to heal and cannot move, block or attack until it finishes. Every moment it drinks is health it gets back, so hit it now: a shot that reaches from here lands and stops the drink, and running in works if nothing you fire reaches.'],

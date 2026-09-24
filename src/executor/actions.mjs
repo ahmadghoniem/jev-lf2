@@ -16,7 +16,7 @@
 
 import { setTimeout as sleep } from 'node:timers/promises';
 import { P4_KEYS } from './keyboard.mjs';
-import { DRINK_TYPE, Z_TOLERANCE, doing, unhittable } from '../state/arena.mjs';
+import { DRINK_TYPE, Z_TOLERANCE, doing, unhittable, inSight } from '../state/arena.mjs';
 import { REACH_SLACK } from '../lf2data/frames.mjs';
 import { label } from '../state/options.mjs';
 import { incoming, inboundWeapon, laneDanger } from './reflex.mjs';
@@ -97,7 +97,8 @@ const meleeReach = (profile) => profile?.bestMelee?.reach ?? profile?.basicAttac
  * the lane during the wind-up is chased before the sequence ever starts, which
  * a fixed burst frozen at plan time could not do.
  */
-function aimedAttack(keys, { tight, seq = ['attack'], needReach = false, reach = 45, startup = 5 }) {
+function aimedAttack(keys, { tight, seq = ['attack'], needReach = false, reach = 45, startup = 5,
+                             profile = null }) {
   let step = 0;
   const started = () => step > 0 && step < seq.length * 5;
   const run = (a) => {
@@ -127,8 +128,8 @@ function aimedAttack(keys, { tight, seq = ['attack'], needReach = false, reach =
       const danger = laneDanger(a);
       if (danger && danger.eta < seq.length * 5 + startup) return { hold: [] };
     }
-    // Off the screen nothing lands, so walk on until it is back in view.
-    if (t.onScreen === false) {
+    // Out of sight nothing lands, so walk on until it is back in view.
+    if (!inSight(t, profile)) {
       if (started()) step = 0;
       return { hold: toward(a, keys, t) };
     }
@@ -297,7 +298,7 @@ export function planAction(name, { arena, profile, keys = P4_KEYS } = {}) {
     // A shot with a measured reach walks in until it is inside it, like the
     // blastpush does with its full-damage band.
     const shotRange = !melee ? profile?.basicAttack?.range : null;
-    return stance(aimedAttack(keys, { tight: melee ? BOT.ALIGN_Z_TIGHT : Z_TOLERANCE,
+    return stance(aimedAttack(keys, { tight: melee ? BOT.ALIGN_Z_TIGHT : Z_TOLERANCE, profile,
                                        needReach: melee || !!shotRange,
                                        reach: melee ? meleeReach(profile) : (shotRange ?? 0) - REACH_SLACK }));
   }
@@ -327,7 +328,7 @@ export function planAction(name, { arena, profile, keys = P4_KEYS } = {}) {
     // in one run Rudolf had backed off to 280 by the time Henry pressed, and two
     // 150-MP blastpushes did 13 and 7.
     const fullBand = move.falloff?.[0]?.to;
-    return stance(aimedAttack(keys, { tight: Z_TOLERANCE, seq: SPECIAL_SEQUENCE[move.input],
+    return stance(aimedAttack(keys, { tight: Z_TOLERANCE, seq: SPECIAL_SEQUENCE[move.input], profile,
                                       startup: move.startupTicks ?? 5,
                                       needReach: !!fullBand, reach: (fullBand ?? 0) - REACH_SLACK }));
   }
