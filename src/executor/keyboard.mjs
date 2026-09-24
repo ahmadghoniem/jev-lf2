@@ -128,17 +128,23 @@ export function keyboard(cdp, bindings = P4_KEYS) {
   const down = new Set();
   const releasing = new Map(); // code -> timer, for taps in flight
   const combo = comboReader();
+  const releasedAt = new Map(); // code -> when it last went up
   let dispatched = 0;
   let defused = 0;
+  let facing = null;
 
   /**
    * Resets an armed special reader with one press of a direction it is not
    * waiting for, a frame ahead of the press that would have fired it.
+   *
+   * A depth key first, then the way the fighter faces: a tap the other way
+   * turns it. Pressing left against a reader armed on Down turned Henry away
+   * from Rudolf, and the arrow that followed flew the wrong way.
    */
   async function defuse() {
-    const horizontal = ['left', 'right'].includes(combo.via());
-    const order = horizontal ? ['up', 'down', 'left', 'right'] : ['left', 'right', 'up', 'down'];
-    const slot = order.find((s) => s !== combo.via() && bindings[s] && !down.has(bindings[s]));
+    const ahead = facing === 'left' ? ['left', 'right'] : ['right', 'left'];
+    const slot = ['up', 'down', ...ahead]
+      .find((s) => s !== combo.via() && bindings[s] && !down.has(bindings[s]));
     if (!slot) return;
     defused++;
     await press(bindings[slot], { intended: true });
@@ -150,13 +156,19 @@ export function keyboard(cdp, bindings = P4_KEYS) {
     if (!allowed.has(code) || down.has(code)) return;
     const slot = slotOf.get(code);
     if (!intended && combo.completes(slot)) await defuse();
-    combo.press(slot);
+    // A key let go and pressed again inside one frame never looks up to the
+    // game, so it is no new press and does not reset the reader. Counted as
+    // one, it hid an armed Defend-Forward: a special cut off by a new answer
+    // left the stance holding Forward, and the next arrow fired a 150-MP
+    // blastpush.
+    if (!(Date.now() - (releasedAt.get(code) ?? -Infinity) < FRAME_MS)) combo.press(slot);
     down.add(code); dispatched++;
     await cdp.keyEvent('keyDown', code);
   }
 
   async function release(code) {
     if (!down.has(code)) return;
+    releasedAt.set(code, Date.now());
     down.delete(code); dispatched++;
     await cdp.keyEvent('keyUp', code);
   }
@@ -195,6 +207,9 @@ export function keyboard(cdp, bindings = P4_KEYS) {
       releasing.clear();
       await Promise.all([...down].map(release));
     },
+
+    /** Which way the fighter faces, read each tick, so a defuse does not turn it. */
+    set facing(dir) { facing = dir; },
 
     get stats() { return { dispatched, defused, down: [...down] }; },
   };

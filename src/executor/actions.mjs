@@ -97,8 +97,7 @@ const meleeReach = (profile) => profile?.bestMelee?.reach ?? profile?.basicAttac
  * the lane during the wind-up is chased before the sequence ever starts, which
  * a fixed burst frozen at plan time could not do.
  */
-function aimedAttack(keys, { tight, seq = ['attack'], needReach = false, reach = 45, spendsMp = false,
-                             startup = 5 }) {
+function aimedAttack(keys, { tight, seq = ['attack'], needReach = false, reach = 45, startup = 5 }) {
   let step = 0;
   const started = () => step > 0 && step < seq.length * 5;
   const run = (a) => {
@@ -135,8 +134,10 @@ function aimedAttack(keys, { tight, seq = ['attack'], needReach = false, reach =
     }
     // An enemy that goes down while the sequence is being played would take
     // the MP and nothing else — the observer saw blastpush fired into a
-    // falling Rudolf — so the last press waits until it is up again.
-    if (spendsMp && unhittable(t)) {
+    // falling Rudolf — so the last press waits until it is up again. The same
+    // for the plain shot: Henry's arrow costs 12 MP, and a shoot answer kept
+    // firing at a Rudolf lying on the floor.
+    if (unhittable(t)) {
       if (started()) step = 0;
       return { hold: [] };
     }
@@ -311,27 +312,10 @@ export function planAction(name, { arena, profile, keys = P4_KEYS } = {}) {
   }
 
   if (name === 'run_attack' || name.startsWith('run_swing_')) {
-    return target ? burst(async (kb) => {
-      const dir = keys[dirTo(me, target)];
-      await kb.doubleTap(dir);
-      await sleep(280);
-      await kb.tap(keys.attack);
-      await sleep(120);
-      await kb.hold([]);
-    }) : null;
+    return target ? stance(chargeStance(keys, { dash: false, reach: meleeReach(profile) })) : null;
   }
-
   if (name === 'dash_attack' || name.startsWith('dash_swing_')) {
-    return target ? burst(async (kb) => {
-      const dir = keys[dirTo(me, target)];
-      await kb.doubleTap(dir);
-      await sleep(90);
-      await kb.tap(keys.jump);
-      await sleep(160);
-      await kb.tap(keys.attack);
-      await sleep(120);
-      await kb.hold([]);
-    }) : null;
+    return target ? stance(chargeStance(keys, { dash: true, reach: meleeReach(profile) })) : null;
   }
 
   // specials, and the ranged basic attack of an archer, both come from hit_*
@@ -344,7 +328,7 @@ export function planAction(name, { arena, profile, keys = P4_KEYS } = {}) {
     // 150-MP blastpushes did 13 and 7.
     const fullBand = move.falloff?.[0]?.to;
     return stance(aimedAttack(keys, { tight: Z_TOLERANCE, seq: SPECIAL_SEQUENCE[move.input],
-                                      spendsMp: (move.mp ?? 0) > 0, startup: move.startupTicks ?? 5,
+                                      startup: move.startupTicks ?? 5,
                                       needReach: !!fullBand, reach: (fullBand ?? 0) - REACH_SLACK }));
   }
 
@@ -471,6 +455,58 @@ function runStance(keys, { toward, stopGap }) {
     if (t && !t.infront && ACTIONABLE.has(now)) return { hold: [], tap: [keys[dirTo(a.me, t)]] };
     return { hold: [] };
   };
+}
+/**
+ * A run attack, or a dash attack (a jump from the run, then Attack), one tick
+ * at a time.
+ *
+ * As a timed burst it pressed from wherever the fighter was. Started while
+ * Henry was down or crouching, the double-tap was lost, the Jump became a
+ * plain jump and the Attack his 20-MP arrow from the air, fired at a Rudolf
+ * lying on the floor. So it starts only from a stance that can run, at an
+ * enemy that can be hit, and gives up without jumping if the run never shows.
+ */
+function chargeStance(keys, { dash, reach }) {
+  let phase = 'ready';
+  let dir = null;
+  let ticks = 0;
+  const run = (a) => {
+    const t = enemy(a);
+    const now = doing(a.me);
+    ticks++;
+    if (phase === 'ready') {
+      if (!t || unhittable(t) || !ACTIONABLE.has(now)) return { hold: [] };
+      dir = dirTo(a.me, t);
+      phase = now === 'running' && a.me.facing === dir ? 'run' : 'tap';
+      ticks = 0;
+    }
+    if (phase === 'tap') {
+      if (ticks <= 1) return { hold: [keys[dir]] };
+      if (ticks === 2) return { hold: [] };
+      phase = 'run'; ticks = 0;
+    }
+    if (phase === 'run') {
+      if (now !== 'running') {
+        if (ticks > RUN_START_TICKS) { phase = 'done'; return { hold: [] }; }
+        return { hold: [keys[dir]] };
+      }
+      if (dash) { phase = 'dash'; ticks = 0; return { hold: [keys[dir]], tap: [keys.jump] }; }
+      // The old burst swung about 8 ticks into the run; sooner once in reach.
+      const there = !t || dirTo(a.me, t) !== dir || t.gap <= reach + RUN_SKID || ticks >= 8;
+      if (!there) return { hold: [keys[dir]] };
+      phase = 'done';
+      return { hold: [keys[dir]], tap: [keys.attack] };
+    }
+    if (phase === 'dash') {
+      // The burst's 160 ms from Jump to Attack.
+      if (ticks < 5) return { hold: [keys[dir]] };
+      phase = 'done';
+      return { hold: [], tap: [keys.attack] };
+    }
+    return { hold: [] };
+  };
+  run.busy = () => phase !== 'ready' && phase !== 'done';
+  return run;
 }
 /** Ticks a run away is held once running, about half a second. */
 const RUN_TICKS = 16;

@@ -135,6 +135,7 @@ export async function runLoop({ cdp, pool, kb, run, name, policy, overlay, hz = 
     tick++; counts.ticks++;
 
     if (!arena) { await kb.releaseAll(); if (!sync) await pace(t0, period); continue; }
+    kb.facing = arena.me.facing;
 
     if (!arena.me.alive) {
       deadStreak++;
