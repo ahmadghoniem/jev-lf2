@@ -19,7 +19,7 @@ import { P4_KEYS } from './keyboard.mjs';
 import { DRINK_TYPE, doing, unhittable, inSight } from '../state/arena.mjs';
 import { REACH_SLACK } from '../lf2data/frames.mjs';
 import { framesFor } from '../lf2data/tables.mjs';
-import { label, firesBall, FREE_TO_BLOCK } from '../state/options.mjs';
+import { label } from '../state/options.mjs';
 import { incoming, inboundWeapon, laneDanger } from './reflex.mjs';
 import { BOT, createNoise, hesitation, standoffOf, DASH_MIN_GAP } from '../state/bot.mjs';
 
@@ -99,9 +99,8 @@ const meleeReach = (profile) => profile?.bestMelee?.reach ?? profile?.basicAttac
  * a fixed burst frozen at plan time could not do.
  */
 function aimedAttack(keys, { seq = ['attack'], needReach = false, reach = 45, startup = 5,
-                             profile = null, ball = false }) {
+                             profile = null }) {
   let step = 0;
-  let ballWait = 0;   // ticks the last press of a ball has waited for a busy enemy
   let side = null;    // the side of the enemy's line aimed from (see `aimSide`)
   let outTicks = 0;   // ticks spent stepping off the line before this attack
   const started = () => step > 0 && step < seq.length * 5;
@@ -159,7 +158,9 @@ function aimedAttack(keys, { seq = ['attack'], needReach = false, reach = 45, st
       if (step > 0 && step < seq.length * 5) step = 0;
       return { hold: depthTo(a, keys, t.z + side * BOT.AIM_Z) };
     }
-    if (step === 0 && Math.abs(dz) < BOT.AIM_MIN_Z && outTicks < AIM_OUT_TICKS) {
+    // Only for a single press: a special's three presses already take about
+    // half a second, and adding the step-out let the next answer cut it off.
+    if (step === 0 && seq.length === 1 && Math.abs(dz) < BOT.AIM_MIN_Z && outTicks < AIM_OUT_TICKS) {
       outTicks++;
       return { hold: depthTo(a, keys, t.z + side * BOT.AIM_Z) };
     }
@@ -182,13 +183,6 @@ function aimedAttack(keys, { seq = ['attack'], needReach = false, reach = 45, st
         // was thrown a tick after Attack was pressed.
         const danger = last ? laneDanger(a) : null;
         if (danger && danger.eta <= startup + 2) return { hold: [] };
-        // An energy ball is blocked by a CPU that is free to act, every time
-        // (docs/07-cpu-ai.md), so its last press waits for the enemy to be
-        // busy, for up to BALL_WAIT_TICKS, then fires anyway.
-        if (last && ball && FREE_TO_BLOCK.has(t.doing) && ballWait < BALL_WAIT_TICKS) {
-          ballWait++;
-          return { hold: [] };
-        }
         const press = seq[step / 5];
         const code = press === 'forward' ? keys[dirTo(a.me, t)] : keys[press];
         step++;
@@ -386,7 +380,7 @@ export function planAction(name, { arena, profile, keys = P4_KEYS } = {}) {
     // in one run Rudolf had backed off to 280 by the time Henry pressed, and two
     // 150-MP blastpushes did 13 and 7.
     const fullBand = move.falloff?.[0]?.to;
-    return stance(aimedAttack(keys, { seq: SPECIAL_SEQUENCE[move.input], profile, ball: firesBall(move),
+    return stance(aimedAttack(keys, { seq: SPECIAL_SEQUENCE[move.input], profile,
                                       startup: move.startupTicks ?? 5,
                                       needReach: !!fullBand, reach: (fullBand ?? 0) - REACH_SLACK }));
   }
@@ -644,9 +638,6 @@ function depthTo(arena, keys, z) {
 
 /** At most this long stepping off the line before an attack: ~0.3 s. */
 const AIM_OUT_TICKS = 8;
-
-/** At most this long holding a ball's last press for a busy enemy: ~0.7 s. */
-const BALL_WAIT_TICKS = 20;
 
 /**
  * A weapon that is going to pass through our lane: in the air, inside the
