@@ -338,13 +338,8 @@ const HELPLESS = new Set(Object.values(LOCKED_STATES));
 const VULNERABLE = new Set([...HELPLESS, 'recovering']);
 
 /**
- * A fighter on the floor or up in the air is below or above anything fired or
- * swung from standing, so an attack at it is spent on nothing.
- */
-export const isDown = (doingValue) => doingValue === 'knocked_down' || doingValue === 'in_the_air';
-
-/**
- * Whether a shot or swing started now cannot land. A jump is over in about 20
+ * Whether a shot or swing started now cannot land. A fighter on the floor is
+ * below anything fired or swung from standing. A jump is over in about 20
  * ticks, so from further off a shot arrives after the landing; treating every
  * jump as down held Henry's specials while Rudolf hopped 200-380 away, which
  * the observer saw as passing up open chances.

@@ -76,7 +76,7 @@ export const STANDOFF_X = BOT.RANGED_MIN_X + 50;
 /**
  * The stand-off for a fighter whose ordinary attack is a shot with a measured
  * reach: well inside that reach rather than the generic 150, where Henry,
- * whose arrow carries 500, walked in to within a few ticks of Rudolf's stars.
+ * whose arrow carries 450, walked in to within a few ticks of Rudolf's stars.
  */
 export function standoffOf(profile) {
   if (!profile?.hasRanged) return 0;

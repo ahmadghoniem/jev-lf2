@@ -155,8 +155,6 @@ export async function runLoop({ cdp, pool, kb, run, name, policy, overlay, hz = 
     if (noEnemyStreak >= DECIDED_TICKS) { counts.outcome = 'won'; break; }
 
     // --- the layer that cannot wait for a network call
-    // A roll that has started owns the keys until it is done: the block would
-    // cut the run short and leave a standing guard in its place.
     let reflex = reflexFor(arena);
     // A roll owns the keys until it is done, since the block would cut it
     // short — except against a weapon about to land during the run-up, where
@@ -214,7 +212,7 @@ export async function runLoop({ cdp, pool, kb, run, name, policy, overlay, hz = 
         action = result.action; source = policy.name; stance = null;
         if (!finishing) plannedFor = null;
         if (action === 'roll_away') rollUntil = Date.now() + ROLL_OWNS_MS;
-        recent = { last_action: action, outcome: 'pending' };
+        recent = { last_action: action };
         standing = { action, askedAtMs };
       } else if (result?.action) {
         // Overruled by the block for now, but still the answer for when the
@@ -226,7 +224,6 @@ export async function runLoop({ cdp, pool, kb, run, name, policy, overlay, hz = 
         latencyMs: result?.latencyMs ?? null,
         confidence: result?.answers?.action?.confidence ?? null,
         probabilities: result?.answers?.action?.probabilities ?? null,
-        commit: result?.answers?.commit?.noul ?? null,
         // The follow-up per grouped kind ("which special"), keyed by the kind
         // as it appears among the probabilities above.
         followUps: Object.fromEntries(Object.entries(result?.answers ?? {})

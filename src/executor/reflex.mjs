@@ -52,13 +52,9 @@ export function wouldWhiff(arena, reach) {
  * almost here, and the run data shows what that cost: the dodge held a key for
  * 180 ms and gained 5-7 units of separation where 25 were needed.
  *
- * A guard is *not* the answer here, whatever the distance. The damage ledger of
- * one loss run has 453 of 512 hp taken while staggered — every big projectile
- * hit was taken in the hit-stun of the previous one — and only 12 while
- * blocking. A shield absorbs a handful of hits and then breaks, so standing in
- * one while a weapon flies at you is how the spiral starts. The dodge is the
- * answer; the block is the last resort for a weapon that is already on top of
- * us and cannot be stepped away from.
+ * The reflex answers such a weapon with a block (see `createReflex`): a star
+ * blocked while the guard holds does no damage, and leaving its line early is
+ * `laneDanger`'s job, which starts on the thrower's wind-up.
  */
 export function inboundWeapon(arena) {
   // Read from the whole item list, not the flying list: a fast weapon only

@@ -1,8 +1,7 @@
 /**
- * Offline check of the thrown-weapon dodge: sticky flight, the CPU's 150/25
- * trigger, the held depth step, the no-commit gate while a weapon is on our
- * lane, and depth-following suppressed while dodging. No game needed; each line
- * prints what it saw next to what is expected.
+ * Offline check of the thrown-weapon handling: sticky flight, the CPU's 150/25
+ * trigger, and depth-following suppressed while a weapon is on our lane. No
+ * game needed; each line prints what it saw next to what is expected.
  *
  *   node scripts/check-dodge.mjs
  */
@@ -41,35 +40,13 @@ console.log('inboundWeapon at r150 z5 :', !!inboundWeapon(withItems({ flying: [i
 console.log('inboundWeapon at r160 z5 :', inboundWeapon(withItems({ flying: [itemAt(160, 5)] })));
 console.log('inboundWeapon at r150 z30:', inboundWeapon(withItems({ flying: [itemAt(150, 30)] })));
 
-// --- 3. the dodge is a stance that holds until separation clears
+// --- 3. close_distance suppresses depth while a weapon is on the lane
 const me = { slot: 0, x: 0, z: 0, y: 0, facing: 'right', hp: 400, hpMax: 500, mp: 500, frame: 0, waiting: 0, alive: true, name: 'Firen', human: true };
 const foe = { slot: 11, x: -300, z: 0, y: 0, facing: 'left', hp: 500, frame: 0, waiting: 0, alive: true, name: 'John', human: false, team: 1 };
 const arenaAt = (weaponRange, weaponDz) => ({ me,
   threats: [{ ...foe, x: -300, z: 30, dx: -300, dz: 30, gap: 300, zGap: 30, range: 300, infront: false, aligned: false }],
   items: weaponRange === null ? [] : [itemAt(weaponRange, weaponDz)], held: null,
   flying: weaponRange === null ? [] : [itemAt(weaponRange, weaponDz)], nearest: 300 });
-const plan = planAction('dodge', { arena: arenaAt(120, 5), profile });
-let held = [];
-for (let step = 0; step < 30; step++) {
-  // simulate our z moving away from the weapon by 4 per tick while it holds
-  const dz = 5 - step * 4;
-  const h = plan.step(arenaAt(120, dz));
-  if (!h.hold.length) { console.log(`dodge stance released after ${step} ticks (dz now ${dz}); last hold: [${held.join(',')}]`); break; }
-  held = h.hold;
-}
-console.log('dodge direction with weapon below (dz=-5):', plan.step(arenaAt(120, -5)).hold.join(','), '(expect down)');
-
-// --- 4. no attack commits while a weapon is inbound on our lane
-for (const [r, expect] of [[120, 'refused'], [200, 'allowed']]) {
-  const a = arenaAt(r, 5);
-  const out = ['special_ball1', 'punch', 'run_attack', 'rush_attack']
-    .filter((n) => planAction(n, { arena: a, profile }) === null);
-  console.log(`attacks with a weapon at r=${r}: ${out.length ? out.join(',') + ' refused' : 'none refused'} (expect ${expect})`);
-}
-console.log('dodge still executable with a weapon at r=120:', !!planAction('dodge', { arena: arenaAt(120, 5), profile }));
-console.log('close_distance executable with a weapon at r=120:', !!planAction('close_distance', { arena: arenaAt(120, 5), profile }));
-
-// --- 5. close_distance suppresses depth while a weapon is on the lane
 // The enemy is 30 deep of us, so a clean lane would hold a depth key.
 const closing = planAction('close_distance', { arena: arenaAt(120, 5), profile });
 const clean = planAction('close_distance', { arena: arenaAt(null), profile });

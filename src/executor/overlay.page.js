@@ -312,10 +312,7 @@
     // it was never offered.
     const probs = Object.entries(d.probabilities || {}).sort((a, b) => b[1] - a[1]);
     const offered = (d.options && d.options.length) || probs.length;
-    q('count').innerHTML = probs.length
-      ? '<span>' + offered + ' options offered</span><span>'
-        + (d.commit === true ? 'commit' : d.commit === false ? 'hold' : '') + '</span>'
-      : '<span>' + offered + ' options offered</span><span></span>';
+    q('count').innerHTML = '<span>' + offered + ' options offered</span><span></span>';
     const followUps = d.followUps || {};
     const row = (name, p, i, attrs = '') =>
       '<div class="jv-row' + (i === 0 ? ' top' : '') + (p < 0.05 ? ' cold' : '') + '"' + attrs + '>'

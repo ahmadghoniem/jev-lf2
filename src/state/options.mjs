@@ -29,18 +29,6 @@ const SWING_STYLES = {
           note: 'the heaviest and slowest swing, a dash that commits you to the follow-through' },
 };
 
-/**
- * Every action worth offering this tick.
- *
- * @param me         the controlled fighter, from the entity reader
- * @param profile    its entry from build/_profiles.json
- * @param weapons    build/_weapons.json
- * @param held       the weapon entity in hand, or null
- * @param nearby     weapon and drink entities on the ground, with distances
- * @param nearest    distance to the closest threat, in game units
- * @param targetDown the nearest enemy is on the floor or in the air
- * @param canDo      whether the executor can actually carry an option out
- */
 /** Room the roll needs behind the fighter to end out of reach. */
 const ROLL_ROOM = 180;
 /**
@@ -51,6 +39,19 @@ const ROLL_ROOM = 180;
 const RUN_OUT_ROOM = 150;
 const WALK_OUT_ROOM = 40;
 
+/**
+ * Every action worth offering this tick.
+ *
+ * @param profile    its entry from build/_profiles.json
+ * @param weapons    build/_weapons.json
+ * @param held       the weapon entity in hand, or null
+ * @param nearby     weapon and drink entities on the ground, with distances
+ * @param nearest    distance to the closest threat, in game units
+ * @param targetDown nothing started now can hit the nearest enemy: it is on
+ *                   the floor, or in a jump close by (`unhittable` in arena.mjs)
+ * @param roomBehind ground between the fighter and the stage edge behind it
+ * @param canDo      whether the executor can actually carry an option out
+ */
 export function buildOptions({ profile, weapons, held, nearby = [], nearest = Infinity, mp = 0,
                                hp = null, hpMax = null, behind = false, vulnerable = false,
                                enemyDoing = null, aligned = true, targetDown = false,
@@ -70,12 +71,10 @@ export function buildOptions({ profile, weapons, held, nearby = [], nearest = In
   const standoff = standoffOf(profile);
 
   const misaligned = hasTarget && !aligned;
-  // A target on the floor or in the air cannot be hit by anything fired from
-  // where we stand. This used to gate only the moves that cost MP, which left
-  // the free melee attacks on the list — and the run data shows what that bought:
-  // 50-odd ticks of dash_attack chosen at a knocked-down enemy 200-430 away,
-  // dashing at a corpse. Now no attack stays on the list while the target is
-  // down; the useful things then are to wait or to drink.
+  // No attack stays on the list while the target cannot be hit: gating only
+  // the moves that cost MP left 50-odd ticks of dash_attack chosen at a
+  // knocked-down enemy 200-430 away. A jump further off than a shot takes to
+  // arrive does not count, since the enemy has landed by then.
 
   // A free window is the one branch that opens because of the enemy rather than
   // for us: a fighter locked in a drink or a recovery cannot move or block, so
@@ -239,19 +238,16 @@ export function buildOptions({ profile, weapons, held, nearby = [], nearest = In
   if (roomBehind >= WALK_OUT_ROOM) {
     options.open_distance = 'Move away from the enemy, walking, to get out of its reach. Nothing is committed, so it can be changed at any moment.';
   }
-  // Blocking is only ever worth it while something is actually on its way: a
-  // guard held against an idle enemy does nothing, wears down, and breaks on
-  // the first real volley — the run data has 73 defend ticks with the enemy
-  // more than 120 away. So the option closes unless a swing is live, a weapon
-  // is inbound, or the enemy is close enough to swing at any moment.
+  // Blocking is only offered while a swing is live or a weapon is inbound. A
+  // guard held against an idle enemy wears down for nothing (73 defend ticks
+  // with the enemy more than 120 away in one run), and offered whenever the
+  // enemy stood close, Henry blocked in melee range with a free melee attack
+  // on the list, which the observer marked. A swing that does start is the
+  // reflex's to block.
   // The two defences are described against each other, because each is right
   // where the other is wrong: the block is instant but finite and leaves you
   // where you stand, the roll takes a moment to start but nothing gets through
   // it and it ends out of reach.
-  // Only against something on its way: offered whenever the enemy stood
-  // close, Henry blocked in melee range with nothing coming and a free melee
-  // attack on the list, which the observer marked. A swing that does start is
-  // the reflex's to block.
   if (threatened || weaponInbound) {
     options.defend = 'Block what is coming. It goes up at once, so it is the answer to something about to land, and it stops thrown stars, arrows and most swings from the front; it drops by itself once nothing is coming. But you stay where you are, heavy hits that knock you down go through it, and it breaks after several blocked hits in a row.'
       + (guardWorn ? ' Your guard is worn from the hits just taken: the next blocked hit breaks it, and the one after that lands in full while you stagger.' : '');

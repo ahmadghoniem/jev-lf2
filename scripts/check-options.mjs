@@ -46,14 +46,6 @@ let held = [];
 for (let i = 0; i < 40; i++) { const h = plan.step(off); if (h.hold.length) { held = h.hold; break; } }
 console.log('close_distance at x=120,z=40 holds:', held.join('|') || '(none)', '(expect only depth)');
 
-// Dodge: a weapon on our line steps in depth, one off our line steps in x.
-const onLine = at(120, 0);
-onLine.flying = [{ dx: -40, dz: 8, gap: 40, zGap: 8, range: 41, eta: 3 }];
-const offLine = at(120, 0);
-offLine.flying = [{ dx: -40, dz: 60, gap: 40, zGap: 60, range: 72, eta: 3 }];
-console.log('dodge on-line executable:', !!planAction('dodge', { arena: onLine, profile }));
-console.log('dodge off-line executable:', !!planAction('dodge', { arena: offLine, profile }));
-
 // Reflex: never blocks longer than its budget, then rests for the counter.
 const reflex = createReflex();
 const swing = at(60, 0);

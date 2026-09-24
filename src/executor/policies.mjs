@@ -174,14 +174,6 @@ function questionSet(options, arena, profile) {
       criteria: top,
     },
     ...followUps(groups),
-    commit: {
-      type: 'noul',
-      instructions: 'Is this the moment to commit to an attack rather than reposition?',
-      criteria: {
-        true: 'An enemy is close, is not about to hit you, and you can reach it.',
-        false: 'You are out of range, recovering, or an enemy is winding up an attack at you.',
-      },
-    },
   };
   if (arena.threats.length > 1) {
     questions.target = {

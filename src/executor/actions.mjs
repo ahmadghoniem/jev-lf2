@@ -195,11 +195,12 @@ export function planAction(name, { arena, profile, keys = P4_KEYS } = {}) {
     // It lasts only while something is coming, by the same test that offers
     // the option: held until the next decision, a block against a star went on
     // 0.5-1 s after the star had passed, which read as blocking at nothing.
+    // An enemy merely standing close is not something coming; held on that,
+    // Henry blocked in punching range with nothing on its way.
     return stance((a) => {
       const t = enemy(a);
       const weapon = inboundWeapon(a);
-      const coming = incoming(a, { within: 12 }) || weapon || (t && t.gap <= 100);
-      if (!coming) return { hold: [] };
+      if (!incoming(a, { within: 12 }) && !weapon) return { hold: [] };
       // Face what is arriving: a weapon thrown from the other side is blocked
       // only by turning to it.
       const side = weapon ? (weapon.dx >= 0 ? 'right' : 'left') : t ? dirTo(a.me, t) : a.me.facing;
@@ -251,9 +252,6 @@ export function planAction(name, { arena, profile, keys = P4_KEYS } = {}) {
     });
   }
 
-  // Walking is precise and running covers ground; the game only reads a run from
-  // a double-tap, so the same direction has to be given twice. A burst, because
-  // a re-decision halfway would cancel the run.
   // A roll is the one move with no hurt box: frames 102-107, reached by
   // pressing Defend while running. Measured on Henry: about 450 ms and 190
   // units of travel with nothing to hit. It goes away from the enemy.
@@ -266,39 +264,21 @@ export function planAction(name, { arena, profile, keys = P4_KEYS } = {}) {
     return stance(rollAway(keys));
   }
 
+  // The game only reads a run from a double-tap, and a run goes on after the
+  // key is let go, so it is a stance that also stops it (see `runStance`).
   if (name === 'run_in' || name === 'run_out') {
     if (!target) return null;
     const stopGap = (a) => Math.max(standoffFor(profile, a.me.mp), meleeReach(profile)) + RUN_SKID;
     return stance(runStance(keys, { toward: name === 'run_in', stopGap }));
   }
 
-  // Stepping off the line a thrown weapon travels along, and staying off it.
-  // This is a stance rather than a fixed burst: the weapon is already in the
-  // air, its arrival time is only ever an estimate, and the run data shows a
-  // 180 ms step gained 5-7 units of separation where 25 were needed. So the
-  // step is held until the lane is actually clear — either the weapon has
-  // passed far enough in depth, or it is gone from the air entirely.
   // Leaving a thrown weapon's line, chosen by the reflex: the side is its call,
-  // since it sees the stage edge; this only holds the key.
+  // since it sees the stage edge; this only holds the key. Always the step,
+  // never the jump: Rudolf's shuriken hits an airborne body, and in three runs
+  // 45 of 65 jump dodges were hit within 25 ticks against 34 of 77 steps.
   if (name === 'dodge_up' || name === 'dodge_down') {
     const key = name === 'dodge_up' ? keys.up : keys.down;
     return stance(() => ({ hold: [key] }));
-  }
-  if (name === 'dodge') {
-    if (!weaponOnLane(arena)) return null;
-    return stance((a) => {
-      const item = weaponOnLane(a);
-      if (!item) return { hold: [] };
-      if (Math.abs(item.dz) >= BOT.DODGE_Z) return { hold: [] };
-      // `up` decreases z, so if the weapon sits above us in depth, stepping up
-      // widens the gap. Same one tick later for the other side.
-      // Always the step, never the jump. A jump for a weapon a few ticks out
-      // looked faster on paper, but Rudolf's shuriken hits an airborne body: in
-      // three runs, 45 of 65 jump dodges were hit within 25 ticks against 34 of
-      // 77 depth steps, and several jumps cut short a step that would have
-      // cleared the lane.
-      return { hold: [item.dz > 0 ? keys.up : keys.down] };
-    });
   }
 
   // An enemy that is down, and a weapon on our lane, are both waited out by
@@ -492,7 +472,7 @@ function runStance(keys, { toward, stopGap }) {
     return { hold: [] };
   };
 }
-/** Ticks a run away is held once running, about the 520 ms the burst held. */
+/** Ticks a run away is held once running, about half a second. */
 const RUN_TICKS = 16;
 /** Ground a run needs ahead to start, and the ground at which it is stopped. */
 const RUN_START_ROOM = 120;
@@ -561,13 +541,9 @@ function toward(arena, keys, t, { stopAt = 0, xDead = BOT.X_DEADZONE, zDead = BO
 }
 
 /**
- * A weapon that is going to pass through our lane: in the air, close enough to
- * arrive before anything we start would finish, and within the CPU's own dodge
- * depth. This is the gate for committing to an attack, because an attack cannot
- * be cancelled once it starts and a weapon that is already on its way will be
- * here first. The run data has the exact cost: a ball fired into an incoming
- * weapon put us in recovery, and the weapon landed while we could neither block
- * nor step — 45 hp, taken staggered.
+ * A weapon that is going to pass through our lane: in the air, inside the
+ * CPU's own dodge range and depth. While one is, closing in does not follow
+ * the enemy's depth, which would walk into the weapon's line.
  */
 const weaponOnLane = (arena) =>
   (arena.items ?? []).find((i) => i.hostile
