@@ -16,7 +16,7 @@ import { connect } from '../src/cdp/client.mjs';
 import { openEntityPool } from '../src/state/entities.mjs';
 import { keyboard, readBindings } from '../src/executor/keyboard.mjs';
 import { runLoop } from '../src/executor/loop.mjs';
-import { heuristicPolicy, jevPolicy } from '../src/executor/policies.mjs';
+import { heuristicPolicy, jevPolicy, forcePolicy } from '../src/executor/policies.mjs';
 import { profileFor } from '../src/lf2data/tables.mjs';
 import { openRun } from '../src/telemetry/log.mjs';
 import { createClient } from '../src/jev/client.mjs';
@@ -59,6 +59,8 @@ if (kind === 'jev') {
   loadApiKey();
   client = createClient();
   policy = jevPolicy(client, profile, { deadlineMs: Number(arg('deadline-ms', 1400)) });
+} else if (kind === 'force') {
+  policy = forcePolicy(arg('move', 'shoot'));
 } else {
   policy = heuristicPolicy(profile);
 }

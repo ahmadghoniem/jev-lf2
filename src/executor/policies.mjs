@@ -80,6 +80,20 @@ export function heuristicPolicy(profile) {
 }
 
 /**
+ * A test seat: answers `move` whenever it is offered and waits otherwise, so
+ * one move's keys can be watched firing in a real fight.
+ */
+export function forcePolicy(move) {
+  return {
+    name: 'force',
+    questions: (options) => ({ action: { type: 'choice', instructions: 'force', criteria: options } }),
+    async decide({ options }) {
+      return { action: move in options ? move : 'wait' };
+    },
+  };
+}
+
+/**
  * Jev in the seat. One attempt per decision with a hard deadline — a retry that
  * lands late answers a question about a fight that has moved on — and `null`
  * on a miss, which the loop treats as "keep doing what you were doing".
