@@ -167,34 +167,14 @@ distance and is withdrawn once the enemy is past the end of it. Things that
 travel under 100 (explosions, Firen's flame trail) are placed, not thrown, and
 get no bands.
 
-## Leaving the line on a worn guard
+## Removed: the worn-guard step and the special hold
 
-A block cannot be left early: the pose lasts 13 ticks and every blocked hit
-restarts it (frames 110/111), so a string of hits keeps the fighter in it until
-the meter passes 30 and the guard breaks. Across the runs 293 guard breaks came
-out of a block, most after two blocked hits. Stepping out once a swing is on
-its way is worse than blocking it (37 hp lost over the next 30 ticks against
-28), so the reflex acts earlier. When the next punch blocked would break the
-guard (meter above 14) and a free enemy faces us on our line within its melee
-reach, it steps off the line away from the enemy. In the runs, standing there
-lost 31 hp over 30 ticks and leaving lost 21. The CPU starts an attack only
-within 5 of depth, so the step also ends its string.
-
-## A special is not cut off once its Defend is pressed
-
-Defend puts the fighter in the 13-tick block pose, and the rest of the special
-fires out of it (frame 110 carries `hit_Fa` and the others). Of 23 guard breaks
-that began in a special on 2026-09-24, 9 followed a different answer cutting the
-special off, which left the fighter in the pose with nothing to follow, and 4
-followed the block reflex pressing Defend again, which restarts the special's
-input. A different answer now waits while the fighter is still in that block
-pose, and the block reflex stays off for the same span. Once the pose ends the
-wait ends too: either the special fired, or it did not and the fighter is
-standing. An earlier version waited on a 700 ms timer instead, and in 4 of 11
-holds the special had not fired and the fighter stood still and lost 30-65 hp.
-
-`JEV_OFF=worn,hold` turns off the worn-guard step and this hold, for on/off
-games.
+Two additions from 2026-09-24 were taken out after 12 on/off games (6 Davis v
+Firen, 6 Henry v Rudolf): a step off the enemy's line when the guard was worn
+(48b4bcf), and holding later answers and the block reflex while a special's
+block pose lasted (080205e, ddea175). Guard breaks did not fall in the second
+batch, and Davis dealt less damage with them on in both batches (75 against
+103, and 118 against 194, per 1000 ticks).
 
 ## Notes from a paused game
 

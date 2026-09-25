@@ -40,9 +40,6 @@ const DEAD_CONFIRM_TICKS = 15;
 const DECIDED_TICKS = 90;
 /** How long a chosen roll keeps the reflex off: run-up, tumble, and a margin. */
 const ROLL_OWNS_MS = 1000;
-/** A/B switch: JEV_OFF=hold turns the special hold off. */
-const HOLD = !(process.env.JEV_OFF ?? '').split(',').includes('hold');
-
 export async function runLoop({ cdp, pool, kb, run, name, policy, overlay, hz = 30, noSync = false,
                                decideEveryMs = 500, seconds = 120, onTick, keys,
                                staleMs = STALE_MS } = {}) {
@@ -179,14 +176,11 @@ export async function runLoop({ cdp, pool, kb, run, name, policy, overlay, hz = 
     // blastpush in 12 fired. So a half-played special is left to finish.
     // Only the block waits for it; a lane dodge does not, since a special held
     // at its last press stands in the star's line out of its block pose (111 hp
-    // were lost that way in one run). A swing is treated the same: the pose
-    // already blocks it, and a second Defend press only restarts the special
-    // (4 of 23 guard breaks that began in a special, 2026-09-24). That holds
-    // only while the pose lasts: a special that did not fire leaves the
-    // fighter standing, and there the block is needed again.
+    // were lost that way in one run). Holding off the swing block and later
+    // answers as well (080205e, ddea175) was removed after 12 on/off games:
+    // Davis dealt less with it on (75 v 103 and 118 v 194 per 1000 ticks).
     const special = source === policy.name && planned?.busy?.();
-    const keying = HOLD && special && doing(arena.me) === 'blocking';
-    if (reflex?.action === 'defend' && ((reflex.thrown && special) || keying)) reflex = null;
+    if (reflex?.action === 'defend' && reflex.thrown && special) reflex = null;
     // A block the guard meter cannot take only delays the hit by one star, so
     // an attack or roll Jev chose goes ahead of it.
     if (reflex?.worn && answered && !HOLDS.has(answered.action)
@@ -207,15 +201,6 @@ export async function runLoop({ cdp, pool, kb, run, name, policy, overlay, hz = 
       pending = null;
       if (result?.action) answered = { action: result.action, askedAtMs };
       if (Date.now() - askedAtMs > staleMs) counts.stale++;
-      // A different answer waits for a half-played special to fire. Its Defend
-      // has put the fighter in a 13-tick block pose, and an answer cutting it
-      // off left the fighter standing in that pose with nothing to follow until
-      // the guard broke: 9 of 23 guard breaks that began in a special,
-      // 2026-09-24. The special takes about half a second to finish.
-      else if (keying && result?.action && result.action !== action) {
-        counts.heldForSpecial = (counts.heldForSpecial ?? 0) + 1;
-        standing = { action: result.action, askedAtMs, heldAtMs: Date.now() };
-      }
       // A thrown weapon is already in the air and the block answers it, so that
       // one reflex holds against a late answer; everything else steps aside.
       // The roll is the exception: nothing hits it either, so it may replace the
@@ -259,12 +244,7 @@ export async function runLoop({ cdp, pool, kb, run, name, policy, overlay, hz = 
     // away, and the fighter stood in a dropped guard until the next decision:
     // the observer's "blocks the volley but never hits back while Rudolf
     // reloads".
-    // An answer held behind a special takes over as soon as the fighter leaves
-    // the block pose: either the special fired, or it did not and the fighter
-    // is standing with nothing to follow (30-65 hp lost in 4 of 11 holds while
-    // a timer kept it waiting).
-    if (!reflex && standing && Date.now() - standing.askedAtMs <= staleMs
-        && (source === 'reflex' || (standing.heldAtMs && !keying))) {
+    if (!reflex && standing && Date.now() - standing.askedAtMs <= staleMs && source === 'reflex') {
       action = standing.action; source = policy.name; stance = null;
       plannedFor = null;
       if (action === 'roll_away') rollUntil = Date.now() + ROLL_OWNS_MS;
