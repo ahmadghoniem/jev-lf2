@@ -21,7 +21,7 @@ import { REACH_SLACK, animTicks } from '../lf2data/frames.mjs';
 import { framesFor } from '../lf2data/tables.mjs';
 import { label, plainName, slug } from '../state/options.mjs';
 import { incoming, inboundWeapon, laneDanger, itemUnderHand } from './reflex.mjs';
-import { BOT, createNoise, hesitation, standoffOf, DASH_MIN_GAP } from '../state/bot.mjs';
+import { BOT, createNoise, hesitation, standoffOf, DASH_MIN_GAP, PRESS_EVERY } from '../state/bot.mjs';
 
 /** Standing on top of an item is what picks it up; the hit box is generous. */
 const PICKUP_RANGE = 40;
@@ -98,14 +98,6 @@ const meleeReach = (profile) => profile?.bestMelee?.reach ?? profile?.basicAttac
  * the lane during the wind-up is chased before the sequence ever starts, which
  * a fixed burst frozen at plan time could not do.
  */
-/**
- * Ticks between the presses of a sequence. The game's special reader goes by
- * the order of presses and has no timeout (see `comboReader`), so presses only
- * need to land in different frames. At 5 a three-press special took 11 ticks,
- * and in the 2026-09-24 on/off games a quarter of the ticks spent on specials
- * that never fired were a sequence cut off partway.
- */
-const PRESS_EVERY = 2;
 function aimedAttack(keys, { seq = ['attack'], needReach = false, reach = 45, startup = 5,
                              profile = null }) {
   let step = 0;

@@ -14,7 +14,7 @@
 import { tierDamage, bucketRange, damageAt } from '../lf2data/profile.mjs';
 import { mpRegenPerSecond } from './fields.mjs';
 import { REACH_SLACK } from '../lf2data/frames.mjs';
-import { standoffOf, RUN_IN_MIN_X, RUN_OUT_MAX_X, DASH_MIN_GAP } from './bot.mjs';
+import { standoffOf, RUN_IN_MIN_X, RUN_OUT_MAX_X, DASH_MIN_GAP, PRESS_EVERY } from './bot.mjs';
 import { framesFor } from '../lf2data/tables.mjs';
 
 /**
@@ -122,6 +122,7 @@ export function buildOptions({ profile, nearby = [], nearest = Infinity, mp = 0,
     const isBasic = basic && move.entry === basic.entry;
     options[rangedName(move)] = [
       reachText(move, hasTarget ? nearest : null),
+      fireText(move),
       `Damage is ${move.damageTier}${move.falloff ? ' up close' : ''}.`,
       effects(move),
       cost(move),
@@ -159,6 +160,7 @@ export function buildOptions({ profile, nearby = [], nearest = Infinity, mp = 0,
     options[meleeName(move)] = [
       `${describeMelee(move)}.`,
       move.category === 'special' ? 'This is a signature special move, fired up close.' : '',
+      fireText(move),
       `Damage is ${move.damageTier}.`,
       effects(move),
       inReach ? 'The enemy is already inside its reach.'
@@ -301,6 +303,21 @@ function reachText(move, distance) {
       : `At the enemy's distance now it would hit for only ${now}, which is ${tierDamage(now)}.`,
   ].filter(Boolean).join(' ');
 }
+
+/**
+ * Time from a move's first key to its hit: a special's three presses (and any
+ * follow-up), PRESS_EVERY apart, then its wind-up. Henry's five arrows take
+ * about 0.4 s where his plain arrow takes about 0.1 s, and the observer saw
+ * the difference; the enemy can act, and hit him, in between.
+ */
+export function fireTicks(move) {
+  const presses = move.category === 'special' ? 3 + (move.followUp?.length ?? 0) : 1;
+  // A jump attack first rises for JUMP_RISE_TICKS (the executor's 220 ms).
+  const rise = move.input === 'j+a' ? JUMP_RISE_TICKS : 0;
+  return rise + (presses - 1) * PRESS_EVERY + (move.startupTicks ?? 0);
+}
+const JUMP_RISE_TICKS = 7;
+const fireText = (move) => `It goes off about ${(fireTicks(move) / 30).toFixed(1)} s after the first key press.`;
 
 /**
  * What a hit does besides its damage. Two moves with the same damage tier read

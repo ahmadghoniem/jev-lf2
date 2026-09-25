@@ -63,6 +63,15 @@ export const BOT = {
 export const STANDOFF_X = BOT.RANGED_MIN_X + 50;
 
 /**
+ * Ticks between the presses of a sequence. The game's special reader goes by
+ * the order of presses and has no timeout (see `comboReader`), so presses only
+ * need to land in different frames. At 5 a three-press special took 11 ticks,
+ * and in the 2026-09-24 on/off games a quarter of the ticks spent on specials
+ * that never fired were a sequence cut off partway.
+ */
+export const PRESS_EVERY = 2;
+
+/**
  * The stand-off for a fighter whose ordinary attack is a shot with a measured
  * reach: well inside that reach rather than the generic 150, where Henry,
  * whose arrow carries 450, walked in to within a few ticks of Rudolf's stars.
