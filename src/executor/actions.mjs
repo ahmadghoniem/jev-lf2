@@ -418,7 +418,13 @@ export function planAction(name, { arena, profile, keys = P4_KEYS } = {}) {
       const t = enemy(a);
       if (!t) return { hold: [] };
       side = aimSide(side, a, t);
-      if (t.gap <= reach + REACH_SLACK && t.zGap <= BOT.AIM_MAX_Z) return { hold: [], tap: [keys.attack] };
+      if (t.gap <= reach + REACH_SLACK && t.zGap <= BOT.AIM_MAX_Z) {
+        // A plain Attack over an item picks it up: a rush pressed over a
+        // lying weapon did (2026-09-25T04-27-43, tick 1385). Step off its line first.
+        const item = itemUnderHand(a);
+        if (item) return { hold: [item.dz >= 0 ? keys.up : keys.down] };
+        return { hold: [], tap: [keys.attack] };
+      }
       return { hold: toward(a, keys, t, { zOff: side * BOT.AIM_Z }) };
     });
   }
