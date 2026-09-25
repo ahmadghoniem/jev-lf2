@@ -20,6 +20,19 @@ export const GROUPS = [
   { name: 'drink', match: (o) => o.startsWith('drink_'),
     text: 'Drink something lying on the ground; which one is chosen separately.',
     which: 'If you drink now, which one?' },
+  // Walking and running the same way, and the two defences, overlap: Jev users
+  // on X report that overlapping options lower confidence and accuracy (see
+  // docs/jev-x-research.md). Each pair is offered once, as a direction or an
+  // intent, and the follow-up picks how.
+  { name: 'move_toward', match: (o) => o === 'close_distance' || o === 'run_in',
+    text: 'Move toward the enemy; walking or running is chosen separately.',
+    which: 'If you move toward the enemy now, walk or run?' },
+  { name: 'move_away', match: (o) => o === 'open_distance' || o === 'run_out',
+    text: 'Move away from the enemy; walking or running is chosen separately.',
+    which: 'If you move away from the enemy now, walk or run?' },
+  { name: 'avoid_hit', match: (o) => o === 'defend' || o === 'roll_away',
+    text: 'Keep the enemy\'s next hit off you without attacking; blocking or rolling away is chosen separately.',
+    which: 'If you keep the next hit off you now, block or roll away?' },
 ];
 
 const which = (group) => `which_${group}`;
