@@ -121,7 +121,7 @@ function aimedAttack(keys, { seq = ['attack'], needReach = false, reach = 45, st
     // is stopped first, by pressing against it. Started from the run, one
     // super arrow rolled Henry past Rudolf into the edge of the stage.
     if (step === 0 && mine === 'running') return { hold: [keys[opposite(a.me.facing)]] };
-    if (step === 0 && !CAN_START.has(mine)) return { hold: [] };
+    if (step === 0 && !canStart(a.me, mine, seq)) return { hold: [] };
     // A special opens with Defend, and the block pose that press starts lasts
     // 13 ticks, during which the fighter cannot step out of a star's line. In
     // one run 232 of 397 block-pose ticks came from specials. So one is not
@@ -224,7 +224,7 @@ function keyedSpecial(keys, seq) {
     const mine = doing(a.me);
     if (HURT.has(mine)) { if (step > 0 && step < seq.length * PRESS_EVERY) step = 0; return { hold: [] }; }
     if (step === 0 && mine === 'running') return { hold: [keys[opposite(a.me.facing)]] };
-    if (step === 0 && !CAN_START.has(mine)) return { hold: [] };
+    if (step === 0 && !canStart(a.me, mine, seq)) return { hold: [] };
     if (step >= seq.length * PRESS_EVERY) return { hold: [] };
     if (step % PRESS_EVERY === 0) {
       const press = seq[step / PRESS_EVERY];
@@ -261,8 +261,20 @@ function repeats(me) {
 const ATTACK_FRAME = 60;
 /** States a hit leaves a fighter in, where key presses do nothing. */
 const HURT = new Set(['staggered', 'broken_guard', 'knocked_down', 'in_the_air']);
-/** What an attack sequence can start from; a block counts, since specials open with Defend. */
-const CAN_START = new Set(['neutral', 'walking', 'blocking']);
+/** What an attack sequence can start from. */
+const CAN_START = new Set(['neutral', 'walking']);
+/**
+ * From the block pose only what its frame carries a transition for goes off:
+ * the standing block (frame 110) takes the specials, which open with Defend,
+ * but has no plain Attack, and the frame a blocked hit holds (111) has none at
+ * all. A punch pressed there is dropped and the pose runs its 13 ticks (12
+ * ticks of Dennis blocking with a punch picked, 2026-09-25T12-23-32).
+ */
+function canStart(me, mine, seq) {
+  if (CAN_START.has(mine)) return true;
+  if (mine !== 'blocking' || seq.length < 2) return false;
+  return Object.keys(framesFor(me.id)?.[me.frame]?.transitions ?? {}).length > 0;
+}
 
 export function planAction(name, { arena, profile, keys = P4_KEYS } = {}) {
   const { me, threats, held } = arena;
