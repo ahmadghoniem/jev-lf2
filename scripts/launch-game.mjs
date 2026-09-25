@@ -25,7 +25,12 @@ export async function launch({ port = 9222, exe = GAME_EXE, waitMs = 45000 } = {
   if (await isUp(port)) return { started: false, port };
   if (!existsSync(exe)) throw new Error(`game not found at ${exe}`);
 
-  const child = spawn(exe, [`--remote-debugging-port=${port}`], {
+  // Chromium slows a hidden or covered window to a frame or two a second, and
+  // the fight with it: with another window on top the game ran at 2 frames a
+  // second and play.mjs's input check failed (2026-09-25).
+  const child = spawn(exe, [`--remote-debugging-port=${port}`,
+    '--disable-backgrounding-occluded-windows', '--disable-renderer-backgrounding',
+    '--disable-background-timer-throttling'], {
     detached: true,
     stdio: 'ignore',
   });
