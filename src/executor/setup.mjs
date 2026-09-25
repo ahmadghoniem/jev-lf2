@@ -79,12 +79,16 @@ export async function setupMatch(cdp, { keys, me, foes, difficulty = 'normal', l
   let state;
   const read = async () => (state = await menuState(cdp));
 
-  /** Presses `code` until `done(state)` holds; every press is followed by a read. */
+  /**
+   * Presses `code` until `done(state)` holds; every press is followed by a read.
+   * A list of codes is pressed in turn.
+   */
   async function until(what, done, code, { tries = 40, gapMs = 150 } = {}) {
     for (let i = 0; i < tries; i++) {
       await read();
       if (state && done(state)) return state;
-      if (code) await press(code);
+      const c = Array.isArray(code) ? code[i % code.length] : code;
+      if (c) await press(c);
       await sleep(gapMs);
     }
     throw new Error(`menu setup stuck at: ${what} (state ${JSON.stringify(state)})`);
@@ -98,7 +102,11 @@ export async function setupMatch(cdp, { keys, me, foes, difficulty = 'normal', l
   log('title -> mode menu -> VS Mode');
   await until('mode menu', (s) => s.ready, keys.attack, { gapMs: 800 });
   await until('VS Mode highlighted', (s) => s.mode === 0, keys.up);
-  await until('character select', (s) => s.screen === 1 && s.phase === 0, keys.attack, { gapMs: 800 });
+  // Attack alone once left the menu on VS Mode for all 40 tries (2026-09-25,
+  // Dennis v Freeze to Henry v Rudolf); Enter is tried after five. Not sooner:
+  // Enter is a player's Attack on character select and joins a second fighter.
+  await until('character select', (s) => s.screen === 1 && s.phase === 0,
+    [...Array(5).fill(keys.attack), 'Enter'], { gapMs: 800 });
 
   log(`join and pick ${me}`);
   const before = state.boxes.map((b) => b.join);
@@ -108,8 +116,9 @@ export async function setupMatch(cdp, { keys, me, foes, difficulty = 'normal', l
   await until('lock fighter', (s) => s.boxes[mine].join === JOIN.team, keys.attack);
   await until('lock team', (s) => s.boxes[mine].join === JOIN.locked, keys.attack);
 
-  log('wait out the join countdown');
-  await until('computer-count prompt', (s) => s.phase === 1, null, { tries: 120, gapMs: 250 });
+  // Attack ends the join countdown at once instead of waiting out its 3 s.
+  log('skip the join countdown');
+  await until('computer-count prompt', (s) => s.phase === 1, keys.attack, { tries: 60, gapMs: 250 });
 
   log(`${foes.length} computer player(s)`);
   const step = foes.length > state.computers ? keys.right : keys.left;
@@ -131,8 +140,12 @@ export async function setupMatch(cdp, { keys, me, foes, difficulty = 'normal', l
     await until('difficulty row', (s) => s.panel === 4, keys.down);
     await until(`difficulty ${difficulty}`, (s) => s.difficulty === want, keys.left);
   }
+  // The panel's six rows wrap, so from Difficulty two presses down reach
+  // Fight! where four up did.
   log('Fight!');
-  await until('Fight highlighted', (s) => s.panel === PANEL.fight, keys.up);
+  const rows = 6;
+  const toFight = (state.panel - PANEL.fight + rows) % rows;
+  await until('Fight highlighted', (s) => s.panel === PANEL.fight, toFight > rows / 2 ? keys.down : keys.up);
   await until('match start', (s) => s.screen === 0, keys.attack, { gapMs: 600 });
   return state;
 }
