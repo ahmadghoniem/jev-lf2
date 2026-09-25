@@ -99,7 +99,7 @@ const meleeReach = (profile) => profile?.bestMelee?.reach ?? profile?.basicAttac
  * a fixed burst frozen at plan time could not do.
  */
 function aimedAttack(keys, { seq = ['attack'], needReach = false, reach = 45, startup = 5,
-                             profile = null }) {
+                             profile = null, homes = false }) {
   let step = 0;
   let side = null;    // the side of the enemy's line aimed from (see `aimSide`)
   let outTicks = 0;   // ticks spent stepping off the line before this attack
@@ -151,6 +151,11 @@ function aimedAttack(keys, { seq = ['attack'], needReach = false, reach = 45, st
       return { hold: [] };
     }
     const dz = t.z - a.me.z;
+    // A chasing ball finds its target from any depth, so it is fired as soon
+    // as the fighter faces the enemy. Held back until the enemy was busy, it
+    // left the ball unfired (2 in two games against 22, Freeze at 321 and 349
+    // against 171 and 186).
+    const anyDepth = homes;
     // Losing the lane mid-sequence restarts it: a half-played sequence (guard
     // and forward pressed, attack not) is neither a move nor a safe state to
     // resume from. A completed sequence is not restarted — that would be a
@@ -158,13 +163,13 @@ function aimedAttack(keys, { seq = ['attack'], needReach = false, reach = 45, st
     // Aim from beside the enemy's line rather than on it: too far off and
     // nothing connects, so step in; nearer than the CPU blocks from, step out
     // first, for at most AIM_OUT_TICKS so a stage edge cannot hold it forever.
-    if (Math.abs(dz) > BOT.AIM_MAX_Z) {
+    if (!anyDepth && Math.abs(dz) > BOT.AIM_MAX_Z) {
       if (step > 0 && step < seq.length * PRESS_EVERY) step = 0;
       return { hold: depthTo(a, keys, t.z + side * BOT.AIM_Z) };
     }
     // Only for a single press: a special's three presses already take about
     // half a second, and adding the step-out let the next answer cut it off.
-    if (step === 0 && seq.length === 1 && Math.abs(dz) < BOT.AIM_MIN_Z && outTicks < AIM_OUT_TICKS) {
+    if (!anyDepth && step === 0 && seq.length === 1 && Math.abs(dz) < BOT.AIM_MIN_Z && outTicks < AIM_OUT_TICKS) {
       outTicks++;
       return { hold: depthTo(a, keys, t.z + side * BOT.AIM_Z) };
     }
@@ -200,7 +205,7 @@ function aimedAttack(keys, { seq = ['attack'], needReach = false, reach = 45, st
     // Rudolf's stars) is pressed again while it plays, as long as the target
     // is still on the line and the MP holds: the next one then leaves at once,
     // where a fresh answer starts over from Defend, about a second later.
-    if (seq.length > 1 && repeats(a.me) && Math.abs(dz) <= BOT.AIM_MAX_Z && t.infront) {
+    if (seq.length > 1 && repeats(a.me) && (anyDepth || Math.abs(dz) <= BOT.AIM_MAX_Z) && t.infront) {
       return { hold: [], tap: [keys.attack], special: true };
     }
     return { hold: [] };
@@ -447,7 +452,7 @@ export function planAction(name, { arena, profile, keys = P4_KEYS } = {}) {
     // (its option states how much at the enemy's distance), so it fires from
     // where the fighter stands and only walks in once the enemy is past its end.
     const melee = move.kind === 'melee';
-    return stance(aimedAttack(keys, { seq, profile,
+    return stance(aimedAttack(keys, { seq, profile, homes: !!move.homes,
                                       startup: move.startupTicks ?? 5,
                                       needReach: melee || !!move.range,
                                       reach: melee ? (move.reach ?? 0) : (move.range ?? 0) - REACH_SLACK }));

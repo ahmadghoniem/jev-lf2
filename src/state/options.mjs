@@ -297,6 +297,10 @@ export function buildOptions({ profile, nearby = [], nearest = Infinity, mp = 0,
  * his super arrow (50 at any distance) once they are side by side.
  */
 function reachText(move, distance) {
+  // Adding "an enemy free and facing you blocks it" cut Dennis's chase ball
+  // from about a quarter of its offers to one in twelve, and Freeze ended at
+  // 164 and 487 against 171 and 186 without it.
+  if (move.homes) return 'Attack from where you stand. It flies until it hits, steers itself to the enemy so it needs no lining up, and does the same damage at any distance.';
   if (!move.falloff) return 'Attack from where you stand. It flies until it hits and does the same damage at any distance.';
   const [first, ...rest] = move.falloff;
   const fades = rest.map((b) => `${b.injury} to about ${b.to}`).join(', ');

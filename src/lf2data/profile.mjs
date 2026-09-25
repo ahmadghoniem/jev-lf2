@@ -169,6 +169,7 @@ export function buildProfile(name, frames, objects) {
   const spawnInfo = (s) => {
     const o = objects.get(s.oid);
     const info = { ...s, ...(o ?? {}), ...(o?.at?.(s.action) ?? {}) };
+    if (o?.chasesAt?.(s.action)) info.homes = true;
     if (!(info.damage > 0) && o?.hiddenAt) {
       const hidden = o.hiddenAt(s.action);
       if (hidden > 0) Object.assign(info, { damage: hidden, range: null, falloff: null });
@@ -261,6 +262,10 @@ export function buildProfile(name, frames, objects) {
         // until they hit. Null for a melee move and for a projectile that keeps
         // its hit at any distance.
         ...projectileRange(projectiles),
+        // A chasing ball steers to its target, so it needs no lining up: Dennis
+        // chose his three times against a Freeze walking off his line and each
+        // was replaced while he was still walking to it (2026-09-25T10-33-30).
+        homes: projectiles.some((p) => p.homes),
         spawns: projectiles.map((p) => p.oid),
       });
     }
@@ -357,6 +362,27 @@ function fromAction(frames, action, maxDepth = 40) {
  * icicles hit with the freezing kinds 15 and 16. Harmless smoke (Rudolf's
  * transform, state 3001) has neither and stays harmless.
  */
+/**
+ * The `hit_Fa` modes under which px.js (`Olrd`) turns a flying object toward
+ * its target every frame, x by 0.7 and z by 0.4: Dennis's chase ball is 2,
+ * Firzen's and Jan's chasers and Bat's are among the rest. Modes 3, 6, 8, 9
+ * and 13 release such chasers (objects 220-228), each given an enemy to chase.
+ */
+const STEERS = new Set([2, 4, 7, 12, 14, 3, 6, 8, 9, 13]);
+
+/** Whether a spawn from this frame steers itself to its target. */
+function chases(frames, action) {
+  const seen = new Set();
+  for (let id = action, step = 0; step < 20 && frames.has(id) && !seen.has(id); step++) {
+    seen.add(id);
+    const f = frames.get(id);
+    if (STEERS.has(f.transitions?.Fa)) return true;
+    if (typeof f.next !== 'number' || f.next <= 0 || f.next >= 999) break;
+    id = f.next;
+  }
+  return false;
+}
+
 function hiddenHit(frames, action, objectDamage) {
   const seen = new Set();
   for (let id = action, step = 0; step < 20 && frames.has(id) && !seen.has(id); step++) {
@@ -477,6 +503,8 @@ export function buildObjectIndex(parsedById) {
       at: (action) => (frames.has(action) ? fromAction(frames, action) : null),
       /** Not serialized: a hit started from this frame that `at` cannot see. */
       hiddenAt: (action) => hiddenHit(frames, action, damage),
+      /** Not serialized: whether a spawn from this frame chases its target. */
+      chasesAt: (action) => chases(frames, action),
     });
   }
   return objects;
