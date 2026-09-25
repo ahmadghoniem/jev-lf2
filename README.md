@@ -89,6 +89,15 @@ node scripts/play.mjs --name Deep --policy jev       --seconds 90 --fresh
 node scripts/report-run.mjs runs/<a> runs/<b>
 ```
 
+Several games in a row, each restarted with Esc then Enter on Fight! once the
+last one ends (the menus are walked only when the fighters change):
+
+```
+node scripts/series.mjs --fighter Henry --vs Rudolf --games 3
+```
+
+Only one `play.mjs` may drive the game at a time; a second one exits at once.
+
 `scripts/bind-keys.mjs --restore --reload` puts the original keys back.
 
 ## Start here

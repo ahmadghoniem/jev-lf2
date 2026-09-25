@@ -24,6 +24,7 @@ import { startMatch } from '../src/executor/match.mjs';
 import { createOverlay } from '../src/executor/overlay.mjs';
 import { proveInput, reportProbe } from '../src/executor/inputcheck.mjs';
 import { arg, has, loadApiKey } from '../src/cli.mjs';
+import { existsSync, readFileSync, writeFileSync, unlinkSync, mkdirSync } from 'node:fs';
 
 const name = arg('name', 'Deep');
 const kind = arg('policy', 'heuristic');
@@ -34,6 +35,23 @@ const staleMs = Number(arg('stale-ms', 1500));
 
 const profile = profileFor(name);
 if (!profile) throw new Error(`no profile for ${name}`);
+
+// One harness per game. A batch stopped from outside left its play.mjs
+// running, a second one started beside it, and both drove Henry at once
+// (2026-09-25T04-25-34 and 04-25-35; 04-27-43 had two writers in one run).
+const LOCK = 'runs/.play.lock';
+if (existsSync(LOCK)) {
+  const pid = Number(readFileSync(LOCK, 'utf8'));
+  let alive = false;
+  try { process.kill(pid, 0); alive = true; } catch { /* gone */ }
+  if (alive && pid !== process.pid) {
+    console.error(`another play.mjs (pid ${pid}) is already driving the game; stop it first`);
+    process.exit(3);
+  }
+}
+mkdirSync('runs', { recursive: true });
+writeFileSync(LOCK, String(process.pid));
+process.on('exit', () => { try { if (Number(readFileSync(LOCK, 'utf8')) === process.pid) unlinkSync(LOCK); } catch { /* already gone */ } });
 
 let policy;
 let client = null;
