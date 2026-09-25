@@ -273,6 +273,7 @@ export function buildProfile(name, frames, objects) {
         // chose his three times against a Freeze walking off his line and each
         // was replaced while he was still walking to it (2026-09-25T10-33-30).
         homes: projectiles.some((p) => p.homes),
+        volley: projectiles.length > 0 ? volleyOf(frames, target, spawnInfo, isProjectile) : null,
         spawns: projectiles.map((p) => p.oid),
       });
     }
@@ -436,6 +437,64 @@ function chainFrom(frames, entry, maxDepth = 40) {
     out.push(f);
     if (typeof f.next !== 'number' || f.next <= 0 || f.next >= 999) break;
     id = f.next;
+  }
+  return out;
+}
+
+/**
+ * What pressing Attack again while a shot plays adds. Some shots carry an
+ * Attack transition into a frame with its own MP cost: Dennis's energy ball
+ * goes on to a second ball and then a pair, Henry's five arrows and Rudolf's
+ * stars loop back into themselves. The walk takes every such transition at
+ * once (the executor presses Attack throughout, see `repeats` in actions.mjs)
+ * and times each shot at wait + 1 ticks a frame. Null when nothing follows.
+ *
+ * `shots` lists every shot of the whole volley with its tick, damage and the
+ * MP spent up to it; `loopMp`, `loopTicks` and `loopShots` describe the part
+ * that repeats for as long as MP lasts, when it does.
+ */
+function volleyOf(frames, entry, spawnInfo, isProjectile, maxFrames = 80) {
+  const shots = [];
+  const linkAt = new Map();   // link entry frame -> index into `marks`
+  const marks = [];           // { tick, mp, shots } at each link entry
+  let tick = 0;
+  let mp = 0;
+  let links = 0;
+  let loop = null;
+  let id = entry;
+  const seen = new Set();
+  for (let n = 0; n < maxFrames && frames.has(id); n++) {
+    const f = frames.get(id);
+    if (typeof f.mp === 'number' && (id === entry || linkAt.has(id))) mp += Math.abs(f.mp) % 1000;
+    for (const o of f.opoint ?? []) {
+      const s = spawnInfo({ oid: o.oid, action: o.action ?? 0, count: (o.facing ?? 0) >= 10 ? Math.floor(o.facing / 10) : 1 });
+      if (!isProjectile(s)) continue;
+      for (let c = 0; c < (s.count ?? 1); c++) shots.push({ tick, damage: s.damage, mp });
+    }
+    const to = f.transitions?.a;
+    if (to != null && frames.get(to)?.mp) {
+      if (linkAt.has(to)) { loop = marks[linkAt.get(to)]; break; }
+      linkAt.set(to, marks.length);
+      marks.push({ tick: tick + (f.wait ?? 0) + 1, mp, shots: shots.length });
+      links++;
+      tick += (f.wait ?? 0) + 1;
+      id = to;
+      seen.clear();
+      continue;
+    }
+    if (seen.has(id)) break;
+    seen.add(id);
+    tick += (f.wait ?? 0) + 1;
+    if (typeof f.next !== 'number' || f.next <= 0 || f.next >= 999) break;
+    id = f.next;
+  }
+  if (!links || shots.length < 2) return null;
+  const out = { shots };
+  if (loop) {
+    out.loopShots = shots.length - loop.shots;
+    out.loopMp = mp - loop.mp;
+    // From a shot to the same shot one repeat later.
+    out.loopTicks = shots.at(-1).tick - shots[shots.length - 1 - out.loopShots].tick;
   }
   return out;
 }

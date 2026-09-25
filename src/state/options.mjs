@@ -123,7 +123,8 @@ export function buildOptions({ profile, nearby = [], nearest = Infinity, mp = 0,
     options[rangedName(move)] = [
       reachText(move, hasTarget ? nearest : null),
       fireText(move),
-      `Damage is ${move.damageTier}${move.falloff ? ' up close' : ''}.`,
+      volleyText(move),
+      `Damage is ${move.damageTier}${move.falloff ? ' up close' : ''}${move.volley ? ' per shot' : ''}.`,
       effects(move),
       cost(move),
       isBasic ? "This is this fighter's ordinary attack, so it is always available."
@@ -338,6 +339,26 @@ export function fireTicks(move) {
 const JUMP_RISE_TICKS = 7;
 const fireText = (move) => `It goes off about ${(fireTicks(move) / 30).toFixed(1)} s after the first key press.`;
 
+/**
+ * What pressing Attack again while it fires adds, from the move's own frames
+ * (see `volleyOf` in profile.mjs): Dennis's energy ball goes on to four balls
+ * for 150 MP, Henry's five arrows and Rudolf's stars repeat for as long as MP
+ * lasts. Told as a single 30 that only staggers, Dennis's energy ball was
+ * picked 0 times in 506 offers next to his 65 chasing ball.
+ */
+function volleyText(move) {
+  const v = move.volley;
+  if (!v) return '';
+  const hits = [...new Set(v.shots.map((s) => s.damage))].sort((a, b) => a - b);
+  const each = hits.length === 1 ? `${hits[0]}` : `${hits[0]}-${hits.at(-1)}`;
+  const sec = (ticks) => (ticks / 30).toFixed(1);
+  if (v.loopShots) {
+    return `Pressing Attack again while it fires repeats it for as long as the MP lasts: each round is ${v.loopShots === 1 ? 'one more shot' : `${v.loopShots} more shots`} of ${each} for ${v.loopMp} MP and takes about ${sec(v.loopTicks)} s.`;
+  }
+  const first = v.shots.filter((s) => s.mp === move.mp).length;
+  const span = v.shots.at(-1).tick - v.shots[0].tick;
+  return `Pressing Attack again while it fires keeps it going: ${v.shots.length} shots of ${each} in all, over about ${sec(span)} s, for ${v.shots.at(-1).mp} MP (${first === 1 ? 'the first shot' : `the first ${first}`} alone ${move.mp}).`;
+}
 
 /**
  * What a hit does besides its damage. Two moves with the same damage tier read
