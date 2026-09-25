@@ -72,6 +72,10 @@ const reachOf = (frame) => Math.round(Math.max(0, reachOfFrame(frame)));
 function inspectMove(frames, entryId, isProjectile, maxDepth = 24) {
   let id = entryId;
   let ticks = 0;
+  // A frame lasts wait + 1 ticks (px.js moves on once `waiting > wait`), so
+  // this is when the hit or the shot really starts: Dennis's chase ball
+  // leaves 9 ticks in, measured 265 ms from its first frame over 48 casts.
+  let hitTicks = 0;
   let mp = 0;
   let hpCost = 0;
   let allowedWhenShort = false;
@@ -120,10 +124,11 @@ function inspectMove(frames, entryId, isProjectile, maxDepth = 24) {
     if (spawns.some(isProjectile)) { landsOnFrame = id; break; }
 
     ticks += typeof frame.wait === 'number' ? frame.wait : 0;
+    hitTicks += (typeof frame.wait === 'number' ? frame.wait : 0) + 1;
     if (typeof frame.next !== 'number' || frame.next <= 0) break;
     id = frame.next;
   }
-  return { mp, hpCost, allowedWhenShort, startupTicks: ticks, reach, spawns, injury, fall, bdefend, landsOnFrame };
+  return { mp, hpCost, allowedWhenShort, startupTicks: ticks, hitTicks, reach, spawns, injury, fall, bdefend, landsOnFrame };
 }
 
 /**
@@ -217,7 +222,8 @@ export function buildProfile(name, frames, objects) {
         const afterShots = after ? after.spawns.map(spawnInfo).filter(isProjectile).map(fanned) : [];
         if (after && (after.injury > 0 || afterShots.length)) {
           m = { ...after, mp: m.mp || after.mp, hpCost: m.hpCost || after.hpCost,
-                allowedWhenShort: m.allowedWhenShort, startupTicks: m.startupTicks + after.startupTicks };
+                allowedWhenShort: m.allowedWhenShort, startupTicks: m.startupTicks + after.startupTicks,
+                hitTicks: m.hitTicks + after.hitTicks };
           projectiles = afterShots;
           damage = after.injury ?? Math.max(...afterShots.map((p) => p.damage ?? 0));
           followUp = ['attack'];
@@ -246,6 +252,7 @@ export function buildProfile(name, frames, objects) {
         mpTier: tierMp(m.mp),
         allowedWhenShort: m.allowedWhenShort,
         startupTicks: m.startupTicks,
+        hitTicks: m.hitTicks,
         reach: projectiles.length > 0 ? null : m.reach,
         rangeBucket: projectiles.length > 0 ? 'far' : bucketRange(m.reach ?? 0),
         damage,

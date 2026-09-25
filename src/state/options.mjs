@@ -326,17 +326,18 @@ function reachText(move, distance) {
 /**
  * Time from a move's first key to its hit: a special's three presses (and any
  * follow-up), PRESS_EVERY apart, then its wind-up. Henry's five arrows take
- * about 0.4 s where his plain arrow takes about 0.1 s, and the observer saw
+ * about 0.6 s where his plain arrow takes about 0.3 s, and the observer saw
  * the difference; the enemy can act, and hit him, in between.
  */
 export function fireTicks(move) {
   const presses = move.category === 'special' ? 3 + (move.followUp?.length ?? 0) : 1;
   // A jump attack first rises for JUMP_RISE_TICKS (the executor's 220 ms).
   const rise = move.input === 'j+a' ? JUMP_RISE_TICKS : 0;
-  return rise + (presses - 1) * PRESS_EVERY + (move.startupTicks ?? 0);
+  return rise + (presses - 1) * PRESS_EVERY + (move.hitTicks ?? move.startupTicks ?? 0);
 }
 const JUMP_RISE_TICKS = 7;
 const fireText = (move) => `It goes off about ${(fireTicks(move) / 30).toFixed(1)} s after the first key press.`;
+
 
 /**
  * What a hit does besides its damage. Two moves with the same damage tier read
