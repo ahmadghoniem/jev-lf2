@@ -74,7 +74,8 @@ export function inboundWeapon(arena) {
     // exactly what the step needs, and a slow one at the same distance has
     // dozens — nothing gained by standing off the lane for all of them.
     if (item.range > BOT.DODGE_X && eta > 15) continue;
-    if (item.zGap > BOT.DODGE_Z) continue;
+    // Where its line will be when it arrives, not where it is now: see `arrivalDz`.
+    if (Math.abs(arrivalDz(item, eta)) > BOT.DODGE_Z) continue;
     return { ...item, eta };
   }
   return null;
@@ -87,6 +88,21 @@ export function inboundWeapon(arena) {
 export const LANE_CLEAR = 20;
 /** Depth a standard fighter walks in a tick (walking_speedz 2.5 for Henry and Rudolf). */
 const WALK_Z = 2.5;
+
+/**
+ * A weapon's line minus ours when it arrives, if we stand still. A thrown
+ * weapon keeps the thrower's depth speed (`vz`, per read like `eta`), so a
+ * star thrown by a Rudolf walking toward our line drifts across it.
+ */
+const arrivalDz = (item, eta) => item.dz + (item.vz ?? 0) * (Number.isFinite(eta) ? eta : 0);
+
+/**
+ * Depth to walk in `dir` before a line that arrives `at` off ours is
+ * LANE_CLEAR away. Away from the line that is what is missing; toward it, the
+ * line has to be crossed first.
+ */
+const walkToClear = (dir, at) => ((dir === 'up' ? -at : at) <= 0
+  ? Math.max(0, LANE_CLEAR - Math.abs(at)) : LANE_CLEAR + Math.abs(at));
 
 /** How far ahead a swing is looked for when deciding to step out of it. */
 const STEP_LOOKAHEAD = 10;
@@ -104,12 +120,15 @@ export function laneDanger(arena) {
   let worst = null;
   const consider = (d) => { if (!worst || d.eta < worst.eta) worst = d; };
   for (const item of arena.items ?? []) {
-    if (!item.hostile || item.zGap >= LANE_CLEAR) continue;
+    if (!item.hostile) continue;
     // Moving away: it has passed. Its eta came out as Infinity, which every
     // step's time check passes, and a star that had just gone by walked
     // Henry up the stage for 259 ticks (2026-09-24T20-09-01, tick 1398).
     if (item.speed < 0) continue;
-    consider({ laneDz: item.dz, eta: item.speed > 0 ? item.range / item.speed : Infinity, what: 'star' });
+    const eta = item.speed > 0 ? item.range / item.speed : Infinity;
+    const at = arrivalDz(item, eta);
+    if (Math.abs(at) >= LANE_CLEAR) continue;
+    consider({ laneDz: at, eta, what: 'star' });
   }
   for (const t of arena.threats) {
     if (t.zGap >= LANE_CLEAR || t.gap > THROW_RANGE || t.yGap > Y_TOLERANCE) continue;
@@ -223,12 +242,14 @@ export function createReflex({ maxBlockTicks = BOT.BLOCK_COMMIT_FRAMES,
       // `up` lowers z. Step away from the line, unless the edge of the stage
       // on that side is too close to get clear; a line straight through us
       // goes to the side with more room. A side that does not move us for
-      // three ticks is recorded as the edge.
+      // three ticks is recorded as the edge. `laneDz` is where the line will
+      // be on arrival, so a star drifting after us needs its drift outwalked,
+      // which at the same walking pace never happens: it is blocked instead.
       const z = arena.me.z;
       const side = lane.laneDz > 1 ? 'up' : lane.laneDz < -1 ? 'down'
         : (evade?.dir ?? (room('up', z) >= room('down', z) ? 'up' : 'down'));
       const other = side === 'up' ? 'down' : 'up';
-      const clearBy = (dir) => LANE_CLEAR + (dir === side ? -1 : 1) * Math.abs(lane.laneDz);
+      const clearBy = (dir) => walkToClear(dir, lane.laneDz);
       const dir = room(side, z) >= clearBy(side) ? side : other;
       const need = clearBy(dir) / WALK_Z;
       // Short of time, the step is still taken when a block would break the
@@ -336,6 +357,9 @@ export function punish(arena, profile) {
   const basic = profile?.basicAttack;
   if (!t || !basic || !t.vulnerable || unhittable(t)) return null;
   if (itemUnderHand(arena)) return null;
+  // Not with a star or a throw on our line: the attack's animation roots us
+  // on it until the star lands.
+  if (laneDanger(arena)) return null;
   if (!['neutral', 'walking'].includes(doing(arena.me))) return null;
   if (t.zGap > BOT.AIM_MAX_Z) return null;
   const inReach = basic.kind === 'ranged'

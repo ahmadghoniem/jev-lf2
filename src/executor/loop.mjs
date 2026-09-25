@@ -338,7 +338,7 @@ export async function runLoop({ cdp, pool, kb, run, name, policy, overlay, hz = 
       // rate, which is what the dodge's reaction maths is built on.
       items: arena.items.slice(0, 3).map((i) => ({ slot: i.slot, name: i.name, range: Math.round(i.range),
         dx: Math.round(i.dx), dz: Math.round(i.dz), inFlight: !!i.inFlight, closing: !!i.closing,
-        hostile: !!i.hostile, speed: Math.round(i.speed ?? 0) })),
+        hostile: !!i.hostile, speed: Math.round(i.speed ?? 0), vz: +(i.vz ?? 0).toFixed(1) })),
       action, source,
       reflex: reflex?.reason ?? null,
       keys: kb.stats.down,

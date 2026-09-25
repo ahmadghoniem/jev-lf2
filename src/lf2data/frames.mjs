@@ -96,6 +96,25 @@ export function nextSpawn(frames, frameId, waiting = 0, horizon = 10) {
   return null;
 }
 
+/**
+ * Ticks an animation keeps the fighter until it ends (`next: 999`), from the
+ * start of `frameId`. Henry's shot is 12: the arrow leaves at 8 and the bow
+ * is lowered for 4 more, during which he can neither block nor step.
+ */
+export function animTicks(frames, frameId) {
+  let id = frameId;
+  let total = 0;
+  for (let hop = 0; hop < 12; hop++) {
+    const frame = frames?.[id];
+    if (!frame) break;
+    total += (frame.wait ?? 1) + 1;
+    const next = frame.next;
+    if (typeof next !== 'number' || next <= 0 || next === 999 || next === id) break;
+    id = next;
+  }
+  return total;
+}
+
 /** Ticks until this fighter's next damaging hitbox goes live, or `null`. */
 export const ticksToHit = (frames, frameId, waiting = 0, horizon = 12) =>
   nextHit(frames, frameId, waiting, horizon)?.ticks ?? null;

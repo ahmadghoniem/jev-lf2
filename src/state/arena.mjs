@@ -10,7 +10,7 @@
 
 import { readFighter, MP_CAP, mpRegenPerSecond } from './fields.mjs';
 import { framesFor, BUSY_STATES } from '../lf2data/tables.mjs';
-import { ticksToHit } from '../lf2data/frames.mjs';
+import { ticksToHit, nextSpawn } from '../lf2data/frames.mjs';
 import { bucketRange } from '../lf2data/profile.mjs';
 import { plainName } from './options.mjs';
 
@@ -90,6 +90,7 @@ export function createItemMotion({ slack = FLIGHT_SLACK, stickyTicks = FLIGHT_ST
   const sticky = new Map();
   const prevOffset = new Map(); // this weapon's offset to the nearest fighter
   const speeds = new Map();     // the last few closing speeds, for `pace`
+  const zSpeeds = new Map();    // the last few depth moves, for `vz`
   return (item, fighters = []) => {
     const now = { x: Math.round(item.x), z: Math.round(item.z), range: item.range };
     let was = prev.get(item.slot);
@@ -100,7 +101,7 @@ export function createItemMotion({ slack = FLIGHT_SLACK, stickyTicks = FLIGHT_ST
     // out read as closing on us at 28 a read.
     const jump = was ? Math.hypot(now.x - was.x, now.z - was.z) : 0;
     const launched = !!was && (jump > RESPAWN_JUMP || (left === 0 && jump > slack));
-    if (launched) { was = undefined; prevOffset.delete(item.slot); speeds.delete(item.slot); }
+    if (launched) { was = undefined; prevOffset.delete(item.slot); speeds.delete(item.slot); zSpeeds.delete(item.slot); }
     const was2 = launched ? undefined : prev2.get(item.slot);
     prev2.set(item.slot, was ?? now);
     prev.set(item.slot, now);
@@ -130,15 +131,22 @@ export function createItemMotion({ slack = FLIGHT_SLACK, stickyTicks = FLIGHT_ST
     // threat; nothing else is needed to tell whose it is.
     if (launched) {
       sticky.set(item.slot, stickyTicks);
-      return { inFlight: !carried, closing: false, speed: 0, pace: 0, carried };
+      return { inFlight: !carried, closing: false, speed: 0, pace: 0, vz: 0, carried };
     }
-    if (!was) return { inFlight: left > 0, closing: false, speed: 0, pace: 0, carried };
+    if (!was) return { inFlight: left > 0, closing: false, speed: 0, pace: 0, vz: 0, carried };
     const fresh = jump > slack;
     sticky.set(item.slot, fresh ? stickyTicks : Math.max(0, left - 1));
     // The fastest it has closed over the last three reads: a weapon pausing
     // mid-flight keeps its pace, a weapon crawling never gets one.
     const recent = [...(speeds.get(item.slot) ?? []), was.range - now.range].slice(-3);
     speeds.set(item.slot, recent);
+    // Depth per read, averaged over the last three. A thrown weapon keeps the
+    // depth speed of the fighter who threw it: Rudolf walks toward our line
+    // as he throws, so a star thrown while Henry stepped off the line followed
+    // him at his own walking pace, 14-18 off, and hit (2026-09-25T05-18-30,
+    // ticks 980-987).
+    const zs = [...(zSpeeds.get(item.slot) ?? []), now.z - was.z].slice(-3);
+    zSpeeds.set(item.slot, zs);
     return { inFlight: (fresh || sticky.get(item.slot) > 0) && !carried,
              // Closing across two reads, and inclusive: a weapon pausing
              // mid-flight (its range read the same twice in a row) is still
@@ -148,6 +156,7 @@ export function createItemMotion({ slack = FLIGHT_SLACK, stickyTicks = FLIGHT_ST
              // Units closed per read, which is what turns distance into time.
              speed: was.range - now.range,
              pace: Math.max(...recent),
+             vz: zs.reduce((s, v) => s + v, 0) / zs.length,
              carried };
   };
 }
@@ -399,6 +408,11 @@ export function doing(f) {
   const hit = ticksToHit(frames, f.frame, f.waiting);
   if (hit === 0) return 'attacking';
   if (hit !== null) return 'winding_up_attack';
+  // An animation that throws something within the lookahead. Rudolf's star
+  // frames have no hitbox of their own, so they read as `recovering`, a
+  // window: the punish reflex shot into them and Jev was told the enemy was
+  // open while four stars were on their way (2026-09-25T05-18-30, tick 1241).
+  if (nextSpawn(frames, f.frame, f.waiting) !== null) return 'shooting';
   // Attacking state with nothing live ahead is the recovery tail of a swing —
   // committed, unable to block, and the classic moment to be punished in.
   if (frame.state === 3) return 'recovering';

@@ -17,7 +17,7 @@
 import { setTimeout as sleep } from 'node:timers/promises';
 import { P4_KEYS } from './keyboard.mjs';
 import { DRINK_TYPE, doing, unhittable, inSight } from '../state/arena.mjs';
-import { REACH_SLACK } from '../lf2data/frames.mjs';
+import { REACH_SLACK, animTicks } from '../lf2data/frames.mjs';
 import { framesFor } from '../lf2data/tables.mjs';
 import { label, plainName, slug } from '../state/options.mjs';
 import { incoming, inboundWeapon, laneDanger, itemUnderHand } from './reflex.mjs';
@@ -135,9 +135,13 @@ function aimedAttack(keys, { seq = ['attack'], needReach = false, reach = 45, st
     // one run 232 of 397 block-pose ticks came from specials. So one is not
     // started while a star or a throw would arrive before it fires; the
     // reflex steps off the line first, and the special starts after.
+    // A plain attack counts its whole animation, not just its wind-up: after
+    // the shot Henry lowers the bow for 4 more ticks and can neither block nor
+    // step, and 12 of 34 star chains in four games began inside one.
     if (step === 0) {
       const danger = laneDanger(a);
-      if (danger && danger.eta < seq.length * PRESS_EVERY + startup) return { hold: [] };
+      const busy = seq.length === 1 ? Math.max(startup, animTicks(framesFor(a.me.id), ATTACK_FRAME)) : startup;
+      if (danger && danger.eta < seq.length * PRESS_EVERY + busy) return { hold: [] };
     }
     // Out of sight nothing lands, so walk on until it is back in view.
     side = aimSide(side, a, t);
@@ -256,6 +260,8 @@ function repeats(me) {
   }
   return false;
 }
+/** The standing attack's first frame, the same in every fighter's data. */
+const ATTACK_FRAME = 60;
 /** States a hit leaves a fighter in, where key presses do nothing. */
 const HURT = new Set(['staggered', 'broken_guard', 'knocked_down', 'in_the_air']);
 /** What an attack sequence can start from; a block counts, since specials open with Defend. */
