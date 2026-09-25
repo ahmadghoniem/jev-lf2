@@ -105,6 +105,10 @@ export function laneDanger(arena) {
   const consider = (d) => { if (!worst || d.eta < worst.eta) worst = d; };
   for (const item of arena.items ?? []) {
     if (!item.hostile || item.zGap >= LANE_CLEAR) continue;
+    // Moving away: it has passed. Its eta came out as Infinity, which every
+    // step's time check passes, and a star that had just gone by walked
+    // Henry up the stage for 259 ticks (2026-09-24T20-09-01, tick 1398).
+    if (item.speed < 0) continue;
     consider({ laneDz: item.dz, eta: item.speed > 0 ? item.range / item.speed : Infinity, what: 'star' });
   }
   for (const t of arena.threats) {
