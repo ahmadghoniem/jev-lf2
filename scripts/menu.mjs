@@ -3,7 +3,9 @@
  *
  *   node scripts/menu.mjs            # land on a fresh match, or confirm one
  *   node scripts/menu.mjs --setup --fighter Henry --vs Rudolf [--difficulty normal]
- *                                    # reload and set up that exact match
+ *                                    # set up that exact match: Esc+Enter if the
+ *                                    # last match had those fighters, else reload
+ *                                    # and walk the menus (--reload forces that)
  *
  * Idempotent by design: if our fighter is already at full health facing a
  * full-health opponent, nothing is pressed and it exits 0. Otherwise it presses
@@ -50,9 +52,33 @@ async function inProgress(pool) {
 
 const cdp = await connect();
 
+// The pool keeps fighters from earlier matches, so the wanted opponents need
+// only be among the ones listed.
+const sameMatch = (alive, me, foes) => {
+  const ours = alive.find((f) => f.human);
+  const theirs = alive.filter((f) => !f.human).map((f) => f.name.toLowerCase());
+  return ours?.name.toLowerCase() === me.toLowerCase()
+    && foes.every((f) => theirs.includes(f.toLowerCase()));
+};
+
 if (has('setup')) {
   const me = arg('fighter', 'Henry');
   const foes = String(arg('vs', 'Rudolf')).split(',').map((s) => s.trim()).filter(Boolean);
+  // The same fighters as the last match need no menus: Esc then Enter starts
+  // the fight again with every setting kept. Only a different match reloads.
+  if (!has('reload')) {
+    try {
+      const pool = await openEntityPool(cdp);
+      const started = await startMatch(cdp, pool, { tries: 4 });
+      if (started && sameMatch(started, me, foes)) {
+        console.log(`fresh match (restarted): ${started.map(fighterLine).join(', ')}`);
+        process.exit(0);
+      }
+      console.log('setup: restart did not give that match; walking the menus');
+    } catch (e) {
+      console.log(`setup: restart failed (${e.message}); walking the menus`);
+    }
+  }
   await setupMatch(cdp, {
     keys: await readBindings(cdp), me, foes, difficulty: arg('difficulty', 'normal'),
     log: (m) => console.log(`setup: ${m}`),
@@ -61,10 +87,7 @@ if (has('setup')) {
   const pool = await openEntityPool(cdp);
   let alive = [];
   for (let i = 0; i < 20 && alive.length < 1 + foes.length; i++) { await sleep(250); alive = await living(pool); }
-  const ours = alive.find((f) => f.human);
-  const theirs = alive.filter((f) => !f.human).map((f) => f.name.toLowerCase()).sort();
-  const wanted = foes.map((f) => f.toLowerCase()).sort();
-  if (ours?.name.toLowerCase() !== me.toLowerCase() || theirs.join() !== wanted.join()) {
+  if (!sameMatch(alive, me, foes)) {
     console.error(`set up the wrong match: ${alive.map(fighterLine).join(', ')}`);
     process.exit(1);
   }

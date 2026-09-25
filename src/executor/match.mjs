@@ -6,11 +6,11 @@
  * computer-player count, background, difficulty. So a restart is attack presses
  * until fighters appear in the pool, and their appearance is the confirmation.
  *
- * A round still being fought is restarted from the pause menu instead: Esc,
- * then Q (the pause bar's "Restart"), lands on the same pre-fight panel with
- * `Fight!` highlighted, and Enter starts it — about four seconds, with every
- * setting kept. Reloading and walking the menus (`setupMatch`) is only for
- * changing fighters.
+ * Once a match is over, Esc opens the menu with `Fight!` to pick, and Enter
+ * starts the same fight again with every setting kept; attack presses remain
+ * as the fallback. During a round Esc only pauses, so a round still being
+ * fought is restarted from the pause bar: Esc, then Q ("Restart"), then Enter.
+ * Reloading and walking the menus (`setupMatch`) is only for changing fighters.
  */
 
 import { setTimeout as sleep } from 'node:timers/promises';
@@ -22,6 +22,7 @@ export const living = async (pool) =>
 
 export async function startMatch(cdp, pool, { attack = 'KeyK', tries = 12, gapMs = 1500 } = {}) {
   let restarted = false;
+  let escaped = false;
   for (let i = 0; i <= tries; i++) {
     const alive = await living(pool);
     // A fresh match has our fighter and at least one opponent at full health.
@@ -40,6 +41,15 @@ export async function startMatch(cdp, pool, { attack = 'KeyK', tries = 12, gapMs
       await cdp.key('Escape', { holdMs: 80 });
       await sleep(400);
       await cdp.key('KeyQ', { holdMs: 80 });
+      await sleep(800);
+      await cdp.key('Enter', { holdMs: 80 });
+      await sleep(gapMs);
+      continue;
+    }
+    // The match is over: Esc to the menu, Enter on Fight!.
+    if (!escaped) {
+      escaped = true;
+      await cdp.key('Escape', { holdMs: 80 });
       await sleep(800);
       await cdp.key('Enter', { holdMs: 80 });
       await sleep(gapMs);
