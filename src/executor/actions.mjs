@@ -98,12 +98,20 @@ const meleeReach = (profile) => profile?.bestMelee?.reach ?? profile?.basicAttac
  * the lane during the wind-up is chased before the sequence ever starts, which
  * a fixed burst frozen at plan time could not do.
  */
+/**
+ * Ticks between the presses of a sequence. The game's special reader goes by
+ * the order of presses and has no timeout (see `comboReader`), so presses only
+ * need to land in different frames. At 5 a three-press special took 11 ticks,
+ * and in the 2026-09-24 on/off games a quarter of the ticks spent on specials
+ * that never fired were a sequence cut off partway.
+ */
+const PRESS_EVERY = 2;
 function aimedAttack(keys, { seq = ['attack'], needReach = false, reach = 45, startup = 5,
                              profile = null }) {
   let step = 0;
   let side = null;    // the side of the enemy's line aimed from (see `aimSide`)
   let outTicks = 0;   // ticks spent stepping off the line before this attack
-  const started = () => step > 0 && step < seq.length * 5;
+  const started = () => step > 0 && step < seq.length * PRESS_EVERY;
   const run = (a) => {
     const t = enemy(a);
     if (!t) return { hold: [] };
@@ -129,7 +137,7 @@ function aimedAttack(keys, { seq = ['attack'], needReach = false, reach = 45, st
     // reflex steps off the line first, and the special starts after.
     if (step === 0) {
       const danger = laneDanger(a);
-      if (danger && danger.eta < seq.length * 5 + startup) return { hold: [] };
+      if (danger && danger.eta < seq.length * PRESS_EVERY + startup) return { hold: [] };
     }
     // Out of sight nothing lands, so walk on until it is back in view.
     side = aimSide(side, a, t);
@@ -155,7 +163,7 @@ function aimedAttack(keys, { seq = ['attack'], needReach = false, reach = 45, st
     // nothing connects, so step in; nearer than the CPU blocks from, step out
     // first, for at most AIM_OUT_TICKS so a stage edge cannot hold it forever.
     if (Math.abs(dz) > BOT.AIM_MAX_Z) {
-      if (step > 0 && step < seq.length * 5) step = 0;
+      if (step > 0 && step < seq.length * PRESS_EVERY) step = 0;
       return { hold: depthTo(a, keys, t.z + side * BOT.AIM_Z) };
     }
     // Only for a single press: a special's three presses already take about
@@ -168,22 +176,20 @@ function aimedAttack(keys, { seq = ['attack'], needReach = false, reach = 45, st
       return { hold: toward(a, keys, t, { zOff: side * BOT.AIM_Z }) };
     }
     if (!t.infront) return { hold: [], tap: [keys[dirTo(a.me, t)]] };
-    // One press every fifth tick: ~166 ms between press starts, which keeps
-    // the presses distinct the way the 60 ms press + 90 ms gap tuned by
-    // scripts/prove-specials.mjs did.
-    if (step < seq.length * 5) {
-      if (step % 5 === 0) {
+    // One press every PRESS_EVERY ticks.
+    if (step < seq.length * PRESS_EVERY) {
+      if (step % PRESS_EVERY === 0) {
         // The last press of a special waits while a star would land inside the
         // move's wind-up: Defend's block pose covers the earlier presses, but
         // after Attack the fighter is open, and in one run every blastpush
         // fired into Rudolf's stars was knocked out of its wind-up. The game's
         // reader stays armed without a timeout, so the wait loses nothing.
-        const last = seq.length > 1 && step / 5 === seq.length - 1;
+        const last = seq.length > 1 && step / PRESS_EVERY === seq.length - 1;
         // Rudolf's wind-up counts too: the star that knocked one blastpush out
         // was thrown a tick after Attack was pressed.
         const danger = last ? laneDanger(a) : null;
         if (danger && danger.eta <= startup + 2) return { hold: [] };
-        const press = seq[step / 5];
+        const press = seq[step / PRESS_EVERY];
         // A plain Attack over an item picks it up; step off its line first.
         const item = seq.length === 1 && press === 'attack' ? itemUnderHand(a) : null;
         if (item) return { hold: [item.dz >= 0 ? keys.up : keys.down] };
