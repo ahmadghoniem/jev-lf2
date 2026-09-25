@@ -401,6 +401,12 @@ export function planAction(name, { arena, profile, keys = P4_KEYS } = {}) {
   }
 
   if (name === 'jump_attack') {
+    // Straight up, so only at an enemy level with us and inside the jump
+    // attack's reach (options.mjs offers it only then; this covers an answer
+    // that arrives after the enemy has moved).
+    const jump = profile?.moves?.find((m) => m.name === 'jump_attack');
+    if (jump?.kind === 'melee' && (!target || target.zGap > BOT.HIT_Z
+        || target.gap > (jump.reach ?? 0) + REACH_SLACK)) return null;
     return burst(async (kb) => {
       await face(kb, keys, me, target);
       await kb.tap(keys.jump);
