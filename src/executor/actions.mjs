@@ -368,7 +368,7 @@ export function planAction(name, { arena, profile, keys = P4_KEYS } = {}) {
   // since it sees the stage edge; this only holds the key. Always the step,
   // never the jump: Rudolf's shuriken hits an airborne body, and in three runs
   // 45 of 65 jump dodges were hit within 25 ticks against 34 of 77 steps.
-  if (name === 'land_roll') return stance(() => ({ hold: [], tap: [keys.defend] }));
+  if (name === 'land_roll') return stance((a) => ({ hold: [keys[rollSide(a)]], tap: [keys.defend] }));
   // The punish reflex: face the enemy, then the ordinary attack.
   if (name === 'punish') {
     return target ? stance((a) => {
@@ -500,9 +500,29 @@ export function planAction(name, { arena, profile, keys = P4_KEYS } = {}) {
  * A run that never starts within the budget gives up rather than pressing
  * Defend into a standing block.
  */
+/**
+ * Up or down to hold through a roll. Held, it carries the roll about 30 in
+ * depth (measured: z 323 -> 352 and 359 -> 388 over the roll, none without),
+ * which takes it off the enemy's line where a straight roll landed back on
+ * it. Away from the enemy's line, unless the stage edge is nearer than that.
+ * Only a roll whose frames carry a `dvz` is steered (Henry's 2, Julian's 3);
+ * for the rest the held key moves only the run-up, 1-2 in the Dennis games.
+ */
+const ROLL_DZ = 30;
+/** A roll's length in ticks (frames 102-107, about 13). */
+const ROLL_TICKS = 14;
+function rollSide(a) {
+  const t = enemy(a);
+  const { top = -Infinity, bottom = Infinity } = a.stageDepth ?? {};
+  const room = { up: a.me.z - top, down: bottom - a.me.z };
+  const away = !t ? null : t.z > a.me.z + 1 ? 'up' : t.z < a.me.z - 1 ? 'down' : null;
+  if (away && room[away] >= ROLL_DZ) return away;
+  return room.up >= room.down ? 'up' : 'down';
+}
 function rollAway(keys) {
   let phase = 'ready';
   let dir = null;
+  let side = null;
   let ticks = 0;
   return (a) => {
     const t = enemy(a);
@@ -511,6 +531,7 @@ function rollAway(keys) {
     if (phase === 'ready') {
       if (!t || !ACTIONABLE.has(now)) return { hold: [] };
       dir = dirTo(a.me, t) === 'right' ? 'left' : 'right';
+      side = rollSide(a);
       phase = 'tap'; ticks = 0;
     }
     // The double-tap as holds, about the 60 ms press and 60 ms gap that
@@ -523,10 +544,12 @@ function rollAway(keys) {
       return { hold: [keys[dir]] };
     }
     if (phase === 'run') {
-      if (now === 'running') { phase = 'roll'; ticks = 0; return { hold: [], tap: [keys.defend], special: true }; }
+      if (now === 'running') { phase = 'roll'; ticks = 0; return { hold: [keys[side]], tap: [keys.defend], special: true }; }
       if (ticks > RUN_START_TICKS) { phase = 'done'; return { hold: [] }; }
       return { hold: [keys[dir]] };
     }
+    // Up or down held through the roll steers it off the line.
+    if (phase === 'roll' && ticks <= ROLL_TICKS) return { hold: [keys[side]] };
     return { hold: [] };
   };
 }

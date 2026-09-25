@@ -241,7 +241,7 @@ export const VIEW_HALF = 397;
 const ON_SCREEN_MARGIN = 30;
 
 export function readArena(entities, { slot, name, isLive, heldTracker, motionTracker,
-                                      stageWidth = Infinity } = {}) {
+                                      stageWidth = Infinity, stageDepth = null } = {}) {
   const fighters = entities.filter((e) => e.type === 0).map(readFighter);
   const me = (slot !== undefined && fighters.find((f) => f.slot === slot))
     || fighters.find((f) => f.human)
@@ -312,7 +312,7 @@ export function readArena(entities, { slot, name, isLive, heldTracker, motionTra
   // motion read.
   const flying = ground.filter((i) => i.hostile && i.range <= PROJECTILE_RANGE);
 
-  return { me, threats, allies, held, items: ground, flying, stageWidth,
+  return { me, threats, allies, held, items: ground, flying, stageWidth, stageDepth,
            nearest: threats[0]?.gap ?? Infinity };
 }
 

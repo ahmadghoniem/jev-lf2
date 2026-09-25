@@ -16,7 +16,7 @@ import { profileFor } from '../lf2data/tables.mjs';
 import { planAction, ROLL_START_TICKS } from './actions.mjs';
 import { createReflex, laneDanger } from './reflex.mjs';
 import { offer } from './policies.mjs';
-import { stageWidth as readStageWidth } from './setup.mjs';
+import { stageWidth as readStageWidth, stageDepth as readStageDepth } from './setup.mjs';
 import { bucketRange } from '../lf2data/profile.mjs';
 
 /**
@@ -85,6 +85,7 @@ export async function runLoop({ cdp, pool, kb, run, name, policy, overlay, hz = 
   if (!profile) throw new Error(`no derived profile for ${name} — rebuild build/_profiles.json`);
   // Where the camera can go, so "on screen" can be worked out from positions.
   const stageWidth = await readStageWidth(cdp);
+  const stageDepth = await readStageDepth(cdp);
 
   // The game paused (Esc) is a person looking at the fight. Nothing is asked
   // or pressed until it resumes, the paused time is added back to the run, and
@@ -130,7 +131,7 @@ export async function runLoop({ cdp, pool, kb, run, name, policy, overlay, hz = 
     if (lastT0) timing.gap.push(t0 - lastT0);
     lastT0 = t0;
     timing.wait.push(t0 - tWait);
-    const arena = readArena(live, { name, isLive, heldTracker, motionTracker, stageWidth });
+    const arena = readArena(live, { name, isLive, heldTracker, motionTracker, stageWidth, stageDepth });
     tick++; counts.ticks++;
 
     if (!arena) { await kb.releaseAll(); if (!sync) await pace(t0, period); continue; }

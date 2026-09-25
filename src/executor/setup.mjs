@@ -67,6 +67,24 @@ export async function stageWidth(cdp) {
   }
 }
 
+/**
+ * The stage's depth limits in game units: the background's `zboundary`
+ * (px.js keeps it on `T7ES.ke[Le]` as `hs`, `ss`). Queen's Island is 300-510.
+ */
+export async function stageDepth(cdp) {
+  try {
+    const proto = await classPrototype(cdp, 'Sh7E');
+    const q = await cdp.send('Runtime.queryObjects', { prototypeObjectId: proto });
+    const r = await cdp.send('Runtime.callFunctionOn', { objectId: q.result.objects.objectId,
+      returnByValue: true,
+      functionDeclaration: 'function () { const bg = T7ES.ke?.[this[0]?.Le]; return bg ? [bg.hs, bg.ss] : null; }' });
+    const [top, bottom] = r.result?.result?.value ?? [];
+    return Number.isFinite(top) && Number.isFinite(bottom) ? { top, bottom } : null;
+  } catch {
+    return null;
+  }
+}
+
 const same = (a, b) => a?.toLowerCase() === b?.toLowerCase();
 
 /**
