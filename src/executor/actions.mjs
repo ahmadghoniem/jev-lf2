@@ -214,6 +214,32 @@ function aimedAttack(keys, { seq = ['attack'], needReach = false, reach = 45, st
   return run;
 }
 /**
+ * A special that needs no target lined up — a heal, a teleport, a clone —
+ * keyed as soon as the fighter can act, one press every PRESS_EVERY ticks.
+ */
+function keyedSpecial(keys, seq) {
+  let step = 0;
+  const run = (a) => {
+    const mine = doing(a.me);
+    if (HURT.has(mine)) { if (step > 0 && step < seq.length * PRESS_EVERY) step = 0; return { hold: [] }; }
+    if (step === 0 && mine === 'running') return { hold: [keys[opposite(a.me.facing)]] };
+    if (step === 0 && !CAN_START.has(mine)) return { hold: [] };
+    if (step >= seq.length * PRESS_EVERY) return { hold: [] };
+    if (step % PRESS_EVERY === 0) {
+      const press = seq[step / PRESS_EVERY];
+      const t = enemy(a);
+      const code = press === 'forward' ? keys[t ? dirTo(a.me, t) : a.me.facing] : keys[press];
+      step++;
+      return { hold: [], tap: [code], special: seq.length > 1 };
+    }
+    step++;
+    return { hold: [] };
+  };
+  run.busy = () => step > 0 && step < seq.length * PRESS_EVERY;
+  return run;
+}
+
+/**
  * Whether Attack pressed now carries the move on into another paid copy of
  * itself: some frame still ahead in this animation takes Attack to a frame
  * that costs MP (Davis's 246 -> 247), and the bar can pay for it.
@@ -396,17 +422,31 @@ export function planAction(name, { arena, profile, keys = P4_KEYS } = {}) {
   if (name.startsWith('special_')) {
     const move = findSpecial(profile, name);
     if (!move || !SPECIAL_SEQUENCE[move.input]) return null;
+    // Some specials go on to their hit only on a further Attack (Davis's and
+    // Deep's jump into a hit).
+    const seq = [...SPECIAL_SEQUENCE[move.input], ...(move.followUp ?? [])];
+    if (move.kind === 'utility') {
+      // A grab walks in to its reach and a lift faces the enemy, like an
+      // attack; a heal, teleport, clone or the like is simply keyed.
+      if (move.effect === 'grab' || move.effect === 'lift') {
+        return stance(aimedAttack(keys, { seq, profile, startup: move.startupTicks ?? 5,
+                                          needReach: move.effect === 'grab', reach: move.reach ?? 0 }));
+      }
+      return stance(keyedSpecial(keys, seq));
+    }
     // A projectile that weakens with distance fires only inside its full-damage
     // band. The answer is chosen against where the enemy was half a second ago;
     // in one run Rudolf had backed off to 280 by the time Henry pressed, and two
     // 150-MP blastpushes did 13 and 7.
     // A melee special walks in to its own reach first, as the punch does.
-    const fullBand = move.falloff?.[0]?.to;
+    // A short-lived projectile is offered for as long as it still does damage
+    // (its option states how much at the enemy's distance), so it fires from
+    // where the fighter stands and only walks in once the enemy is past its end.
     const melee = move.kind === 'melee';
-    return stance(aimedAttack(keys, { seq: SPECIAL_SEQUENCE[move.input], profile,
+    return stance(aimedAttack(keys, { seq, profile,
                                       startup: move.startupTicks ?? 5,
-                                      needReach: melee || !!fullBand,
-                                      reach: melee ? (move.reach ?? 0) : (fullBand ?? 0) - REACH_SLACK }));
+                                      needReach: melee || !!move.range,
+                                      reach: melee ? (move.reach ?? 0) : (move.range ?? 0) - REACH_SLACK }));
   }
 
   // punish a helpless enemy: close the distance, then hit once in range

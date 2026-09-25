@@ -48,6 +48,7 @@ export function offer(arena, profile) {
     weaponInbound: !!inboundWeapon(arena),
     guardWorn: guardWorn(arena),
     roomBehind: roomBehind(arena),
+    allies: arena.allies?.length ?? 0,
   });
   return executableOptions(options, { arena, profile });
 }

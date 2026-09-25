@@ -60,7 +60,7 @@ export function buildOptions({ profile, nearby = [], nearest = Infinity, mp = 0,
                                enemyDoing = null, aligned = true, targetDown = false,
                                hasTarget = false, threatened = false, targetOnScreen = true,
                                helpless = false, weaponInbound = false, guardWorn = false,
-                               roomBehind = Infinity,
+                               roomBehind = Infinity, allies = 0,
                                canDo = () => true }) {
   const options = {};
 
@@ -107,11 +107,18 @@ export function buildOptions({ profile, nearby = [], nearest = Infinity, mp = 0,
   // stars with arrows he could have fired instead.
   // Nothing is fired at an enemy off the screen: the observer saw every such
   // shot as wasted, and the log agrees (arrows fired from 700 on landed 1 in 7).
+  // A short-lived one stays on the list for as long as it still does damage
+  // at the enemy's distance, which its description states: kept to its
+  // full-damage band, Henry's five arrows (full within 54) were offered in 10
+  // of 131 decisions of one game.
   const ranged = profile.moves.filter((m) => m.kind === 'ranged' && affordable(m)
-    && !targetDown && (!hasTarget || (targetOnScreen
-      && damageAt(m, nearest) >= (m.falloff ? m.falloff[0].injury : 1)))
+    && !targetDown && (!hasTarget || (targetOnScreen && damageAt(m, nearest) > 0))
     && canDo(rangedName(m)));
-  for (const move of dedupe(ranged, MAX_RANGED)) {
+  // Specials are never collapsed: they are asked about as a group anyway
+  // (src/state/nest.mjs), and every one a fighter has should be on offer.
+  const rangedList = [...dedupe(ranged.filter((m) => m.category !== 'special'), MAX_RANGED),
+    ...ranged.filter((m) => m.category === 'special')];
+  for (const move of rangedList) {
     const isBasic = basic && move.entry === basic.entry;
     options[rangedName(move)] = [
       reachText(move, hasTarget ? nearest : null),
@@ -143,7 +150,8 @@ export function buildOptions({ profile, nearby = [], nearest = Infinity, mp = 0,
   // heavier variants and drop the one move that is always available.
   // Compared by entry frame, not by identity: the profile comes back from JSON,
   // so `basicAttack` and its twin in `moves` are separate objects.
-  const shortlist = dedupe(melee, MAX_MELEE);
+  const shortlist = [...dedupe(melee.filter((m) => m.category !== 'special'), MAX_MELEE),
+    ...melee.filter((m) => m.category === 'special')];
   const basicMove = basic ? melee.find((m) => m.entry === basic.entry) : null;
   if (basicMove && !shortlist.some((m) => m.entry === basicMove.entry)) shortlist.push(basicMove);
   for (const move of shortlist) {
@@ -166,6 +174,31 @@ export function buildOptions({ profile, nearby = [], nearest = Infinity, mp = 0,
       !move.mp && basic?.kind === 'ranged'
         ? `Your ordinary attack and your specials spend MP even point blank, so this is the hit to use up close${mp < 150 ? ', especially now that MP is short' : ''}, and it saves MP for the specials.`
         : '',
+    ].filter(Boolean).join(' ');
+  }
+
+  // --- specials that do something other than hit: heal, teleport, clone...
+  // Each is offered while it has something to act on; one that needs an ally
+  // waits for one.
+  for (const move of profile.moves.filter((m) => m.kind === 'utility')) {
+    if (!affordable(move)) continue;
+    const needs = {
+      heal_self: hp < hpMax,
+      heal_ally: allies > 0,
+      teleport_to_ally: allies > 0,
+      teleport_to_enemy: hasTarget && !targetDown,
+      lift: hasTarget && !targetDown,
+      grab: hasTarget && !targetDown,
+    }[move.effect] ?? true;
+    const name = `special_${label(move)}`;
+    if (!needs || !canDo(name)) continue;
+    const inReach = aligned && nearest <= (move.reach ?? 0) + REACH_SLACK;
+    options[name] = [
+      UTILITY_TEXT[move.effect]?.(move) ?? UTILITY_TEXT.unknown(move),
+      move.effect === 'grab' ? (inReach ? 'The enemy is already inside its reach.' : 'The enemy is out of its reach, so this means closing in first.') : '',
+      'This is a signature special move.',
+      cost(move),
+      move.mp > 0 ? 'The MP is spent even if nothing comes of it.' : '',
     ].filter(Boolean).join(' ');
   }
 
@@ -309,6 +342,20 @@ export function mpCost(move, { mp, hp, profile }) {
     specials.length > 1 && move.mp === priciest ? 'It is your most expensive move.' : '',
   ].filter(Boolean).join(' ').replace(' ,', ',');
 }
+
+/** What a special that deals no measured damage does, from `effectOf` in profile.mjs. */
+const UTILITY_TEXT = {
+  heal_self: () => 'Heal yourself: you stand still while it plays and get health back.',
+  heal_ally: () => 'Heal an ally: it sends healing to a fighter on your side.',
+  teleport_to_enemy: () => 'Vanish and reappear right next to the enemy.',
+  teleport_to_ally: () => 'Vanish and reappear next to an ally.',
+  transform: () => 'Transform into another fighter for a while.',
+  lift: () => 'Lift the enemies in front of you into the air and hold them there while it plays: it does almost no damage itself, but they cannot act until it ends.',
+  grab: () => 'Grab an enemy within reach and throw it.',
+  clone: () => 'Create copies of yourself that fight on your side.',
+  weapon: () => 'Make a weapon in your hands to fight with.',
+  unknown: (move) => `The game calls this move "${move.name}"; the game data does not show what it does.`,
+};
 
 /** Below this fraction of health a potion is worth the walk; above it, the branch closes. */
 const DRINK_BELOW = 0.75;

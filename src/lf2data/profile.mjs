@@ -169,6 +169,10 @@ export function buildProfile(name, frames, objects) {
   const spawnInfo = (s) => {
     const o = objects.get(s.oid);
     const info = { ...s, ...(o ?? {}), ...(o?.at?.(s.action) ?? {}) };
+    if (!(info.damage > 0) && o?.hiddenAt) {
+      const hidden = o.hiddenAt(s.action);
+      if (hidden > 0) Object.assign(info, { damage: hidden, range: null, falloff: null });
+    }
     const measured = MEASURED_RANGE[o?.name];
     if (measured && !info.falloff && info.damage > 0) {
       info.range = measured;
@@ -197,10 +201,35 @@ export function buildProfile(name, frames, objects) {
       if (seen.has(key)) continue;
       seen.add(key);
 
-      const m = inspectMove(frames, target, (s) => isProjectile(spawnInfo(s)));
-      const projectiles = m.spawns.map(spawnInfo).filter(isProjectile).map(fanned);
-      const damage = m.injury ?? (projectiles.length ? Math.max(...projectiles.map((p) => p.damage ?? 0)) : null);
-      if ((damage === null || damage === 0) && projectiles.length === 0) continue;
+      let m = inspectMove(frames, target, (s) => isProjectile(spawnInfo(s)));
+      let projectiles = m.spawns.map(spawnInfo).filter(isProjectile).map(fanned);
+      let damage = m.injury ?? (projectiles.length ? Math.max(...projectiles.map((p) => p.damage ?? 0)) : null);
+      let followUp = null;
+      let effect = null;
+      const chain = chainFrom(frames, target);
+      if ((damage === null || damage === 0) && projectiles.length === 0) {
+        if (category !== 'special') continue;
+        // Some specials end on a frame that waits for Attack to go on (Davis's
+        // and Deep's jump into a hit): the hit is behind that press.
+        const next = chain.at(-1)?.transitions?.a;
+        const after = next != null ? inspectMove(frames, next, (s) => isProjectile(spawnInfo(s))) : null;
+        const afterShots = after ? after.spawns.map(spawnInfo).filter(isProjectile).map(fanned) : [];
+        if (after && (after.injury > 0 || afterShots.length)) {
+          m = { ...after, mp: m.mp || after.mp, hpCost: m.hpCost || after.hpCost,
+                allowedWhenShort: m.allowedWhenShort, startupTicks: m.startupTicks + after.startupTicks };
+          projectiles = afterShots;
+          damage = after.injury ?? Math.max(...afterShots.map((p) => p.damage ?? 0));
+          followUp = ['attack'];
+        } else {
+          // Every special is kept: one the data shows no hit for is offered by
+          // what it does instead (heal, teleport, clone...).
+          effect = effectOf(chain, chain.flatMap((f) => f.opoint ?? []).map((o) => objects.get(o.oid)));
+        }
+      }
+      if (effect === 'grab') {
+        const box = chain.flatMap((f) => (f.itr ?? []).filter((it) => it.kind === 3).map((it) => ({ f, it })))[0];
+        m = { ...m, reach: box ? Math.round(Math.max(0, (box.it.x ?? 0) + (box.it.w ?? 0) - (box.f.centerx ?? 0))) : 0 };
+      }
 
       moves.push({
         input,
@@ -208,14 +237,16 @@ export function buildProfile(name, frames, objects) {
         category,
         name: basic?.label ?? frames.get(target)?.name ?? null,
         needsWeapon: basic?.needsWeapon ?? false,
-        kind: projectiles.length > 0 ? 'ranged' : 'melee',
+        kind: effect ? 'utility' : projectiles.length > 0 ? 'ranged' : 'melee',
+        effect,
+        followUp,
         mp: m.mp,
         hpCost: m.hpCost,
         mpTier: tierMp(m.mp),
         allowedWhenShort: m.allowedWhenShort,
         startupTicks: m.startupTicks,
         reach: projectiles.length > 0 ? null : m.reach,
-        rangeBucket: projectiles.length > 0 ? 'far' : bucketRange(m.reach),
+        rangeBucket: projectiles.length > 0 ? 'far' : bucketRange(m.reach ?? 0),
         damage,
         damageTier: damage ? tierDamage(damage) : null,
         // What a hit does besides damage, read the way px.js applies it. A hit
@@ -236,6 +267,11 @@ export function buildProfile(name, frames, objects) {
   }
 
   moves.sort((a, b) => (b.damage ?? 0) - (a.damage ?? 0));
+  // Two specials sharing a frame name (Woody's two teleports) would share an
+  // option name; the input tells them apart.
+  const named = new Map();
+  for (const mv of moves) named.set(mv.name, (named.get(mv.name) ?? 0) + 1);
+  for (const mv of moves) if (mv.category === 'special' && named.get(mv.name) > 1) mv.name = `${mv.name ?? 'move'}_${mv.input}`;
   const ranged = moves.filter((m) => m.kind === 'ranged');
   const melee = moves.filter((m) => m.kind === 'melee');
   const bare = melee.filter((m) => !m.needsWeapon);
@@ -313,6 +349,64 @@ function fromAction(frames, action, maxDepth = 40) {
            falloff: finite ? falloff.filter((b) => b.injury > 0).map((b) => ({ to: Math.round(b.to), injury: b.injury })) : null };
 }
 
+/**
+ * A spawn whose own frames carry no ordinary hit but still hurt: a chasing
+ * ball (state 3005 with a `hit_Fa` chase mode, Firzen's disaster, Jan's and
+ * Bat's chasers, Julian's balls) flies on from frames the start chain does not
+ * reach, so the object's own best hit stands for it; Freeze's whirlwind and
+ * icicles hit with the freezing kinds 15 and 16. Harmless smoke (Rudolf's
+ * transform, state 3001) has neither and stays harmless.
+ */
+function hiddenHit(frames, action, objectDamage) {
+  const seen = new Set();
+  for (let id = action, step = 0; step < 20 && frames.has(id) && !seen.has(id); step++) {
+    seen.add(id);
+    const f = frames.get(id);
+    if (f.state === 3005 && f.transitions?.Fa) return objectDamage;
+    const freeze = (f.itr ?? []).filter((it) => (it.kind === 15 || it.kind === 16) && it.injury > 0);
+    if (freeze.length) return Math.max(...freeze.map((it) => it.injury));
+    if (typeof f.next !== 'number' || f.next <= 0 || f.next >= 999) break;
+    id = f.next;
+  }
+  return 0;
+}
+
+/**
+ * What a special does when it deals no damage the data can measure, read from
+ * its own frames and what it spawns (px.js states: 1700 heals the caster, 400
+ * and 401 teleport to an enemy and to an ally, 500/501 transform; itr kind 3
+ * grabs, 8 heals whoever it touches, 10/11 lift and hold). A spawned character
+ * is a clone and a spawned weapon lands in the caster's hands.
+ */
+function effectOf(chain, spawned) {
+  const states = new Set(chain.map((f) => f.state));
+  const kinds = new Set(chain.flatMap((f) => (f.itr ?? []).map((it) => it.kind)));
+  if (states.has(1700)) return 'heal_self';
+  if (states.has(400)) return 'teleport_to_enemy';
+  if (states.has(401)) return 'teleport_to_ally';
+  if (states.has(500) || states.has(501)) return 'transform';
+  if (kinds.has(10) || kinds.has(11)) return 'lift';
+  if (kinds.has(3)) return 'grab';
+  if (spawned.some((o) => o?.type === 0)) return 'clone';
+  if (spawned.some((o) => o?.type === 1)) return 'weapon';
+  if (spawned.some((o) => o?.heals)) return 'heal_ally';
+  return 'unknown';
+}
+
+/** A move's frames from its entry, following `next` until it ends or loops. */
+function chainFrom(frames, entry, maxDepth = 40) {
+  const out = [];
+  const seen = new Set();
+  for (let id = entry; out.length < maxDepth && frames.has(id) && !seen.has(id);) {
+    seen.add(id);
+    const f = frames.get(id);
+    out.push(f);
+    if (typeof f.next !== 'number' || f.next <= 0 || f.next >= 999) break;
+    id = f.next;
+  }
+  return out;
+}
+
 /** A projectile's damage at a distance: its full hit if it has no range. */
 export function damageAt(move, distance) {
   if (!move.falloff) return move.damage;
@@ -378,8 +472,11 @@ export function buildObjectIndex(parsedById) {
       damage,
       /** A projectile is an object that carries itself across the screen. */
       travels: moving && damage > 0,
+      heals: [...frames.values()].some((f) => (f.itr ?? []).some((it) => it.kind === 8)),
       /** Not serialized: the same facts from one starting frame. */
       at: (action) => (frames.has(action) ? fromAction(frames, action) : null),
+      /** Not serialized: a hit started from this frame that `at` cannot see. */
+      hiddenAt: (action) => hiddenHit(frames, action, damage),
     });
   }
   return objects;

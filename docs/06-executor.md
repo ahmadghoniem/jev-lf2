@@ -225,3 +225,27 @@ Ten notes, and what each turned into:
 Matches restart from where the last one ended: attack from the summary, or
 Esc, Q, Enter from a round still being fought. `menu.mjs --setup` is only for
 changing fighters.
+
+## Every special is offered
+
+Each fighter's `hit_*` specials all reach the option list (2026-09-25). Before,
+a special was dropped from the profile when its damage could not be read, cut
+by the collapse to one option per damage and MP tier, and a short-lived
+projectile was offered only inside its full-damage band (Henry's five arrows,
+full within 54, came up in 10 of 131 decisions of one game). Now:
+
+- A spawn whose hit the start frames do not show still counts: a chasing ball
+  (state 3005 with a `hit_Fa` chase mode) is priced at its object's best hit,
+  and Freeze's whirlwind at its freezing hit (itr kinds 15/16).
+- A special that stops on a frame waiting for Attack (Davis's and Deep's jump
+  into a hit) is keyed with that extra Attack.
+- A special with no measured hit is kept as a utility move and described by
+  what the data shows it does: heal (state 1700, or a spawn that heals),
+  teleport (400/401), transform (500/501), lift (itr 10/11, Henry's flute),
+  grab (itr 3), clone (spawns a character), weapon (spawns one). Anything else
+  is offered under the game's own name for it. A heal or teleport to an ally
+  waits for an ally.
+- Specials are never collapsed by tier; they are asked about as a group.
+- A projectile that weakens with distance is offered while it still does any
+  damage there, with the damage at that distance in its description, and
+  fires from where the fighter stands.
