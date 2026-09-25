@@ -269,11 +269,20 @@ export function buildOptions({ profile, nearby = [], nearest = Infinity, mp = 0,
   // answer a weapon that is about to land.
   // The roll carries about 200, so against the edge of the stage it ends in
   // the corner rather than out of reach (seen by the observer on both sides).
-  if (hasTarget && roomBehind >= ROLL_ROOM && (threatened || weaponInbound || nearest <= 220)) {
+  // Not from an enemy on the floor or in the air with nothing coming: that is
+  // a window to hit it (observer: "two unnecessary rolls", one of them from a
+  // knocked-down Freeze 7 away, 2026-09-25T11-59-36).
+  if (hasTarget && roomBehind >= ROLL_ROOM && (threatened || weaponInbound || nearest <= 220)
+      && !(targetDown && !threatened && !weaponInbound)) {
     options.roll_away = [
       'Roll away from the enemy: a short run, then a tumble along the ground. Nothing can hit you during the tumble and nothing breaks it, and you end about 200 further away, out of its reach.',
       'It takes about a third of a second to start, so it is for an enemy that is close or pressing you, not for a weapon about to land.',
-      nearest <= 100 ? 'The enemy is inside punching range, where blocking only waits for the next hit; this gets you out.' : '',
+      // Inside 90, 20% of 387 rolls since 09-24 were hit before the tumble
+      // began (9% at 91-160), about 8 hp a try. Still the cheaper way out:
+      // over the next 1.5 s a roll lost 16.5 hp there, a block 27, a wait 24.
+      // Said without the second sentence, replayed on 146 old decisions,
+      // rolls fell from 31% to 9% and blocks doubled; with it, 26%.
+      nearest <= 90 ? 'The enemy is inside punching range. About one roll in five is caught before the tumble starts, since its punch is quicker than the run-up, but rolling here still costs less than blocking or waiting.' : '',
       'You cannot attack or block until it finishes.',
     ].filter(Boolean).join(' ');
   }
