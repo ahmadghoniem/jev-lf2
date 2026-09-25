@@ -16,9 +16,40 @@
 import { setTimeout as sleep } from 'node:timers/promises';
 import { fighters } from '../state/entities.mjs';
 import { readFighter } from '../state/fields.mjs';
+import { menuState } from './setup.mjs';
 
 export const living = async (pool) =>
   fighters(await pool.read()).map(readFighter).filter((f) => f.alive);
+
+/** Where the summary appears: `afterMatch` stops at this (observed 2026-09-25). */
+const SUMMARY_AT = 144;
+
+/**
+ * From a decided match to the pre-fight panel with Fight! highlighted. Esc
+ * reaches the panel only once the summary is up, a second or so after the
+ * last fighter falls; pressed before that it pauses the fight instead, which
+ * is how a restart froze the game on 2026-09-25. So this waits for the
+ * summary, resumes a paused fight, and only then presses Esc.
+ */
+async function toFightPanel(cdp, { up = 'KeyI', waitMs = 15000 } = {}) {
+  const until = Date.now() + waitMs;
+  while (Date.now() < until) {
+    const s = await menuState(cdp).catch(() => null);
+    if (!s) { await sleep(250); continue; }
+    if (s.screen !== 0 && s.phase === 3) {
+      for (let i = 0; i < 8 && s.panel !== 0; i++) {
+        await cdp.key(up, { holdMs: 80 });
+        await sleep(200);
+        s.panel = (await menuState(cdp)).panel;
+      }
+      return s.panel === 0;
+    }
+    if (s.paused) { await cdp.key('Escape', { holdMs: 80 }); await sleep(500); continue; }
+    if (s.screen === 0 && s.afterMatch >= SUMMARY_AT) { await cdp.key('Escape', { holdMs: 80 }); await sleep(800); continue; }
+    await sleep(250);
+  }
+  return false;
+}
 
 export async function startMatch(cdp, pool, { attack = 'KeyK', tries = 12, gapMs = 1500 } = {}) {
   let restarted = false;
@@ -49,11 +80,11 @@ export async function startMatch(cdp, pool, { attack = 'KeyK', tries = 12, gapMs
     // The match is over: Esc to the menu, Enter on Fight!.
     if (!escaped) {
       escaped = true;
-      await cdp.key('Escape', { holdMs: 80 });
-      await sleep(800);
-      await cdp.key('Enter', { holdMs: 80 });
-      await sleep(gapMs);
-      continue;
+      if (await toFightPanel(cdp)) {
+        await cdp.key('Enter', { holdMs: 80 });
+        await sleep(gapMs);
+        continue;
+      }
     }
     await cdp.key(attack, { holdMs: 150 });
     await sleep(gapMs);

@@ -33,6 +33,8 @@ const READ = `function () {
     picking: s.Wa?.[s.Pa], // the box of the computer being picked
     panel: s.Ga,         // 0 Fight, 1 Reset All, 2 Reset Random, 3 Background, 4 Difficulty, 5 Exit
     difficulty: s.Ie,    // 2 Easy, 1 Normal, 0 Difficult, -1 Crazy
+    paused: s.pause === 1, // Esc during a fight pauses it
+    afterMatch: s._a,    // counts up once a match is decided; the summary is up at 144
   });
 }`;
 
