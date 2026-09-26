@@ -378,6 +378,21 @@ function fromAction(frames, action, maxDepth = 40) {
  */
 const STEERS = new Set([2, 4, 7, 12, 14, 3, 6, 8, 9, 13]);
 
+const steerCache = new Map();
+/**
+ * Whether a live object in frame `frameId` steers itself to its target, from
+ * its plain frame table (`framesFor`). Frame-level, not object-level: John's
+ * ball and his heal are one object entered at different frames.
+ */
+export function steers(id, frames, frameId) {
+  const key = `${id}/${frameId}`;
+  if (!steerCache.has(key)) {
+    const map = new Map(Object.entries(frames ?? {}).map(([k, v]) => [Number(k), v]));
+    steerCache.set(key, chases(map, frameId));
+  }
+  return steerCache.get(key);
+}
+
 /** Whether a spawn from this frame steers itself to its target. */
 function chases(frames, action) {
   const seen = new Set();

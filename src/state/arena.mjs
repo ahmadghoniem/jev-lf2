@@ -8,7 +8,7 @@
  * reason to make it try.
  */
 
-import { readFighter, MP_CAP, mpRegenPerSecond } from './fields.mjs';
+import { F, readFighter, MP_CAP, mpRegenPerSecond } from './fields.mjs';
 import { framesFor, BUSY_STATES } from '../lf2data/tables.mjs';
 import { ticksToHit, nextSpawn } from '../lf2data/frames.mjs';
 import { bucketRange } from '../lf2data/profile.mjs';
@@ -97,6 +97,12 @@ const MIN_THROWN_SPEED = 8;
  * weapon's 8.
  */
 const MIN_ENERGY_SPEED = 2;
+/**
+ * Energy never rests: an ended one stands exactly still in its slot, so any
+ * move at all is flight. The weapons' 6 missed the slow ones: Firen's ground
+ * flames drift at 2-4 a tick and Freeze's column spawner at 4-6.
+ */
+export const ENERGY_SLACK = 1;
 
 export function createItemMotion({ slack = FLIGHT_SLACK, stickyTicks = FLIGHT_STICKY } = {}) {
   const prev = new Map();
@@ -257,7 +263,7 @@ const ON_SCREEN_MARGIN = 30;
 /** Everything loose on the stage that can be flying at us: items, then energy. */
 export const airborne = (arena) => [...(arena.items ?? []), ...(arena.energy ?? [])];
 
-export function readArena(entities, { slot, name, isLive, heldTracker, motionTracker,
+export function readArena(entities, { slot, name, isLive, heldTracker, motionTracker, energyTracker,
                                       stageWidth = Infinity, stageDepth = null } = {}) {
   const fighters = entities.filter((e) => e.type === 0).map(readFighter);
   const me = (slot !== undefined && fighters.find((f) => f.slot === slot))
@@ -331,9 +337,9 @@ export function readArena(entities, { slot, name, isLive, heldTracker, motionTra
   // reads as closing. A cast object that has ended stays in its pool slot where
   // it stopped, never moving again, so the motion read drops it.
   const energy = entities.filter((e) => e.type === ENERGY_TYPE && e.group !== me.team)
-    .map((e) => geo({ slot: e.slot, name: e.name, id: e.id, type: e.type, x: e.x, y: e.y, z: e.z }))
-    .map((i) => ({ ...i, energy: true, ...(motionTracker
-      ? motionTracker(i, [])
+    .map((e) => geo({ slot: e.slot, name: e.name, id: e.id, type: e.type, x: e.x, y: e.y, z: e.z, frame: e[F.frame] }))
+    .map((i) => ({ ...i, energy: true, ...((energyTracker ?? motionTracker)
+      ? (energyTracker ?? motionTracker)(i, [])
       : { inFlight: false, closing: false, carried: false }) }))
     .map((i) => ({ ...i, hostile: i.inFlight && i.closing && (i.pace ?? 0) >= MIN_ENERGY_SPEED }))
     .sort((a, b) => a.range - b.range);

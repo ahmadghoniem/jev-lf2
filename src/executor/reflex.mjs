@@ -12,6 +12,7 @@ import { framesFor } from '../lf2data/tables.mjs';
 import { nextHit, nextSpawn, reachOfFrame, REACH_SLACK } from '../lf2data/frames.mjs';
 import { Z_TOLERANCE, Y_TOLERANCE, doing, unhittable, airborne } from '../state/arena.mjs';
 import { BOT } from '../state/bot.mjs';
+import { steers } from '../lf2data/profile.mjs';
 
 /**
  * The most urgent incoming attack, if one is close enough to matter.
@@ -94,9 +95,11 @@ const contactCache = new Map();
  */
 export function contactRange(id) {
   if (!contactCache.has(id)) {
-    const frames = Object.values(framesFor(id) ?? {});
-    const flying = frames.filter((f) => f.dvx);
-    const reach = Math.max(0, ...(flying.length ? flying : frames).map(reachOfFrame));
+    // The frames it hits from while it flies; an object that hits standing
+    // still (Freeze's ice columns rise where they are spawned) from those.
+    const hitting = Object.values(framesFor(id) ?? {}).filter((f) => reachOfFrame(f) > 0);
+    const flying = hitting.filter((f) => f.dvx);
+    const reach = Math.max(0, ...(flying.length ? flying : hitting).map(reachOfFrame));
     contactCache.set(id, reach > 0 ? reach + BODY_HALF : 0);
   }
   return contactCache.get(id);
@@ -161,7 +164,8 @@ export function laneDanger(arena) {
     const eta = arrivalTicks(item);
     const at = arrivalDz(item, eta);
     if (Math.abs(at) >= LANE_CLEAR) continue;
-    consider({ laneDz: at, eta, what: item.energy ? 'ball' : 'star', id: item.id });
+    consider({ laneDz: at, eta, what: item.energy ? 'ball' : 'star', id: item.id,
+               homes: item.energy && steers(item.id, framesFor(item.id), item.frame) });
   }
   for (const t of arena.threats) {
     if (t.zGap >= LANE_CLEAR || t.gap > THROW_RANGE || t.yGap > Y_TOLERANCE) continue;
@@ -281,7 +285,9 @@ export function createReflex({ maxBlockTicks = BOT.BLOCK_COMMIT_FRAMES,
     }
     const mine = doing(arena.me);
     const canMove = ['neutral', 'walking', 'running'].includes(mine);
-    if (lane && canMove) {
+    // A ball that steers follows us off any line we step to, so stepping only
+    // costs the time a block needs; it is blocked below instead.
+    if (lane && canMove && !lane.homes) {
       // `up` lowers z. Step away from the line, unless the edge of the stage
       // on that side is too close to get clear; a line straight through us
       // goes to the side with more room. A side that does not move us for

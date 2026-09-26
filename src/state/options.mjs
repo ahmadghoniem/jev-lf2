@@ -111,9 +111,19 @@ export function buildOptions({ profile, nearby = [], nearest = Infinity, mp = 0,
   // at the enemy's distance, which its description states: kept to its
   // full-damage band, Henry's five arrows (full within 54) were offered in 10
   // of 131 decisions of one game.
-  const ranged = profile.moves.filter((m) => m.kind === 'ranged' && affordable(m)
+  const reachable = profile.moves.filter((m) => m.kind === 'ranged' && affordable(m)
     && !targetDown && (!hasTarget || (targetOnScreen && damageAt(m, nearest) > 0))
     && canDo(rangedName(m)));
+  // On the enemy's line a straight shot that chains beats a single steering
+  // one: it goes off as soon, flies faster (Dennis's energy ball 15 a tick,
+  // his chasing ball about 8) and keeps coming while Attack is pressed. The
+  // steering ball's one advantage, needing no lining up, is worth nothing
+  // there. Described side by side, level with Freeze, Jev still picked
+  // Dennis's chasing ball 29 times to his energy ball's 2 (4 games,
+  // 2026-09-26). Off the line both are offered.
+  const chains = reachable.some((m) => !m.homes && m.volley);
+  const ranged = hasTarget && aligned && chains
+    ? reachable.filter((m) => !m.homes || m.volley) : reachable;
   // Specials are never collapsed: they are asked about as a group anyway
   // (src/state/nest.mjs), and every one a fighter has should be on offer.
   const rangedList = [...dedupe(ranged.filter((m) => m.category !== 'special'), MAX_RANGED),
