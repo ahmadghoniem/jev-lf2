@@ -12,6 +12,7 @@
  */
 
 import { readArena, doing, createLiveness, createHeldTracker, createItemMotion, ENERGY_SLACK } from '../state/arena.mjs';
+import { createCoverage } from '../telemetry/coverage.mjs';
 import { profileFor } from '../lf2data/tables.mjs';
 import { planAction, ROLL_START_TICKS } from './actions.mjs';
 import { createReflex, laneDanger } from './reflex.mjs';
@@ -79,6 +80,8 @@ export async function runLoop({ cdp, pool, kb, run, name, policy, overlay, hz = 
   const motionTracker = createItemMotion();
   // Cast energy is tracked apart: it never rests, so any move is flight.
   const energyTracker = createItemMotion({ slack: ENERGY_SLACK });
+  // What was in play and never read; see coverage.mjs.
+  const coverage = createCoverage();
   // And the reflex layer's own state, so its block is a finite parry with a rest
   // between rather than a guard held until it breaks.
   const reflexFor = createReflex();
@@ -135,6 +138,7 @@ export async function runLoop({ cdp, pool, kb, run, name, policy, overlay, hz = 
     timing.wait.push(t0 - tWait);
     const arena = readArena(live, { name, isLive, heldTracker, motionTracker, energyTracker, stageWidth, stageDepth });
     tick++; counts.ticks++;
+    coverage.observe(live, arena, tick);
 
     if (!arena) { await kb.releaseAll(); if (!sync) await pace(t0, period); continue; }
     kb.facing = arena.me.facing;
@@ -369,6 +373,7 @@ export async function runLoop({ cdp, pool, kb, run, name, policy, overlay, hz = 
     if (!sync) await pace(t0, period);
   }
   counts.timing = summarise(timing);
+  counts.coverage = coverage.report();
 
   await kb.releaseAll();
   // A note typed in the last moments is still waiting in the page.

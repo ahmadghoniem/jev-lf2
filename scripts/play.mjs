@@ -141,3 +141,8 @@ console.log(`\n${counts.ticks} ticks, ${counts.decisions} decisions, ${counts.mi
   + `${counts.defused} specials defused, ${counts.unshouted} shouts prevented — ${counts.outcome}`);
 console.log(`run: ${run.dir} (${manifest.counts.judgements} judgement rows)`);
 if (counts.timing) console.log(`loop: ${JSON.stringify(counts.timing)}`);
+// Anything that could hurt, moved in play, and was never read.
+const blind = counts.coverage?.blind ?? [];
+console.log(blind.length
+  ? `BLIND SPOTS: ${blind.map((b) => `${b.name} (type ${b.type}, ${b.notOurs} ticks unread, first at tick ${b.firstTick})`).join('; ')}`
+  : 'blind spots: none');
