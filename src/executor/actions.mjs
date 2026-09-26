@@ -14,7 +14,6 @@
  * them and re-deciding halfway would just cancel it.
  */
 
-import { setTimeout as sleep } from 'node:timers/promises';
 import { P4_KEYS } from './keyboard.mjs';
 import { DRINK_TYPE, doing, unhittable, inSight } from '../state/arena.mjs';
 import { REACH_SLACK, animTicks } from '../lf2data/frames.mjs';
@@ -50,8 +49,6 @@ const SPECIAL_SEQUENCE = {
   ja: ['defend', 'jump', 'attack'],
 };
 
-/** How long a turn is: a direction tap short enough not to walk anywhere. */
-const TURN_MS = 110;
 /**
  * Ticks from pressing the double-tap to the first frame with no hurt box: the
  * 60 ms tap, the 60 ms gap and the run before Defend, about 320 ms, with a
@@ -212,8 +209,62 @@ function aimedAttack(keys, { seq = ['attack'], needReach = false, reach = 45, st
   };
   // A half-played sequence, which a repeat of the same answer should not restart.
   run.busy = started;
-  return run;
+  return faced(keys, run);
 }
+
+/**
+ * An attack stance turns to its target whenever the fighter could act and the
+ * stance itself presses no sideways key. Stepping in depth to the enemy's line,
+ * waiting out a star and the ticks after a swing hold only depth keys or none,
+ * and those keep whatever facing the fighter had: Henry walked in depth for 30
+ * ticks with his back to Rudolf before a blastpush (2026-09-25T13-36-37, ticks
+ * 280-311). A sequence being played is left alone, since a direction between
+ * its presses would be read as part of it.
+ */
+function faced(keys, run) {
+  const step = (a) => {
+    const out = run(a);
+    const t = enemy(a);
+    if (!t || t.infront || out.tap?.length || run.busy?.()) return out;
+    if (!CAN_START.has(doing(a.me)) || Math.abs(t.x - a.me.x) <= BOT.X_DEADZONE) return out;
+    if (out.hold.includes(keys.left) || out.hold.includes(keys.right)) return out;
+    return { ...out, tap: [keys[dirTo(a.me, t)]] };
+  };
+  step.busy = run.busy;
+  return step;
+}
+
+/**
+ * A jump attack: face the enemy, Jump, and Attack on the way down. As a timed
+ * burst it turned toward where the enemy stood when the answer was chosen and
+ * pressed on whether or not the fighter could act; the turn was lost inside a
+ * run attack's swing and the Attack came out as a punch with Dennis's back to
+ * Freeze (2026-09-25T13-35-04, ticks 830-844). So it waits until the fighter
+ * can act, re-reads the enemy every tick, and attacks only while facing it.
+ */
+function jumpAttackStance(keys) {
+  let phase = 'ready';
+  let ticks = 0;
+  const run = (a) => {
+    const t = enemy(a);
+    ticks++;
+    if (phase === 'ready') {
+      if (!t || unhittable(t) || !CAN_START.has(doing(a.me))) return { hold: [] };
+      if (!t.infront) return { hold: [], tap: [keys[dirTo(a.me, t)]] };
+      phase = 'air'; ticks = 0;
+      return { hold: [], tap: [keys.jump] };
+    }
+    if (phase === 'air' && ticks >= JUMP_TO_ATTACK) {
+      phase = 'done';
+      if (t?.infront) return { hold: [], tap: [keys.attack] };
+    }
+    return { hold: [] };
+  };
+  run.busy = () => phase === 'air';
+  return faced(keys, run);
+}
+/** The old burst's 220 ms from Jump to Attack. */
+const JUMP_TO_ATTACK = 7;
 /**
  * A special that needs no target lined up — a heal, a teleport, a clone —
  * keyed as soon as the fighter can act, one press every PRESS_EVERY ticks.
@@ -424,12 +475,7 @@ export function planAction(name, { arena, profile, keys = P4_KEYS } = {}) {
     const jump = profile?.moves?.find((m) => m.name === 'jump_attack');
     if (jump?.kind === 'melee' && (!target || target.zGap > BOT.HIT_Z
         || target.gap > (jump.reach ?? 0) + REACH_SLACK)) return null;
-    return burst(async (kb) => {
-      await face(kb, keys, me, target);
-      await kb.tap(keys.jump);
-      await sleep(220);
-      await kb.tap(keys.attack);
-    });
+    return stance(jumpAttackStance(keys));
   }
 
   if (name === 'run_attack') {
@@ -639,6 +685,17 @@ function chargeStance(keys, { dash, reach }) {
       phase = now === 'running' && a.me.facing === dir ? 'run' : 'tap';
       ticks = 0;
     }
+    // An enemy that crosses over before the run is under way is run at from
+    // where it is now. Held to the first side, Dennis ran and swung away from a
+    // Freeze that had slid past him (2026-09-25T13-35-04, ticks 825-829).
+    const behind = t && dirTo(a.me, t) !== dir && Math.abs(t.x - a.me.x) > BOT.X_DEADZONE;
+    if (behind && (phase === 'tap' || (phase === 'run' && now !== 'running'))) {
+      phase = 'ready';
+      return { hold: [] };
+    }
+    // Run past the enemy, the swing goes the other way, so the run is stopped
+    // instead, which also turns the fighter back to it.
+    if (behind && phase === 'run') { phase = 'stop'; ticks = 0; }
     if (phase === 'tap') {
       if (ticks <= 1) return { hold: [keys[dir]] };
       if (ticks === 2) return { hold: [] };
@@ -664,10 +721,15 @@ function chargeStance(keys, { dash, reach }) {
         phase = 'done'; return { hold: [keys[dir]], tap: [keys.attack] };
       }
       // The old burst swung about 8 ticks into the run; sooner once in reach.
-      const there = !t || dirTo(a.me, t) !== dir || t.gap <= reach + RUN_SKID || ticks >= 8;
+      const there = !t || t.gap <= reach + RUN_SKID || ticks >= 8;
       if (!there || !level) return { hold: [keys[dir], ...steer] };
       phase = 'done';
       return { hold: [keys[dir]], tap: [keys.attack] };
+    }
+    if (phase === 'stop') {
+      // Pressed on every other read, since held on it would walk back.
+      if (now === 'running' && ticks <= 6) return ticks % 2 ? { hold: [] } : { hold: [keys[opposite(dir)]] };
+      phase = 'done';
     }
     if (phase === 'dash') {
       // The burst's 160 ms from Jump to Attack.
@@ -678,7 +740,7 @@ function chargeStance(keys, { dash, reach }) {
     return { hold: [] };
   };
   run.busy = () => phase !== 'ready' && phase !== 'done';
-  return run;
+  return faced(keys, run);
 }
 /** Ticks into a run after which a charge that never got level gives up. */
 const CHARGE_GIVE_UP = 16;
@@ -704,17 +766,6 @@ const RUN_START_TICKS = 10;
 /** The move an option name refers to, matched the way the name was built. */
 const findSpecial = (profile, name) =>
   profile?.moves?.find((m) => `special_${label(m)}` === name) ?? null;
-
-/**
- * An attack aimed the wrong way is a wasted commitment, and a fighter that
- * never turns loses to anything that walks around it. Turning is a direction
- * tap, short enough that it does not become a walk.
- */
-async function face(kb, keys, me, target) {
-  if (!target || target.infront) return;
-  await kb.tap(keys[dirTo(me, target)], TURN_MS);
-  await sleep(TURN_MS + 40);
-}
 
 /** The nearest threat, re-read each tick because it moves and can die. */
 const enemy = (arena) => arena.threats[0] ?? null;
@@ -792,7 +843,6 @@ function away(arena, keys, t) {
 }
 
 const stance = (step) => ({ kind: 'stance', step, busy: step.busy ?? (() => false) });
-const burst = (run) => ({ kind: 'burst', run });
 
 /** Which of the offered options the executor can actually carry out. */
 export function executableOptions(options, ctx) {
