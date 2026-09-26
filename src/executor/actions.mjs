@@ -15,7 +15,7 @@
  */
 
 import { P4_KEYS } from './keyboard.mjs';
-import { DRINK_TYPE, doing, unhittable, inSight } from '../state/arena.mjs';
+import { DRINK_TYPE, doing, unhittable, inSight, airborne } from '../state/arena.mjs';
 import { REACH_SLACK, animTicks } from '../lf2data/frames.mjs';
 import { framesFor } from '../lf2data/tables.mjs';
 import { label, plainName, slug } from '../state/options.mjs';
@@ -202,7 +202,10 @@ function aimedAttack(keys, { seq = ['attack'], needReach = false, reach = 45, st
     // Rudolf's stars) is pressed again while it plays, as long as the target
     // is still on the line and the MP holds: the next one then leaves at once,
     // where a fresh answer starts over from Defend, about a second later.
-    if (seq.length > 1 && repeats(a.me) && (anyDepth || Math.abs(dz) <= BOT.AIM_MAX_Z) && t.infront) {
+    // Not into something about to land: each repeat is another wind-up.
+    const landing = laneDanger(a);
+    if (seq.length > 1 && repeats(a.me) && (anyDepth || Math.abs(dz) <= BOT.AIM_MAX_Z) && t.infront
+      && !(landing && landing.eta <= startup + 2)) {
       return { hold: [], tap: [keys.attack], special: true };
     }
     return { hold: [] };
@@ -829,7 +832,7 @@ const AIM_OUT_TICKS = 8;
  * the enemy's depth, which would walk into the weapon's line.
  */
 const weaponOnLane = (arena) =>
-  (arena.items ?? []).find((i) => i.hostile
+  airborne(arena).find((i) => i.hostile
     && i.zGap <= BOT.DODGE_Z && i.range <= BOT.DODGE_X) ?? null;
 
 /** Options that press attack and cannot be cancelled once started. */

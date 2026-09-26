@@ -58,7 +58,7 @@ for (const note of notes) {
     if (changed || lost > 0 || dealt > 0 || j || t === at) {
       const mark = t === at ? '>>' : '  ';
       const hurt = [lost > 0 ? `took ${lost}` : '', dealt > 0 ? `dealt ${dealt}` : ''].filter(Boolean).join(', ');
-      const flying = (t.items ?? []).filter((i) => i.hostile && i.inFlight)
+      const flying = [...(t.items ?? []).filter((i) => i.inFlight), ...(t.energy ?? [])].filter((i) => i.hostile)
         .map((i) => `${i.name} at ${i.range}`).join(', ');
       console.log(`${mark} ${String(t.tick).padStart(5)} ${secs(t.t).padStart(6)}  hp ${String(t.me.hp).padStart(3)} mp ${String(t.me.mp).padStart(3)}  ${doing}`
         + (t.reflex ? `  [reflex: ${t.reflex}]` : '')

@@ -7,6 +7,8 @@
  * while the Jev call is still in flight.
  */
 
+import { framesFor } from './tables.mjs';
+
 /**
  * itr kinds that actually hurt someone. `kind 0` is an ordinary attack and
  * `kind 6` a super punch; `kind 2` is the pick-up box and `kind 5` marks a
@@ -78,6 +80,25 @@ export function nextHit(frames, frameId, waiting = 0, horizon = 12) {
  * from his punch frames, which have no hitbox of their own, so `nextHit` never
  * sees them coming.
  */
+/**
+ * How fast a spawned object leaves when the opoint gives it no speed: an energy
+ * ball's speed is its own first frame's `dvx` (Freeze's ball starts at 9, and
+ * its opoint has none, so a cast read as nothing thrown). A chaser starts with
+ * none and steers, so it has no straight line to step off and reads 0 here.
+ */
+function launchSpeed(oid, action) {
+  const frames = framesFor(oid);
+  let id = action;
+  for (let hop = 0; hop < 3; hop++) {
+    const f = frames?.[id];
+    if (!f) return 0;
+    if (Math.abs(f.dvx ?? 0) > 0) return Math.abs(f.dvx);
+    if (typeof f.next !== 'number' || f.next <= 0 || f.next === id) return 0;
+    id = f.next;
+  }
+  return 0;
+}
+
 export function nextSpawn(frames, frameId, waiting = 0, horizon = 10) {
   if (!frames) return null;
   let id = frameId;
@@ -85,8 +106,11 @@ export function nextSpawn(frames, frameId, waiting = 0, horizon = 10) {
   for (let hop = 0; hop < 6; hop++) {
     const frame = frames[id];
     if (!frame) return null;
-    const thrown = (frame.opoint ?? []).find((o) => o.kind === 1 && Math.abs(o.dvx ?? 0) > 0);
-    if (thrown) return { ticks: Math.max(0, elapsed), speed: Math.abs(thrown.dvx), ahead: thrown.x ?? 0 };
+    for (const o of frame.opoint ?? []) {
+      if (o.kind !== 1) continue;
+      const speed = Math.abs(o.dvx ?? 0) || launchSpeed(o.oid, o.action ?? 0);
+      if (speed > 0) return { ticks: Math.max(0, elapsed), speed, ahead: o.x ?? 0, oid: o.oid };
+    }
     elapsed += (frame.wait ?? 1) + 1;
     if (elapsed > horizon) return null;
     const next = frame.next;

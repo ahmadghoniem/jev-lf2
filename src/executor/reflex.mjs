@@ -9,8 +9,8 @@
  */
 
 import { framesFor } from '../lf2data/tables.mjs';
-import { nextHit, nextSpawn, REACH_SLACK } from '../lf2data/frames.mjs';
-import { Z_TOLERANCE, Y_TOLERANCE, doing, unhittable } from '../state/arena.mjs';
+import { nextHit, nextSpawn, reachOfFrame, REACH_SLACK } from '../lf2data/frames.mjs';
+import { Z_TOLERANCE, Y_TOLERANCE, doing, unhittable, airborne } from '../state/arena.mjs';
 import { BOT } from '../state/bot.mjs';
 
 /**
@@ -62,12 +62,12 @@ export function inboundWeapon(arena) {
   // and the run data shows exactly that — first flagged at r80 with 43 units
   // closing per read, hit two reads later. Whatever the range, a weapon that is
   // in the air, not carried, and closing at our lane gets the same answer.
-  for (const item of arena.items ?? []) {
+  for (const item of airborne(arena)) {
     if (!item.hostile) continue;
     // Moving away: it has passed. Blocked anyway, a star that went by 23 off
     // our line turned Henry away from Rudolf (2026-09-24T20-37-48, tick 1175).
     if (item.speed < 0) continue;
-    const eta = item.speed > 0 ? item.range / item.speed : Infinity;
+    const eta = arrivalTicks(item);
     // Inside the CPU's 150, answer as it does. Beyond it, only when the weapon
     // is fast enough that waiting would leave no time to clear the lane: a
     // 43-units-per-read weapon first seen at 300 has seven reads left, which is
@@ -79,6 +79,39 @@ export function inboundWeapon(arena) {
     return { ...item, eta };
   }
   return null;
+}
+
+/** Half a fighter's body box (Dennis's is 43 wide, Henry's 43, Freeze's 41). */
+const BODY_HALF = 20;
+const contactCache = new Map();
+/**
+ * How far from our centre a flying object touches us: its hitbox's front edge
+ * ahead of its own centre, plus half our body. Measured to the object's centre,
+ * Freeze's ball hit Dennis from 42-51 away, where the arrival time still read
+ * 5 ticks and more, and the special that started on that reading was hit in
+ * its wind-up (2026-09-26T22-35-57, ticks 771-774). Read from the frames the
+ * object flies in; 0 for an object whose data has no hitbox.
+ */
+export function contactRange(id) {
+  if (!contactCache.has(id)) {
+    const frames = Object.values(framesFor(id) ?? {});
+    const flying = frames.filter((f) => f.dvx);
+    const reach = Math.max(0, ...(flying.length ? flying : frames).map(reachOfFrame));
+    contactCache.set(id, reach > 0 ? reach + BODY_HALF : 0);
+  }
+  return contactCache.get(id);
+}
+
+/**
+ * Ticks until a flying object touches us: 0 once it is inside its contact
+ * range, whatever its speed. An ice ball that has stopped against us reads
+ * speed 0, and "never arrives" let a special start while it was hitting
+ * (2026-09-26T22-35-57, tick 505).
+ */
+export function arrivalTicks(item) {
+  const gap = Math.max(0, item.range - contactRange(item.id));
+  if (gap === 0) return 0;
+  return item.speed > 0 ? gap / item.speed : Infinity;
 }
 
 /**
@@ -119,16 +152,16 @@ export function laneDanger(arena) {
   const { me } = arena;
   let worst = null;
   const consider = (d) => { if (!worst || d.eta < worst.eta) worst = d; };
-  for (const item of arena.items ?? []) {
+  for (const item of airborne(arena)) {
     if (!item.hostile) continue;
     // Moving away: it has passed. Its eta came out as Infinity, which every
     // step's time check passes, and a star that had just gone by walked
     // Henry up the stage for 259 ticks (2026-09-24T20-09-01, tick 1398).
     if (item.speed < 0) continue;
-    const eta = item.speed > 0 ? item.range / item.speed : Infinity;
+    const eta = arrivalTicks(item);
     const at = arrivalDz(item, eta);
     if (Math.abs(at) >= LANE_CLEAR) continue;
-    consider({ laneDz: at, eta, what: 'star' });
+    consider({ laneDz: at, eta, what: item.energy ? 'ball' : 'star', id: item.id });
   }
   for (const t of arena.threats) {
     if (t.zGap >= LANE_CLEAR || t.gap > THROW_RANGE || t.yGap > Y_TOLERANCE) continue;
@@ -136,10 +169,13 @@ export function laneDanger(arena) {
     if (!facingUs) continue;
     const spawn = nextSpawn(framesFor(t.id), t.frame, t.waiting);
     if (!spawn) continue;
-    consider({ laneDz: t.dz, eta: spawn.ticks + Math.max(0, t.gap - spawn.ahead) / spawn.speed, what: 'throw' });
+    const flight = Math.max(0, t.gap - spawn.ahead - contactRange(spawn.oid)) / spawn.speed;
+    consider({ laneDz: t.dz, eta: spawn.ticks + flight, what: 'throw', id: spawn.oid });
   }
   return worst;
 }
+
+const SAYS = { star: 'a star', ball: 'an energy ball', throw: 'a throw' };
 
 /** The crouch after a jump or a flip lands, where Defend starts a roll. */
 const LANDING = 215;
@@ -149,6 +185,13 @@ const LAND_ROLL_ETA = 14;
 /** px.js breaks a guard when a blocked hit takes the meter over this. */
 export const GUARD_BREAK = 30;
 const bdefendCache = new Map();
+/**
+ * px.js lets a hit through a block when its bdefend is over this: Julian's
+ * second ball (100) goes through the guard, so blocking it only roots us on its
+ * line.
+ */
+const UNBLOCKABLE = 60;
+export const unblockable = (id) => bdefendOf(id) > UNBLOCKABLE;
 /** The most a weapon adds to the guard meter when blocked (Rudolf's star: 12-16). */
 function bdefendOf(id) {
   if (!bdefendCache.has(id)) {
@@ -234,7 +277,7 @@ export function createReflex({ maxBlockTicks = BOT.BLOCK_COMMIT_FRAMES,
     // Defend there as a roll (frame 215 -> 102), which nothing hits.
     if (arena.me.frame === LANDING && lane && lane.eta <= LAND_ROLL_ETA) {
       return { action: 'land_roll', owns: true, eta: lane.eta,
-               reason: `${lane.what === 'star' ? 'a star' : 'a throw'} on our line in ~${lane.eta.toFixed(0)} ticks as we land — roll through it` };
+               reason: `${SAYS[lane.what]} on our line in ~${lane.eta.toFixed(0)} ticks as we land — roll through it` };
     }
     const mine = doing(arena.me);
     const canMove = ['neutral', 'walking', 'running'].includes(mine);
@@ -256,7 +299,9 @@ export function createReflex({ maxBlockTicks = BOT.BLOCK_COMMIT_FRAMES,
       // guard: that star lands either way, and a partial step may clear it. In
       // one run 534 hp went to stars, nearly all in chains that began with a
       // worn guard blocking while there was no time to step.
-      const worn = (arena.me.guard ?? 0) + 16 > GUARD_BREAK + Math.floor(lane.eta);
+      // What the block would add is read from the object itself: an ice ball's
+      // 16, a chaser's 60, or past what any guard stops.
+      const worn = (arena.me.guard ?? 0) + bdefendOf(lane.id) > GUARD_BREAK + Math.floor(lane.eta);
       if ((lane.eta >= need || worn) && room(dir, z) >= clearBy(dir)) {
         if (evade?.dir === dir) {
           evade.still = Math.abs(z - evade.z) < 0.5 ? evade.still + 1 : 0;
@@ -264,7 +309,7 @@ export function createReflex({ maxBlockTicks = BOT.BLOCK_COMMIT_FRAMES,
           if (evade.still >= 3) { walls[dir] = z; evade = null; }
         } else evade = { dir, z, still: 0 };
         return { action: dir === 'up' ? 'dodge_up' : 'dodge_down', thrown: true, eta: lane.eta,
-                 reason: `${lane.what === 'star' ? 'a star' : 'a throw'} on our line in ~${lane.eta.toFixed(0)} ticks — step ${dir} off it` };
+                 reason: `${SAYS[lane.what]} on our line in ~${lane.eta.toFixed(0)} ticks — step ${dir} off it` };
       }
     } else if (!lane) evade = null;
 
@@ -272,8 +317,11 @@ export function createReflex({ maxBlockTicks = BOT.BLOCK_COMMIT_FRAMES,
     // only answers left are to move or to hit back, which are the policy's.
     if (doing(arena.me) === 'broken_guard') { blocked = 0; return null; }
 
+    // A block does nothing against a hit that goes through it: stepping (above)
+    // was the answer, and short of that the policy's own, a special that meets
+    // it or a roll, are the rest.
     const thrown = inboundWeapon(arena);
-    if (thrown) {
+    if (thrown && !unblockable(thrown.id)) {
       const when = Number.isFinite(thrown.eta) ? `~${thrown.eta.toFixed(0)} ticks out` : 'closing';
       // The block, not the depth step. Against Rudolf's stars the step is where
       // the damage came from: in the three Henry vs Rudolf runs of 2026-09-23,
@@ -288,7 +336,7 @@ export function createReflex({ maxBlockTicks = BOT.BLOCK_COMMIT_FRAMES,
       // takes the keys instead.
       const worn = !guardHolds(arena.me, thrown);
       return { action: 'defend', thrown: true, worn, threat: null, eta: thrown.eta,
-               reason: `a thrown weapon ${Math.round(thrown.range)} away, ${when} — block it${worn ? ' (guard worn)' : ''}` };
+               reason: `${thrown.energy ? 'an energy ball' : 'a thrown weapon'} ${Math.round(thrown.range)} away, ${when} — block it${worn ? ' (guard worn)' : ''}` };
     }
 
     // A swing seen early enough is stepped out of rather than blocked: a hit

@@ -340,6 +340,11 @@ export async function runLoop({ cdp, pool, kb, run, name, policy, overlay, hz = 
       items: arena.items.slice(0, 3).map((i) => ({ slot: i.slot, name: i.name, range: Math.round(i.range),
         dx: Math.round(i.dx), dz: Math.round(i.dz), inFlight: !!i.inFlight, closing: !!i.closing,
         hostile: !!i.hostile, speed: Math.round(i.speed ?? 0), vz: +(i.vz ?? 0).toFixed(1) })),
+      // The enemy's cast energy while it is moving; an ended ball keeps its
+      // pool slot and would otherwise fill this with dead objects.
+      energy: arena.energy.filter((i) => i.inFlight).slice(0, 3).map((i) => ({ slot: i.slot, name: i.name,
+        range: Math.round(i.range), dx: Math.round(i.dx), dz: Math.round(i.dz), closing: !!i.closing,
+        hostile: !!i.hostile, speed: Math.round(i.speed ?? 0), vz: +(i.vz ?? 0).toFixed(1) })),
       action, source,
       reflex: reflex?.reason ?? null,
       keys: kb.stats.down,

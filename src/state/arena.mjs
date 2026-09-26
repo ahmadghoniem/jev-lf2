@@ -17,6 +17,14 @@ import { plainName } from './options.mjs';
 /** Data-file types that can be picked up. 6 is milk and beer. */
 const ITEM_TYPES = new Set([1, 2, 4, 6]);
 export const DRINK_TYPE = 6;
+/**
+ * Energy a fighter casts: balls, arrows fired by a special, chasers, ground
+ * flames and ice columns. Nobody picks these up, so they are kept out of the
+ * item list, but they fly at us exactly like a thrown weapon. Left unread,
+ * Freeze's ice ball hit Dennis with nothing in the log for 0.5 s before it
+ * (2026-09-26T21-30-24, tick 900). Each carries its caster's `group`.
+ */
+const ENERGY_TYPE = 3;
 
 /**
  * A hit only connects when attacker and target share roughly the same depth,
@@ -83,6 +91,12 @@ const RESPAWN_JUMP = 120;
  * one we are walking toward, closes at 2-5 and was being dodged "45 ticks out".
  */
 const MIN_THROWN_SPEED = 8;
+/**
+ * Energy never lies on the ground to be nudged, so any closing counts. Freeze's
+ * ball flies at 9 a read, which a fighter walking away brings under the thrown
+ * weapon's 8.
+ */
+const MIN_ENERGY_SPEED = 2;
 
 export function createItemMotion({ slack = FLIGHT_SLACK, stickyTicks = FLIGHT_STICKY } = {}) {
   const prev = new Map();
@@ -240,6 +254,9 @@ export function createLiveness({ staleMs = 1000 } = {}) {
 export const VIEW_HALF = 397;
 const ON_SCREEN_MARGIN = 30;
 
+/** Everything loose on the stage that can be flying at us: items, then energy. */
+export const airborne = (arena) => [...(arena.items ?? []), ...(arena.energy ?? [])];
+
 export function readArena(entities, { slot, name, isLive, heldTracker, motionTracker,
                                       stageWidth = Infinity, stageDepth = null } = {}) {
   const fighters = entities.filter((e) => e.type === 0).map(readFighter);
@@ -310,9 +327,21 @@ export function readArena(entities, { slot, name, isLive, heldTracker, motionTra
   // thing to ignore either: it is the attack that lands most often. A weapon
   // carried in a hand is neither, whatever its idle sway looks like in the
   // motion read.
-  const flying = ground.filter((i) => i.hostile && i.range <= PROJECTILE_RANGE);
+  // Only the enemy's: our own ball flies away from us, but a chaser turns and
+  // reads as closing. A cast object that has ended stays in its pool slot where
+  // it stopped, never moving again, so the motion read drops it.
+  const energy = entities.filter((e) => e.type === ENERGY_TYPE && e.group !== me.team)
+    .map((e) => geo({ slot: e.slot, name: e.name, id: e.id, type: e.type, x: e.x, y: e.y, z: e.z }))
+    .map((i) => ({ ...i, energy: true, ...(motionTracker
+      ? motionTracker(i, [])
+      : { inFlight: false, closing: false, carried: false }) }))
+    .map((i) => ({ ...i, hostile: i.inFlight && i.closing && (i.pace ?? 0) >= MIN_ENERGY_SPEED }))
+    .sort((a, b) => a.range - b.range);
 
-  return { me, threats, allies, held, items: ground, flying, stageWidth, stageDepth,
+  const flying = [...ground, ...energy].filter((i) => i.hostile && i.range <= PROJECTILE_RANGE)
+    .sort((a, b) => a.range - b.range);
+
+  return { me, threats, allies, held, items: ground, energy, flying, stageWidth, stageDepth,
            nearest: threats[0]?.gap ?? Infinity };
 }
 
