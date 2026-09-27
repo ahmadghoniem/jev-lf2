@@ -148,6 +148,11 @@ export async function setupMatch(cdp, { keys, me, foes, difficulty = 'normal', l
   for (const foe of foes) {
     const box = state.picking;
     log(`computer: ${foe}`);
+    // Jack and Mark (past the base ten) time out here: boxes[box].fighter sat
+    // on the previous match's pick through all 80 tries of Right at double
+    // budget, not just 40 — the press has no effect at all on an expansion
+    // pick, not merely too few of them. Cause not found; base-cast picks are
+    // unaffected and still use the plain budget.
     await until(`computer ${foe}`, (s) => s.boxes[box].fighter >= 0 && same(s.boxes[box].name, foe), keys.right);
     await until('lock computer fighter', (s) => s.boxes[box].join === JOIN.cpuTeam, keys.attack);
     await until('lock computer team', (s) => s.boxes[box].join === JOIN.cpuLocked, keys.attack);
