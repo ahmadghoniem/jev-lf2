@@ -60,7 +60,7 @@ const DECIDED_TICKS = 90;
 const ROLL_OWNS_MS = 1000;
 export async function runLoop({ cdp, pool, kb, run, name, policy, overlay, hz = 30, noSync = false,
                                decideEveryMs = 500, seconds = 120, onTick, keys,
-                               staleMs = STALE_MS, useRecent = true } = {}) {
+                               staleMs = STALE_MS, useRecent = false } = {}) {
   const period = 1000 / hz;
   // `hz` is only the fallback pace, for a pool that cannot wait on a frame.
   const sync = typeof pool.next === 'function' && !noSync;

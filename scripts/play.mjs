@@ -39,7 +39,13 @@ const decideEveryMs = Number(arg('decide-ms', 500));
 // fixes the same day -- kept running at the old 1500, since series.mjs never
 // passes --stale-ms and this default did the overriding.
 const staleMs = Number(arg('stale-ms', 900));
-const useRecent = !has('no-recent');
+// Off by default: 14-game on/off comparison (7 each, Dennis v Deep,
+// difficult, 2026-09-27) found recent ON self-repeated the previous
+// decision's resolved action 38.6% of the time to OFF's 29.6%, and won
+// 1 of 7 to OFF's 3 of 7. The one-field breadcrumb nudges toward repeating
+// the last pick rather than reassessing fresh, with no offsetting benefit
+// found. --recent opts back in for a future test.
+const useRecent = has('recent');
 
 const profile = profileFor(name);
 if (!profile) throw new Error(`no profile for ${name}`);
