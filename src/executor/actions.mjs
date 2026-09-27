@@ -102,6 +102,12 @@ function aimedAttack(keys, { seq = ['attack'], needReach = false, reach = 45, st
   let outTicks = 0;   // ticks spent stepping off the line before this attack
   let calls = 0;      // ticks this stance has run
   let pressedAt = -Infinity;   // the tick of its last press, sequence or repeat
+  // A special whose own combo presses Jump (Uj, ja) puts us in 'in_the_air'
+  // too, the same doing() a hit produces. Only the hit should abort the
+  // sequence, so a jump we pressed ourselves is not read as one: Louis's
+  // transform (ja) reached Defend, Jump, went airborne and sat there with
+  // Attack never pressed (2026-09-27T20-37-29, tick 1104).
+  let jumped = false;
   const started = () => step > 0 && step < seq.length * PRESS_EVERY;
   const run = (a) => {
     calls++;
@@ -113,10 +119,12 @@ function aimedAttack(keys, { seq = ['attack'], needReach = false, reach = 45, st
     // got hit, and started over. So the sequence starts only from a stance
     // that can act, and a hit restarts it.
     const mine = doing(a.me);
-    if (HURT.has(mine)) {
+    if (HURT.has(mine) && !(mine === 'in_the_air' && jumped)) {
       if (started()) step = 0;
+      jumped = false;
       return { hold: [] };
     }
+    if (mine !== 'in_the_air') jumped = false;
     // Defend while running is a roll and Attack is the run attack, so a run
     // is stopped first, by pressing against it. Started from the run, one
     // super arrow rolled Henry past Rudolf into the edge of the stage.
@@ -195,6 +203,7 @@ function aimedAttack(keys, { seq = ['attack'], needReach = false, reach = 45, st
         const item = seq.length === 1 && press === 'attack' ? itemUnderHand(a) : null;
         if (item) return { hold: [item.dz >= 0 ? keys.up : keys.down] };
         const code = press === 'forward' ? keys[dirTo(a.me, t)] : keys[press];
+        if (press === 'jump') jumped = true;
         step++;
         pressedAt = calls;
         return { hold: [], tap: [code], special: seq.length > 1 };
@@ -261,7 +270,7 @@ const COMMIT_GAP = 4;
  * Freeze (2026-09-25T13-35-04, ticks 830-844). So it waits until the fighter
  * can act, re-reads the enemy every tick, and attacks only while facing it.
  */
-function jumpAttackStance(keys) {
+function jumpAttackStance(keys, { reach = 0 } = {}) {
   let phase = 'ready';
   let ticks = 0;
   const run = (a) => {
@@ -275,7 +284,11 @@ function jumpAttackStance(keys) {
     }
     if (phase === 'air' && ticks >= JUMP_TO_ATTACK) {
       phase = 'done';
-      if (t?.infront) return { hold: [], tap: [keys.attack] };
+      // The target picked at jump start is not who is still there 220 ms
+      // later: it can be knocked down mid-air by something else, or simply
+      // walk out of reach while the timer runs. Re-read both right before the
+      // press instead of firing blind, the way the timed jump used to.
+      if (t?.infront && !unhittable(t) && t.gap <= reach + REACH_SLACK) return { hold: [], tap: [keys.attack] };
     }
     return { hold: [] };
   };
@@ -290,9 +303,18 @@ const JUMP_TO_ATTACK = 7;
  */
 function keyedSpecial(keys, seq) {
   let step = 0;
+  // A special whose own combo presses Jump (Uj, ja) puts us in 'in_the_air'
+  // too, the same doing() a hit produces. Only the hit should abort the
+  // sequence, so a jump we pressed ourselves is not read as one.
+  let jumped = false;
   const run = (a) => {
     const mine = doing(a.me);
-    if (HURT.has(mine)) { if (step > 0 && step < seq.length * PRESS_EVERY) step = 0; return { hold: [] }; }
+    if (HURT.has(mine) && !(mine === 'in_the_air' && jumped)) {
+      if (step > 0 && step < seq.length * PRESS_EVERY) step = 0;
+      jumped = false;
+      return { hold: [] };
+    }
+    if (mine !== 'in_the_air') jumped = false;
     if (step === 0 && mine === 'running') return { hold: [keys[opposite(a.me.facing)]] };
     if (step === 0 && !canStart(a.me, mine, seq)) return { hold: [] };
     if (step >= seq.length * PRESS_EVERY) return { hold: [] };
@@ -300,6 +322,7 @@ function keyedSpecial(keys, seq) {
       const press = seq[step / PRESS_EVERY];
       const t = enemy(a);
       const code = press === 'forward' ? keys[t ? dirTo(a.me, t) : a.me.facing] : keys[press];
+      if (press === 'jump') jumped = true;
       step++;
       return { hold: [], tap: [code], special: seq.length > 1 };
     }
@@ -495,7 +518,7 @@ export function planAction(name, { arena, profile, keys = P4_KEYS } = {}) {
     const jump = profile?.moves?.find((m) => m.name === 'jump_attack');
     if (jump?.kind === 'melee' && (!target || target.zGap > BOT.HIT_Z
         || target.gap > (jump.reach ?? 0) + REACH_SLACK)) return null;
-    return stance(jumpAttackStance(keys));
+    return stance(jumpAttackStance(keys, { reach: jump?.reach ?? 0 }));
   }
 
   if (name === 'run_attack') {
@@ -764,10 +787,14 @@ function chargeStance(keys, { dash, reach }) {
       phase = 'done';
     }
     if (phase === 'dash') {
-      // The burst's 160 ms from Jump to Attack.
+      // The burst's 160 ms from Jump to Attack. Same re-check as the plain
+      // jump attack, and for the same reason: the enemy this was aimed at can
+      // go down or step out during that time, and firing blind into either
+      // just wastes the swing.
       if (ticks < 5) return { hold: [keys[dir]] };
       phase = 'done';
-      return { hold: [], tap: [keys.attack] };
+      if (t && t.infront && !unhittable(t) && t.gap <= reach + RUN_SKID) return { hold: [], tap: [keys.attack] };
+      return { hold: [] };
     }
     return { hold: [] };
   };
