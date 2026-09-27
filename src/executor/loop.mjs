@@ -98,6 +98,7 @@ export async function runLoop({ cdp, pool, kb, run, name, policy, overlay, hz = 
   // began on.
   let rollUntil = 0;
   let standing = null;     // Jev's latest answer, for when a reflex lets go
+  let deferred = null;     // a different answer waiting for a committed special
   let answered = null;     // Jev's latest answer, kept even once applied
   const HOLDS = new Set(['defend', 'wait']);
   const ROLLING = (frame) => frame >= 102 && frame <= 107;
@@ -165,7 +166,8 @@ export async function runLoop({ cdp, pool, kb, run, name, policy, overlay, hz = 
     // --- the layer that cannot wait for a network call
     let reflex = reflexFor(arena, { profile });
     // The punish reflex does not cut into a special being keyed in.
-    if (reflex?.action === 'punish' && source === policy.name && planned?.busy?.()) reflex = null;
+    if (reflex?.action === 'punish' && source === policy.name
+        && (planned?.busy?.() || planned?.committed?.())) reflex = null;
     // A roll owns the keys until it is done, since the block would cut it
     // short — except against a weapon about to land during the run-up, where
     // Defend is what starts the tumble anyway (running + Defend is the roll).
@@ -198,6 +200,7 @@ export async function runLoop({ cdp, pool, kb, run, name, policy, overlay, hz = 
     }
     if (reflex) {
       counts.reflexes++;
+      deferred = null;     // the reflex hands back through `standing`
       action = reflex.action; source = 'reflex'; stance = null;
       plannedFor = null;   // a reflex tick is a new order; re-plan it
     }
@@ -208,6 +211,13 @@ export async function runLoop({ cdp, pool, kb, run, name, policy, overlay, hz = 
       pending = null;
       if (result?.action) answered = { action: result.action, askedAtMs };
       if (Date.now() - askedAtMs > staleMs) counts.stale++;
+      // A special being keyed in or chained finishes first; see `committed`
+      // in actions.mjs. The answer takes over as soon as it lets go.
+      else if (result?.action && result.action !== action && source === policy.name
+               && planned?.committed?.()) {
+        deferred = standing = { action: result.action, askedAtMs };
+        counts.deferred = (counts.deferred ?? 0) + 1;
+      }
       // A thrown weapon is already in the air and the block answers it, so that
       // one reflex holds against a late answer; everything else steps aside.
       // The roll is the exception: nothing hits it either, so it may replace the
@@ -244,6 +254,16 @@ export async function runLoop({ cdp, pool, kb, run, name, policy, overlay, hz = 
           .map(([k, a]) => [k.slice('which_'.length), { probabilities: a.probabilities ?? {}, choice: a.choice }])),
       };
       forceDraw = true;
+    }
+
+    if (deferred && source === policy.name && !planned?.committed?.()) {
+      if (Date.now() - deferred.askedAtMs <= staleMs) {
+        action = deferred.action; stance = null;
+        plannedFor = null;
+        if (action === 'roll_away') rollUntil = Date.now() + ROLL_OWNS_MS;
+        recent = { last_action: action };
+      }
+      deferred = null;
     }
 
     // --- once the reflex lets go, Jev's latest answer takes the keys back.

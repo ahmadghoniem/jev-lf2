@@ -100,8 +100,11 @@ function aimedAttack(keys, { seq = ['attack'], needReach = false, reach = 45, st
   let step = 0;
   let side = null;    // the side of the enemy's line aimed from (see `aimSide`)
   let outTicks = 0;   // ticks spent stepping off the line before this attack
+  let calls = 0;      // ticks this stance has run
+  let pressedAt = -Infinity;   // the tick of its last press, sequence or repeat
   const started = () => step > 0 && step < seq.length * PRESS_EVERY;
   const run = (a) => {
+    calls++;
     const t = enemy(a);
     if (!t) return { hold: [] };
     // Presses made while staggered or knocked about are read by nobody, and a
@@ -193,6 +196,7 @@ function aimedAttack(keys, { seq = ['attack'], needReach = false, reach = 45, st
         if (item) return { hold: [item.dz >= 0 ? keys.up : keys.down] };
         const code = press === 'forward' ? keys[dirTo(a.me, t)] : keys[press];
         step++;
+        pressedAt = calls;
         return { hold: [], tap: [code], special: seq.length > 1 };
       }
       step++;
@@ -206,12 +210,21 @@ function aimedAttack(keys, { seq = ['attack'], needReach = false, reach = 45, st
     const landing = laneDanger(a);
     if (seq.length > 1 && repeats(a.me) && (anyDepth || Math.abs(dz) <= BOT.AIM_MAX_Z) && t.infront
       && !(landing && landing.eta <= startup + 2)) {
+      pressedAt = calls;
       return { hold: [], tap: [keys.attack], special: true };
     }
     return { hold: [] };
   };
   // A half-played sequence, which a repeat of the same answer should not restart.
   run.busy = started;
+  // A special being keyed in or chained, which a different answer waits for.
+  // The next answer used to replace it on arrival: of 47 answers for Dennis's
+  // energy ball in 4 games, 22 fired nothing and 6 went past one shot, the
+  // chain mostly cut by a close_distance or a rush picked 10 ticks later
+  // (2026-09-27T09-28-59 to 09-36-07). The gap covers the ticks between the
+  // last press and the move's first frame, where no repeat is pressed yet.
+  run.committed = () => seq.length > 1 && (started()
+    || (step >= seq.length * PRESS_EVERY && calls - pressedAt <= COMMIT_GAP));
   return faced(keys, run);
 }
 
@@ -234,8 +247,11 @@ function faced(keys, run) {
     return { ...out, tap: [keys[dirTo(a.me, t)]] };
   };
   step.busy = run.busy;
+  step.committed = run.committed;
   return step;
 }
+/** Ticks after a special's last press that it still holds the keys. */
+const COMMIT_GAP = 4;
 
 /**
  * A jump attack: face the enemy, Jump, and Attack on the way down. As a timed
@@ -291,6 +307,7 @@ function keyedSpecial(keys, seq) {
     return { hold: [] };
   };
   run.busy = () => step > 0 && step < seq.length * PRESS_EVERY;
+  run.committed = () => seq.length > 1 && run.busy();
   return run;
 }
 
@@ -845,7 +862,8 @@ function away(arena, keys, t) {
   return [keys[dirTo(arena.me, t) === 'right' ? 'left' : 'right']];
 }
 
-const stance = (step) => ({ kind: 'stance', step, busy: step.busy ?? (() => false) });
+const stance = (step) => ({ kind: 'stance', step, busy: step.busy ?? (() => false),
+                            committed: step.committed ?? (() => false) });
 
 /** Which of the offered options the executor can actually carry out. */
 export function executableOptions(options, ctx) {

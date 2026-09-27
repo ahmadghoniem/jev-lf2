@@ -406,10 +406,21 @@ export function itemUnderHand(arena) {
     && ahead * i.dx + ITEM_HALF >= from && ahead * i.dx - ITEM_HALF <= to) ?? null;
 }
 
+/**
+ * Injured and dizzy: on its feet, reeling from a hit, and unable to act. The
+ * next hit carries the combo on, where an answer from Jev lands after the
+ * stagger is over. With it not counted, a Davis staggered by two hits of a
+ * rush was given a jump attack from 44 away, which missed, and Dennis took 45
+ * on landing (2026-09-27T09-36-07, ticks 1780-1825); across 4 games a
+ * staggered enemy in reach drew 9 punches and 8 jump attacks from Jev.
+ */
+const STUNNED = new Set([11, 16]);
+const stunned = (t) => STUNNED.has(framesFor(t.id)?.[t.frame]?.state);
+
 export function punish(arena, profile) {
   const t = arena.threats[0];
   const basic = profile?.basicAttack;
-  if (!t || !basic || !t.vulnerable || unhittable(t)) return null;
+  if (!t || !basic || !(t.vulnerable || stunned(t)) || unhittable(t)) return null;
   if (itemUnderHand(arena)) return null;
   // Not with a star or a throw on our line: the attack's animation roots us
   // on it until the star lands.
