@@ -77,12 +77,12 @@ export function openRun({ dir = 'runs', id = stamp(), meta = {} } = {}) {
      * One row per Jev call, including the calls that never came back — a miss
      * is data. `state` is stored verbatim because replay needs the exact input.
      */
-    judgement({ tick, schema, criteria, state, answers, latencyMs, usage, requestId, source, action, error }) {
+    judgement({ tick, schema, criteria, state, answers, latencyMs, usage, requestId, model, source, action, error }) {
       counts.judgements++;
       if (answers) counts.jevAnswers++; else counts.jevMisses++;
       write('judgements', {
         t: Date.now() - started, tick, schema, criteria, state, answers,
-        latencyMs, usage, requestId, source, action,
+        latencyMs, usage, requestId, model, source, action,
         error: error ? String(error.message ?? error) : undefined,
       });
     },

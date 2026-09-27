@@ -306,7 +306,7 @@ export async function runLoop({ cdp, pool, kb, run, name, policy, overlay, hz = 
         run?.judgement({
           tick: askedAt, schema, criteria: { action: options },
           state: result?.state, answers: result?.answers, latencyMs: result?.latencyMs,
-          usage: result?.usage, requestId: result?.requestId, source: policy.name,
+          usage: result?.usage, requestId: result?.requestId, model: result?.model, source: policy.name,
           action: result?.action,
         });
       }).catch((error) => {

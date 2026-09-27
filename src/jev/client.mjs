@@ -144,7 +144,8 @@ export function createClient({
   };
 
   /** Running totals, read by the telemetry writer at the end of a run. */
-  const usage = { calls: 0, inputTokens: 0, outputTokens: 0, misses: 0, errors: 0 };
+  // `models` counts which Jev version answered: `jev-latest` moves on its own.
+  const usage = { calls: 0, inputTokens: 0, outputTokens: 0, misses: 0, errors: 0, models: {} };
 
   async function post(body, ms, signal) {
     const timeout = AbortSignal.timeout(ms);
@@ -166,6 +167,7 @@ export function createClient({
     usage.calls++;
     usage.inputTokens += parsed?.usage?.input_tokens ?? 0;
     usage.outputTokens += parsed?.usage?.output_tokens ?? 0;
+    if (parsed?.model) usage.models[parsed.model] = (usage.models[parsed.model] ?? 0) + 1;
     return { ...parsed, latencyMs: Math.round(performance.now() - started), requestId: res.headers.get('x-typesafe-request-id') ?? undefined };
   }
 

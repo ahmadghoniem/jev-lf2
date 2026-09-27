@@ -24,7 +24,7 @@ import { startMatch } from '../src/executor/match.mjs';
 import { createOverlay } from '../src/executor/overlay.mjs';
 import { proveInput, reportProbe } from '../src/executor/inputcheck.mjs';
 import { arg, has, loadApiKey } from '../src/cli.mjs';
-import { existsSync, readFileSync, writeFileSync, unlinkSync, mkdirSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync, unlinkSync, mkdirSync, readdirSync } from 'node:fs';
 
 const name = arg('name', 'Deep');
 const kind = arg('policy', 'heuristic');
@@ -133,7 +133,19 @@ const counts = await runLoop({
 
 await kb.releaseAll();
 if (!has('keep-overlay')) await overlay.remove();
-const manifest = await run.close({ loop: counts });
+// The newest earlier run that recorded which Jev answered, to say when it changed.
+const lastModels = () => {
+  for (const d of readdirSync('runs').filter((d) => /^\d{4}-/.test(d)).sort().reverse()) {
+    const f = `runs/${d}/manifest.json`;
+    if (d === run.id || !existsSync(f)) continue;
+    const m = JSON.parse(readFileSync(f, 'utf8')).jev?.models;
+    if (m && Object.keys(m).length) return m;
+  }
+  return null;
+};
+const before = client ? lastModels() : null;
+const models = client ? { ...client.usage.models } : null;
+const manifest = await run.close({ loop: counts, ...(client && { jev: { models } }) });
 await cdp.close();
 
 console.log(`\n${counts.ticks} ticks, ${counts.decisions} decisions, ${counts.misses} missed, `
@@ -141,6 +153,13 @@ console.log(`\n${counts.ticks} ticks, ${counts.decisions} decisions, ${counts.mi
   + `${counts.defused} specials defused, ${counts.unshouted} shouts prevented — ${counts.outcome}`);
 console.log(`run: ${run.dir} (${manifest.counts.judgements} judgement rows)`);
 if (counts.timing) console.log(`loop: ${JSON.stringify(counts.timing)}`);
+if (models) {
+  const names = (m) => Object.keys(m).sort().join(', ');
+  console.log(`jev: ${Object.entries(models).map(([k, n]) => `${k} (${n})`).join(', ') || 'no answers'}`);
+  if (before && Object.keys(models).length && names(before) !== names(models)) {
+    console.log(`JEV CHANGED: ${names(before)} → ${names(models)} — compare with: node scripts/replay-jev.mjs --n 200`);
+  }
+}
 // Anything that could hurt, moved in play, and was never read.
 const blind = counts.coverage?.blind ?? [];
 console.log(blind.length

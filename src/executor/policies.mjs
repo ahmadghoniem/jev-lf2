@@ -114,6 +114,7 @@ export function jevPolicy(client, profile, { deadlineMs = 1400 } = {}) {
         answers: answer.answers,
         usage: answer.usage,
         requestId: answer.requestId,
+        model: answer.model,
         latencyMs, state, questions,
       };
     },

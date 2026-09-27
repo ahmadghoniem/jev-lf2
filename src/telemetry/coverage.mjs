@@ -39,7 +39,8 @@ export function createCoverage() {
         const was = last.get(e.slot);
         last.set(e.slot, { key, x: e.x, y: e.y, z: e.z });
         const moved = was?.key === key && Math.hypot(e.x - was.x, e.y - was.y, e.z - was.z) > MOVED;
-        if (!moved || read.has(e.slot)) continue;
+        // A knocked-out fighter leaves the threat list but can still slide.
+        if (!moved || read.has(e.slot) || (e.type === 0 && e[F.hp] <= 0)) continue;
         let k = kinds.get(key);
         if (!k) {
           k = { type: e.type, name: e.name, id: e.id, hurts: canHurt(e.id), ticks: 0, ours: 0, firstTick: tick };
