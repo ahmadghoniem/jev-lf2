@@ -14,7 +14,7 @@
 import { readArena, doing, createLiveness, createHeldTracker, createItemMotion, ENERGY_SLACK } from '../state/arena.mjs';
 import { createCoverage } from '../telemetry/coverage.mjs';
 import { profileFor } from '../lf2data/tables.mjs';
-import { planAction, ROLL_START_TICKS } from './actions.mjs';
+import { planAction, findSpecial, ROLL_START_TICKS } from './actions.mjs';
 import { createReflex, laneDanger } from './reflex.mjs';
 import { offer } from './policies.mjs';
 import { stageWidth as readStageWidth, stageDepth as readStageDepth } from './setup.mjs';
@@ -168,6 +168,12 @@ export async function runLoop({ cdp, pool, kb, run, name, policy, overlay, hz = 
     // The punish reflex does not cut into a special being keyed in.
     if (reflex?.action === 'punish' && source === policy.name
         && (planned?.busy?.() || planned?.committed?.())) reflex = null;
+    // Nor does it take the place of a special Jev picked and the bar can pay
+    // for. Henry's punish is an arrow that staggers again, so against Rudolf
+    // it fired at every return to neutral and 9 super-arrow answers never got
+    // a key in (2026-09-27T09-57-23, 09-58-17).
+    if (reflex?.action === 'punish' && source === policy.name && action?.startsWith('special_')
+        && (findSpecial(profile, action)?.mp ?? Infinity) <= arena.me.mp) reflex = null;
     // A roll owns the keys until it is done, since the block would cut it
     // short — except against a weapon about to land during the run-up, where
     // Defend is what starts the tumble anyway (running + Defend is the roll).

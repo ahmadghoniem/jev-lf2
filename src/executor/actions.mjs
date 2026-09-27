@@ -784,7 +784,7 @@ const ACTIONABLE = new Set(['neutral', 'walking', 'running']);
 const RUN_START_TICKS = 10;
 
 /** The move an option name refers to, matched the way the name was built. */
-const findSpecial = (profile, name) =>
+export const findSpecial = (profile, name) =>
   profile?.moves?.find((m) => `special_${label(m)}` === name) ?? null;
 
 /** The nearest threat, re-read each tick because it moves and can die. */
