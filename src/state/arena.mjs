@@ -31,8 +31,7 @@ const ENERGY_TYPE = 3;
  * and a straight attack leaves at the attacker's own height. Coordinates are
  * `x` horizontal, `y` vertical (negative is up) and `z` depth, so a target that
  * is a long way off in `z` is missed by anything fired from where we stand even
- * though `x` says it is right in front. These are the arithmetic thresholds;
- * `docs/05-live-state.md` is where the axes come from.
+ * though `x` says it is right in front. These are the arithmetic thresholds.
  */
 export const Z_TOLERANCE = 12;
 export const Y_TOLERANCE = 30;

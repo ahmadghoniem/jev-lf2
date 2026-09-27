@@ -5,8 +5,6 @@
  * and the input -> frame transitions that make up every move. Everything the
  * reflex layer and the move repertoire need comes from here, so none of it has to
  * be learned by watching the screen.
- *
- * See docs/04-lf2-data-format.md for the format itself.
  */
 
 /** Tags that appear inside a frame block. `bp` must precede `b` in the alternation. */

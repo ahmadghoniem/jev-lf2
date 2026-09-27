@@ -20,7 +20,7 @@
  * judgement row. Only the stable part of it, though: the `action` and `target`
  * options are rebuilt every tick from what is actually on the ground, so
  * hashing the whole set produced a new schema file on almost every tick. A
- * benchmark over 2000 realistic ticks (`bench/schema-ab.md`) measured 1999
+ * benchmark over 2000 realistic ticks measured 1999
  * schema files and 6.94 MB that way, against 1 file and 4.56 MB when the
  * varying criteria ride along on the judgement row instead.
  */

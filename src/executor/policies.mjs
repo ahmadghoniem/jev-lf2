@@ -196,6 +196,13 @@ function situationNotes(options, arena, profile) {
  * Independent questions, evaluated in parallel by the service. Options of one
  * kind are offered once in the action question, and a follow-up per kind
  * picks between them in the same request (see `src/state/nest.mjs`).
+ *
+ * Built around what TypeSafe documents for Jev 1.13. It is unreliable at math,
+ * counting and numeric comparison, so the code does the counting, and distance
+ * and HP go as named buckets. A large irrelevant state distracts it, so only
+ * the nearest three threats go. It reads literally, so criteria spell out
+ * boundary cases. Question ids are not sent to the model, so every instruction
+ * and criterion has to stand on its own.
  */
 function questionSet(options, arena, profile) {
   const { top, groups } = nestOptions(options);

@@ -20,7 +20,7 @@ import { framesFor } from '../lf2data/tables.mjs';
 /**
  * Whether a move fires an energy ball: an object whose first frame is state
  * 3000. The CPU blocks every one of these that comes within 200 of it while it
- * is free to act (docs/07-cpu-ai.md); arrows, stars and blasts are not in it.
+ * is free to act (px.js TI2f); arrows, stars and blasts are not in it.
  */
 export const firesBall = (move) => (move.spawns ?? []).some((id) => {
   const f = framesFor(id);

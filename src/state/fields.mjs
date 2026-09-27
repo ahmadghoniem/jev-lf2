@@ -1,8 +1,8 @@
 /**
  * The obfuscated field names, in one place.
  *
- * Every one of these was settled from a recorded match rather than guessed —
- * the evidence is in docs/05-live-state.md. They are behind a normaliser so a
+ * Every one of these was settled from a recorded match rather than guessed
+ * (scripts/classify-fields.mjs, scripts/watch-fields.mjs). They are behind a normaliser so a
  * rebuild of the game that renames them costs one edit here and nothing else.
  */
 

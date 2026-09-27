@@ -21,7 +21,7 @@ export const BOT = {
   X_DEADZONE: 6,
   Z_DEADZONE: 3,
 
-  // --- where to stand to hit without being hit (docs/07-cpu-ai.md)
+  // --- where to stand to hit without being hit (px.js TI2f)
   // A hit connects while the depth gap is under the attack's zwidth, 16 when
   // the data leaves it unset (px.js). The CPU starts its own attacks only
   // within 5 of depth and blocks only within 9. So Jev aims
@@ -35,8 +35,8 @@ export const BOT = {
 
   // --- a weapon worth answering (TI2f)
   // The CPU steps off the line of a projectile inside DODGE_X of it and DODGE_Z
-  // of its depth. It does so for only three objects (docs/07-cpu-ai.md); we
-  // use the same box for every thrown weapon.
+  // of its depth. It does so for only three objects (John's ball, Firen's
+  // ground flame, Freeze's column); we use the same box for every thrown weapon.
   DODGE_X: 150,
   DODGE_Z: 25,
 

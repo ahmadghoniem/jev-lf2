@@ -378,7 +378,7 @@ export function createReflex({ maxBlockTicks = BOT.BLOCK_COMMIT_FRAMES,
 
 /**
  * Hit an enemy stuck in a recovery the moment it is in reach, as the CPU does:
- * it swings 1 time in 3 every tick a target is in range (docs/07-cpu-ai.md),
+ * it swings 1 time in 3 every tick a target is in range (px.js TI2f),
  * where an answer from Jev arrives up to a second later, after the window.
  * The ordinary attack only, read from the fighter's own profile: a swing
  * inside its reach, or a shot inside its range while the MP covers it. Depth

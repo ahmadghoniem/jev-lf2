@@ -4,7 +4,7 @@
  * Node 24 has a global WebSocket, so this has no dependencies. The Debugger
  * domain is never enabled — the game's obfuscator has debug protection that
  * only triggers when it is, and everything needed is reachable through
- * Runtime alone (see docs/00-findings.md).
+ * Runtime alone.
  */
 import { setTimeout as sleep } from 'node:timers/promises';
 

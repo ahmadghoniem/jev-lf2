@@ -14,7 +14,7 @@ import process from 'node:process';
 export async function run() {
   const targetDir = process.argv[2] ?? 'runs/2026-09-18T23-55-08';
   const ticksPath = path.resolve(targetDir, 'ticks.jsonl');
-  const reportPath = path.resolve('bench', 'field-classification.md');
+  const reportPath = path.resolve(targetDir, 'field-classification.md');
 
   if (!fs.existsSync(ticksPath)) {
     console.error(`Error: Ticks file not found at ${ticksPath}`);
