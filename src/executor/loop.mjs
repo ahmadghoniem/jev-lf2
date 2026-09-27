@@ -25,8 +25,25 @@ import { bucketRange } from '../lf2data/profile.mjs';
  * milliseconds rather than ticks because the loop does not always hit its
  * target rate — a run that paces at 22 Hz would otherwise get a 1.4-second
  * staleness window while believing it had one second.
+ *
+ * 1500 was inherited from a dedup of two copies of this file (1300 and 1500)
+ * rather than measured. Decision latency across three recent games (352
+ * answers) ran p50 350ms, p99 530-630ms, max 628ms — so 1500 never once
+ * fired and let the loop treat any answer as fresh for three decide cycles.
+ * Set with margin over the observed max instead.
  */
-const STALE_MS = 1500;
+const STALE_MS = 900;
+/**
+ * How many ticks a chosen, non-reflex action is left pressing nothing before
+ * it is asked about again, instead of waiting out the rest of decideEveryMs.
+ * An action goes empty mid-cycle when what it was asked about stops holding
+ * — a special asked into a Freeze that went knocked down a tick later sat
+ * idle for 13 ticks with the current answer still "valid" by staleMs, since
+ * staleMs only measures ask-to-apply time, not whether the target held
+ * (2026-09-27T19-05-17, tick 563). A held special's between-press gaps are
+ * not this: `busy()` covers those.
+ */
+const IDLE_REASK_TICKS = 4;
 
 // A single frame can read hp as 0/undefined while the entity is mid-transition
 // (spawn, certain hit states), which used to log a false death at t≈0. A fighter
@@ -66,6 +83,7 @@ export async function runLoop({ cdp, pool, kb, run, name, policy, overlay, hz = 
   let deadStreak = 0;                    // consecutive not-alive reads (debounce)
   let confirmedDead = false;             // once true, every later tick logs as dead
   let noEnemyStreak = 0;
+  let idleTicks = 0;      // consecutive ticks a chosen action has pressed nothing
   const counts = { ticks: 0, decisions: 0, misses: 0, reflexes: 0, stale: 0, bursts: 0, dead: 0,
                    defused: 0, outcome: 'time' };
 
@@ -346,6 +364,12 @@ export async function runLoop({ cdp, pool, kb, run, name, policy, overlay, hz = 
         const step = stance(arena);
         await kb.hold(step.hold ?? []);
         for (const code of step.tap ?? []) await kb.tap(code, undefined, { intended: !!step.special });
+        // Nothing pressed and nothing mid-move: what this action was asked
+        // about stopped holding. Ask again rather than sit out the interval.
+        const empty = !step.hold?.length && !step.tap?.length;
+        if (empty && source === policy.name && action !== 'wait' && !plan.busy?.()) {
+          if (++idleTicks >= IDLE_REASK_TICKS) { lastAsk = 0; idleTicks = 0; }
+        } else idleTicks = 0;
       } else {
         await kb.hold([]);
       }
