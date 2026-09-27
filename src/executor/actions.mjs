@@ -691,12 +691,16 @@ function chargeStance(keys, { dash, reach }) {
   let phase = 'ready';
   let dir = null;
   let ticks = 0;
+  // The smallest gap seen in the run, and the tick it was seen.
+  let closest = Infinity;
+  let closestAt = 0;
   const run = (a) => {
     const t = enemy(a);
     const now = doing(a.me);
     ticks++;
     if (phase === 'ready') {
       if (!t || unhittable(t) || !ACTIONABLE.has(now)) return { hold: [] };
+      closest = Infinity;
       // A run carries along its line, so it starts from the enemy's. Started
       // from 111 of depth away, run attacks swung left and right past Firen
       // (2026-09-24T20-28-06, ticks 1652-1705).
@@ -716,6 +720,14 @@ function chargeStance(keys, { dash, reach }) {
     // Run past the enemy, the swing goes the other way, so the run is stopped
     // instead, which also turns the fighter back to it.
     if (behind && phase === 'run') { phase = 'stop'; ticks = 0; }
+    // An enemy running away as fast as the fighter is never reached, so a run
+    // that stops gaining on it is stopped and the choice goes back to Jev.
+    // Swung on a timer instead, Henry's run attacks went off from 139-207
+    // away at a Rudolf running from him (2026-09-27T18-19-13, ticks 233-706).
+    if (phase === 'run' && now === 'running' && t) {
+      if (t.gap < closest - CLOSING_MIN) { closest = t.gap; closestAt = ticks; }
+      if (ticks - closestAt > NOT_CLOSING_TICKS) { phase = 'stop'; ticks = 0; }
+    }
     if (phase === 'tap') {
       if (ticks <= 1) return { hold: [keys[dir]] };
       if (ticks === 2) return { hold: [] };
@@ -740,8 +752,8 @@ function chargeStance(keys, { dash, reach }) {
         if (!level) return { hold: [keys[dir], ...steer] };
         phase = 'done'; return { hold: [keys[dir]], tap: [keys.attack] };
       }
-      // The old burst swung about 8 ticks into the run; sooner once in reach.
-      const there = !t || t.gap <= reach + RUN_SKID || ticks >= 8;
+      // Swung once in reach, with the ground the run slides on during the swing.
+      const there = !t || t.gap <= reach + RUN_SKID;
       if (!there || !level) return { hold: [keys[dir], ...steer] };
       phase = 'done';
       return { hold: [keys[dir]], tap: [keys.attack] };
@@ -764,6 +776,9 @@ function chargeStance(keys, { dash, reach }) {
 }
 /** Ticks into a run after which a charge that never got level gives up. */
 const CHARGE_GIVE_UP = 16;
+/** A run that has not closed the gap by CLOSING_MIN in NOT_CLOSING_TICKS is stopped. */
+const CLOSING_MIN = 8;
+const NOT_CLOSING_TICKS = 6;
 /** A weapon closer than this sideways is passing through, not coming from a side. */
 const PASSING_DX = 12;
 /** Ticks a run away is held once running, about half a second. */
