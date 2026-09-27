@@ -134,9 +134,11 @@ export async function setupMatch(cdp, { keys, me, foes, difficulty = 'normal', l
   await until('lock fighter', (s) => s.boxes[mine].join === JOIN.team, keys.attack);
   await until('lock team', (s) => s.boxes[mine].join === JOIN.locked, keys.attack);
 
-  // Attack ends the join countdown at once instead of waiting out its 3 s.
-  log('skip the join countdown');
-  await until('computer-count prompt', (s) => s.phase === 1, keys.attack, { tries: 60, gapMs: 250 });
+  // The join countdown is waited out. Pressing Attack to skip it went on
+  // through the computer-count prompt and picked a random computer between two
+  // reads, twice on 2026-09-27 (Henry v Rudolf came out Henry v Deep, v Firen).
+  log('wait out the join countdown');
+  await until('computer-count prompt', (s) => s.phase === 1, null, { tries: 60, gapMs: 250 });
 
   log(`${foes.length} computer player(s)`);
   const step = foes.length > state.computers ? keys.right : keys.left;

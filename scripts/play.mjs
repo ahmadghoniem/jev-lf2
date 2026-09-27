@@ -19,6 +19,7 @@ import { runLoop } from '../src/executor/loop.mjs';
 import { heuristicPolicy, jevPolicy, forcePolicy } from '../src/executor/policies.mjs';
 import { profileFor } from '../src/lf2data/tables.mjs';
 import { openRun } from '../src/telemetry/log.mjs';
+import { menuState, DIFFICULTY } from '../src/executor/setup.mjs';
 import { createClient } from '../src/jev/client.mjs';
 import { startMatch } from '../src/executor/match.mjs';
 import { createOverlay } from '../src/executor/overlay.mjs';
@@ -104,10 +105,12 @@ if (!has('no-verify')) {
 
 await warming;
 
+const level = (await menuState(cdp).catch(() => null))?.difficulty;
+const difficulty = Object.keys(DIFFICULTY).find((k) => DIFFICULTY[k] === level) ?? 'unknown';
 const run = openRun({ meta: { label: arg('label', `${kind}-${name}`), policy: kind, character: name,
-                              archetype: profile.archetype, hz, decideEveryMs, seconds } });
+                              archetype: profile.archetype, difficulty, hz, decideEveryMs, seconds } });
 
-console.log(`${name} (${profile.archetype}) under ${kind}, ${seconds}s → ${run.dir}`);
+console.log(`${name} (${profile.archetype}) under ${kind} on ${difficulty}, ${seconds}s → ${run.dir}`);
 console.log('ctrl-c releases the keys and closes the run\n');
 
 let stopping = false;

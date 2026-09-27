@@ -25,7 +25,7 @@ import { connect } from '../src/cdp/client.mjs';
 import { openEntityPool } from '../src/state/entities.mjs';
 import { startMatch, living } from '../src/executor/match.mjs';
 import { arg, has } from '../src/cli.mjs';
-import { setupMatch } from '../src/executor/setup.mjs';
+import { setupMatch, menuState, DIFFICULTY } from '../src/executor/setup.mjs';
 import { readBindings } from '../src/executor/keyboard.mjs';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -54,6 +54,7 @@ const cdp = await connect();
 
 // The pool keeps fighters from earlier matches, so the wanted opponents need
 // only be among the ones listed.
+const same = (a, b) => a?.toLowerCase() === b?.toLowerCase();
 const sameMatch = (alive, me, foes) => {
   const ours = alive.find((f) => f.human);
   const theirs = alive.filter((f) => !f.human).map((f) => f.name.toLowerCase());
@@ -66,7 +67,21 @@ if (has('setup')) {
   const foes = String(arg('vs', 'Rudolf')).split(',').map((s) => s.trim()).filter(Boolean);
   // The same fighters as the last match need no menus: Esc then Enter starts
   // the fight again with every setting kept. Only a different match reloads.
-  if (!has('reload')) {
+  // A reload puts the difficulty back to Normal, and a restart keeps whatever
+  // is set: on 2026-09-27 a menu walk that died after its reload left two
+  // "difficult" series games (10-07-33, 10-11-14) on Normal.
+  const difficulty = arg('difficulty', 'normal');
+  // The line-up is read from the menu before anything is pressed. A restart
+  // from a panel with the wrong computer used to press Attack on "Reset Random"
+  // until the reroll happened to give the wanted one.
+  const menu = await menuState(cdp).catch(() => null);
+  const lineup = (menu?.boxes ?? []).filter((b) => b.join === 3 || b.join === 13);
+  const wanted = lineup.length === 1 + foes.length
+    && same(lineup.find((b) => b.join === 3)?.name, me)
+    && foes.every((f) => lineup.some((b) => b.join === 13 && same(b.name, f)));
+  if (menu?.difficulty !== DIFFICULTY[difficulty]) console.log(`setup: difficulty is not ${difficulty}; walking the menus`);
+  else if (!wanted) console.log(`setup: the menu line-up is ${lineup.map((b) => b.name).join(' v ') || 'unknown'}; walking the menus`);
+  else if (!has('reload')) {
     try {
       const pool = await openEntityPool(cdp);
       const started = await startMatch(cdp, pool, { tries: 4 });
@@ -80,7 +95,7 @@ if (has('setup')) {
     }
   }
   await setupMatch(cdp, {
-    keys: await readBindings(cdp), me, foes, difficulty: arg('difficulty', 'normal'),
+    keys: await readBindings(cdp), me, foes, difficulty,
     log: (m) => console.log(`setup: ${m}`),
   });
   // The reload made a new page context, so the pool is opened only now.

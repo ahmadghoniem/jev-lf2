@@ -86,7 +86,14 @@ export async function startMatch(cdp, pool, { attack = 'KeyK', tries = 12, gapMs
         continue;
       }
     }
-    await cdp.key(attack, { holdMs: 150 });
+    // On the pre-fight panel Attack acts on whatever row is highlighted, and
+    // it opens on "Reset Random", so it goes to Fight! first.
+    const s = await menuState(cdp).catch(() => null);
+    if (s && s.screen !== 0 && s.phase === 3) {
+      if (await toFightPanel(cdp, { waitMs: 3000 })) await cdp.key('Enter', { holdMs: 80 });
+    } else {
+      await cdp.key(attack, { holdMs: 150 });
+    }
     await sleep(gapMs);
   }
   return null;
