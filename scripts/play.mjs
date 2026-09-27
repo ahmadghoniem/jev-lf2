@@ -32,7 +32,14 @@ const kind = arg('policy', 'heuristic');
 const seconds = Number(arg('seconds', 60));
 const hz = Number(arg('hz', 30));
 const decideEveryMs = Number(arg('decide-ms', 500));
-const staleMs = Number(arg('stale-ms', 1500));
+// Must track loop.mjs's own STALE_MS default: passing staleMs at all, even
+// via this flag's default, overrides that constant, so a change to one and
+// not the other is silently inert. Caught 2026-09-28: loop.mjs was retuned to
+// 900 but every play.mjs run -- including the ones that validated other
+// fixes the same day -- kept running at the old 1500, since series.mjs never
+// passes --stale-ms and this default did the overriding.
+const staleMs = Number(arg('stale-ms', 900));
+const useRecent = !has('no-recent');
 
 const profile = profileFor(name);
 if (!profile) throw new Error(`no profile for ${name}`);
@@ -126,7 +133,7 @@ process.on('SIGINT', stop);
 
 let lastShown = '';
 const counts = await runLoop({
-  cdp, pool, kb, run, name, policy, overlay, hz, decideEveryMs, seconds, staleMs, keys,
+  cdp, pool, kb, run, name, policy, overlay, hz, decideEveryMs, seconds, staleMs, keys, useRecent,
   noSync: has('no-sync'),
   onTick: ({ arena, action, source }) => {
     const line = `${source.padEnd(9)} ${action.padEnd(24)} hp ${String(arena.me.hp).padStart(4)}  mp ${String(arena.me.mp).padStart(4)}  nearest ${Math.round(arena.nearest)}`;

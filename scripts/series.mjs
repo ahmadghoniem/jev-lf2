@@ -18,6 +18,11 @@ const games = Number(arg('games', 3));
 const difficulty = arg('difficulty', 'difficult');
 const seconds = arg('seconds', '300');
 const policy = arg('policy', 'jev');
+// Anything after a literal `--` on the command line is forwarded to play.mjs
+// as-is, so a one-off flag (--no-recent, --stale-ms 700) can be tried across
+// a whole series without a dedicated series.mjs option for it.
+const passthroughAt = process.argv.indexOf('--');
+const passthrough = passthroughAt === -1 ? [] : process.argv.slice(passthroughAt + 1);
 
 const node = (script, args) => spawnSync(process.execPath, [script, ...args], { stdio: 'inherit' }).status;
 const latestRun = () => readdirSync('runs').filter((d) => /^\d{4}-/.test(d)).sort().at(-1);
@@ -30,7 +35,7 @@ for (let i = 1; i <= games; i++) {
     break;
   }
   const before = latestRun();
-  const status = node('scripts/play.mjs', ['--name', fighter, '--policy', policy, '--seconds', seconds]);
+  const status = node('scripts/play.mjs', ['--name', fighter, '--policy', policy, '--seconds', seconds, ...passthrough]);
   const after = latestRun();
   if (after !== before) played.push(after);
   if (status !== 0) { console.error(`play.mjs exited with ${status}; stopping`); break; }

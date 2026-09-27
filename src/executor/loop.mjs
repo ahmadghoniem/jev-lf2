@@ -60,7 +60,7 @@ const DECIDED_TICKS = 90;
 const ROLL_OWNS_MS = 1000;
 export async function runLoop({ cdp, pool, kb, run, name, policy, overlay, hz = 30, noSync = false,
                                decideEveryMs = 500, seconds = 120, onTick, keys,
-                               staleMs = STALE_MS } = {}) {
+                               staleMs = STALE_MS, useRecent = true } = {}) {
   const period = 1000 / hz;
   // `hz` is only the fallback pace, for a pool that cannot wait on a frame.
   const sync = typeof pool.next === 'function' && !noSync;
@@ -259,7 +259,7 @@ export async function runLoop({ cdp, pool, kb, run, name, policy, overlay, hz = 
         action = result.action; source = policy.name; stance = null;
         if (!finishing) plannedFor = null;
         if (action === 'roll_away') rollUntil = Date.now() + ROLL_OWNS_MS;
-        recent = { last_action: action };
+        if (useRecent) recent = { last_action: action };
         standing = { action, askedAtMs };
       } else if (result?.action) {
         // Overruled by the block for now, but still the answer for when the
@@ -285,7 +285,7 @@ export async function runLoop({ cdp, pool, kb, run, name, policy, overlay, hz = 
         action = deferred.action; stance = null;
         plannedFor = null;
         if (action === 'roll_away') rollUntil = Date.now() + ROLL_OWNS_MS;
-        recent = { last_action: action };
+        if (useRecent) recent = { last_action: action };
       }
       deferred = null;
     }
