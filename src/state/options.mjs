@@ -283,7 +283,11 @@ export function buildOptions({ profile, nearby = [], nearest = Infinity, mp = 0,
   // Not from an enemy on the floor or in the air with nothing coming: that is
   // a window to hit it (observer: "two unnecessary rolls", one of them from a
   // knocked-down Freeze 7 away, 2026-09-25T11-59-36).
-  if (hasTarget && roomBehind >= ROLL_ROOM && (threatened || weaponInbound || nearest <= 220)
+  // Proximity alone used to offer it too: 19 of 46 rolls across four games had
+  // nothing coming (2026-09-27, notes.jsonl). Offered like the block now, on
+  // an actual threat rather than range, so Jev only spends a pick on it when
+  // something is coming.
+  if (hasTarget && roomBehind >= ROLL_ROOM && (threatened || weaponInbound)
       && !(targetDown && !threatened && !weaponInbound)) {
     options.roll_away = [
       'Roll away from the enemy: a short run, then a tumble along the ground. Nothing can hit you during the tumble and nothing breaks it, and you end about 200 further away, out of its reach.',
