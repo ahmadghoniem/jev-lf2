@@ -358,10 +358,7 @@ export async function runLoop({ cdp, pool, kb, run, name, policy, overlay, hz = 
             facing: arena.me.facing, holding: arena.held?.name ?? null, guard: arena.me.guard },
       threats: arena.threats.slice(0, 3).map((t) => ({ slot: t.slot, name: t.name, frame: t.frame,
         doing: t.doing, vulnerable: t.vulnerable, hp: t.hp, dx: Math.round(t.dx), dz: Math.round(t.dz),
-        // The enemy's own destination, so a decision that read it can be checked
-        // after the fact against where the enemy actually went.
-        destDx: t.destDx === null ? null : Math.round(t.destDx),
-        approach: !!t.approach, onScreen: !!t.onScreen, facing: t.facing, waiting: t.waiting })),
+        onScreen: !!t.onScreen, facing: t.facing, waiting: t.waiting })),
       // Logged only, to check the lane dodge after the fact: whether a throw
       // or star on our line was seen on this tick.
       lane: (() => { const l = laneDanger(arena); return l ? { dz: Math.round(l.laneDz), eta: +l.eta.toFixed(1), what: l.what } : null; })(),

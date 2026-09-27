@@ -16,7 +16,7 @@ const me = { x: 0, z: 0, facing: 'right', mp: 500, hp: 400, hpMax: 500 };
 const foe = (x, z) => ({ slot: 1, name: 'John', x, z, facing: 'left', hp: 500, frame: 0,
   dx: x, dz: z, gap: Math.abs(x), zGap: Math.abs(z), range: Math.hypot(x, z),
   side: x >= 0 ? 'right' : 'left', infront: true, aligned: Math.abs(z) <= 12,
-  hasDest: false, destDx: null, destDz: null, approach: false, doing: 'none' });
+  doing: 'none' });
 
 const at = (x, z) => ({ me, threats: [foe(x, z)], items: [], held: null, flying: [] });
 const build = (arena, over = {}) => buildOptions({
