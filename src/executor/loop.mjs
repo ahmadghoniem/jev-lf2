@@ -19,6 +19,7 @@ import { createReflex, laneDanger } from './reflex.mjs';
 import { offer } from './policies.mjs';
 import { stageWidth as readStageWidth, stageDepth as readStageDepth } from './setup.mjs';
 import { bucketRange } from '../lf2data/profile.mjs';
+import { createRecent } from './recent.mjs';
 
 /**
  * An answer about a fight this old is about a different fight. Measured in
@@ -77,27 +78,8 @@ export async function runLoop({ cdp, pool, kb, run, name, policy, overlay, hz = 
   let planned = null;      // the cached plan for the current action
   let plannedFor = null;   // which action it was planned for
   let lastAsk = 0;
-  // What Jev is told about its own last answer. `useRecent` is null (nothing),
-  // 'action' (the last action alone) or 'outcome' (that, plus the action before
-  // it and the hp dealt and taken while it held the keys). The outcome has to be
-  // the one before: the next question goes out in the tick the last answer
-  // lands, so that answer has had no time to do anything yet (a first version
-  // reporting "since the last action" read 0 s on every decision).
-  let recent = {};
-  let since = null;        // the last answer's start, for 'outcome'
-  const remember = (arena) => {
-    const now = Date.now();
-    let before = null;
-    if (useRecent === 'outcome' && since) {
-      const dealt = arena.threats.reduce((sum, t) => sum + Math.max(0, (since.foes.get(t.slot) ?? t.hp) - t.hp), 0);
-      before = { action: since.action, seconds: Number(((now - since.atMs) / 1000).toFixed(1)),
-                 you_dealt: dealt, you_took: Math.max(0, since.me - arena.me.hp) };
-    }
-    if (useRecent === 'outcome') {
-      since = { action, atMs: now, me: arena.me.hp, foes: new Map(arena.threats.map((t) => [t.slot, t.hp])) };
-    }
-    recent = { last_action: action, ...(before && { before_that: before }) };
-  };
+  // What Jev is told about the fight so far; see recent.mjs for the modes.
+  const memory = createRecent({ mode: useRecent, policyName: policy.name });
   let shown = { policy: policy.name };   // what the overlay is currently saying
   let forceDraw = false;                 // set when an answer lands, cleared once drawn
   let deadStreak = 0;                    // consecutive not-alive reads (debounce)
@@ -198,6 +180,7 @@ export async function runLoop({ cdp, pool, kb, run, name, policy, overlay, hz = 
       continue;
     }
     deadStreak = 0;
+    memory.observe(arena, { action, source });
     noEnemyStreak = arena.threats.length ? 0 : noEnemyStreak + 1;
     if (noEnemyStreak >= DECIDED_TICKS) { counts.outcome = 'won'; break; }
 
@@ -279,7 +262,7 @@ export async function runLoop({ cdp, pool, kb, run, name, policy, overlay, hz = 
         action = result.action; source = policy.name; stance = null;
         if (!finishing) plannedFor = null;
         if (action === 'roll_away') rollUntil = Date.now() + ROLL_OWNS_MS;
-        if (useRecent) remember(arena);
+        memory.applied(arena, action);
         standing = { action, askedAtMs };
       } else if (result?.action) {
         // Overruled by the block for now, but still the answer for when the
@@ -305,7 +288,7 @@ export async function runLoop({ cdp, pool, kb, run, name, policy, overlay, hz = 
         action = deferred.action; stance = null;
         plannedFor = null;
         if (action === 'roll_away') rollUntil = Date.now() + ROLL_OWNS_MS;
-        if (useRecent) remember(arena);
+        memory.applied(arena, action);
       }
       deferred = null;
     }
@@ -345,7 +328,7 @@ export async function runLoop({ cdp, pool, kb, run, name, policy, overlay, hz = 
       const record = { settled: false, askedAt, askedAtMs: Date.now(), result: null };
       pending = record;
       counts.decisions++;
-      policy.decide({ arena, options, questions, recent }).then((result) => {
+      policy.decide({ arena, options, questions, recent: memory.told() }).then((result) => {
         record.result = result; record.settled = true;
         run?.judgement({
           tick: askedAt, schema, criteria: { action: options },
