@@ -7,7 +7,7 @@
  */
 
 import { buildOptions } from '../state/options.mjs';
-import { semanticState, doing, unhittable, inSight } from '../state/arena.mjs';
+import { semanticState, doing, unhittable, inSight, staggerLeft } from '../state/arena.mjs';
 import { nestOptions, followUps, resolveChoice } from '../state/nest.mjs';
 import { profileFor } from '../lf2data/tables.mjs';
 import { mpRegenPerSecond } from '../state/fields.mjs';
@@ -25,7 +25,7 @@ function guardWorn(arena) {
 }
 
 /** Options the executor can actually carry out, described for a reader. */
-export function offer(arena, profile) {
+export function offer(arena, profile, { staggerHint = false } = {}) {
   const near = arena.threats[0];
   const options = buildOptions({
     profile,
@@ -45,6 +45,7 @@ export function offer(arena, profile) {
     targetOnScreen: near ? inSight(near, profile) : true,
     threatened: !!incoming(arena, { within: 12 }),
     helpless: !!near?.helpless,
+    staggerTicks: staggerHint ? staggerLeft(near) : null,
     weaponInbound: !!inboundWeapon(arena),
     guardWorn: guardWorn(arena),
     roomBehind: roomBehind(arena),

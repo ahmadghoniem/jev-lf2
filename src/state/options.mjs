@@ -15,7 +15,7 @@ import { tierDamage, bucketRange, damageAt } from '../lf2data/profile.mjs';
 import { mpRegenPerSecond } from './fields.mjs';
 import { REACH_SLACK, dashBand } from '../lf2data/frames.mjs';
 import { standoffOf, RUN_IN_MIN_X, RUN_OUT_MAX_X, DASH_MIN_GAP, PRESS_EVERY } from './bot.mjs';
-import { framesFor } from '../lf2data/tables.mjs';
+import { framesFor, headerFor } from '../lf2data/tables.mjs';
 
 /**
  * Whether a move fires an energy ball: an object whose first frame is state
@@ -60,7 +60,7 @@ export function buildOptions({ profile, nearby = [], nearest = Infinity, mp = 0,
                                enemyDoing = null, aligned = true, targetDown = false,
                                hasTarget = false, threatened = false, targetOnScreen = true,
                                helpless = false, weaponInbound = false, guardWorn = false,
-                               roomBehind = Infinity, allies = 0,
+                               roomBehind = Infinity, allies = 0, staggerTicks = null,
                                canDo = () => true }) {
   const options = {};
 
@@ -182,6 +182,7 @@ export function buildOptions({ profile, nearby = [], nearest = Infinity, mp = 0,
         : 'The enemy is out of its reach, so this means closing in first.',
       window ? 'The enemy is helpless right now, so this cannot be answered or blocked.' : '',
       behind ? 'The enemy is behind you; you will turn first, which costs a moment.' : '',
+      hasTarget && !targetDown ? staggerText(meleeArrival(move, nearest, profile), staggerTicks) : '',
       cost(move),
       // An archer's attack button fires an arrow that costs MP even point
       // blank, so without saying so the free melee moves read as the weaker
@@ -337,6 +338,43 @@ export function fireTicks(move) {
   return rise + (presses - 1) * PRESS_EVERY + (move.hitTicks ?? move.startupTicks ?? 0);
 }
 const JUMP_RISE_TICKS = 7;
+
+/**
+ * Ticks from asking to the answer being carried out: Jev's median reply over
+ * the 825 asks from 2026-09-28T22 on was 327 ms (p10 299, p90 385), at about
+ * 34 ms a tick.
+ */
+const ANSWER_TICKS = 10;
+/** Ticks of the double-tap before a run moves (see `tapStep` in actions.mjs). */
+const RUN_START_TICKS = 3;
+
+/**
+ * Ticks from now until a melee move hits, walked or run in from here: the
+ * answer's delay, the approach at the fighter's own speed (its data-file
+ * header), then the move's wind-up. Null without a speed to go on.
+ */
+function meleeArrival(move, nearest, profile) {
+  const header = headerFor(profile.name);
+  const runs = move.name === 'run_attack' || move.name === 'dash_attack';
+  const speed = runs ? header?.running_speed : header?.walking_speed;
+  if (!speed || !Number.isFinite(nearest)) return null;
+  const gap = Math.max(0, nearest - (move.reach ?? 0) - REACH_SLACK);
+  return ANSWER_TICKS + (gap > 0 && runs ? RUN_START_TICKS : 0) + Math.ceil(gap / speed) + fireTicks(move);
+}
+
+/**
+ * Whether a melee answer lands inside the enemy's stagger. Across the recorded
+ * runs 44% of 3,447 stagger windows drew no new answer before they ended, and
+ * from 120-199 away a special landed on a staggered enemy 49% of the time
+ * against 27% for walking in; a walk-in was told nothing of the time it takes.
+ */
+function staggerText(arrive, left) {
+  if (arrive == null || left == null) return '';
+  const sec = (ticks) => (ticks / 30).toFixed(1);
+  return `The enemy is reeling from a hit for about ${sec(left)} s more and cannot act or block until then. `
+    + `From here this lands about ${sec(arrive)} s from now, counting the moment to answer, `
+    + `${arrive <= left ? 'while it is still reeling' : 'after it has recovered'}.`;
+}
 const fireText = (move) => `It goes off about ${(fireTicks(move) / 30).toFixed(1)} s after the first key press.`;
 
 /**

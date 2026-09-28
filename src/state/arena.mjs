@@ -10,7 +10,7 @@
 
 import { F, readFighter, MP_CAP, mpRegenPerSecond } from './fields.mjs';
 import { framesFor, BUSY_STATES } from '../lf2data/tables.mjs';
-import { ticksToHit, nextSpawn } from '../lf2data/frames.mjs';
+import { ticksToHit, nextSpawn, ticksToEnd } from '../lf2data/frames.mjs';
 import { bucketRange } from '../lf2data/profile.mjs';
 import { plainName } from './options.mjs';
 
@@ -407,6 +407,18 @@ export const JUMP_CLEAR_GAP = 200;
  */
 export const FALL_CLEAR_GAP = 100;
 const falling = (t) => t.frame >= 180 && t.frame <= 191;
+/**
+ * Ticks a fighter stays reeling from a hit (injured, state 11) or dizzy (16),
+ * read off its own frames, or null when it is neither. Dennis's injured
+ * frames last 7 ticks a hit, his dizzy ones 28.
+ */
+export function staggerLeft(t) {
+  const frames = t && framesFor(t.id);
+  if (![11, 16].includes(frames?.[t.frame]?.state)) return null;
+  const left = ticksToEnd(frames, t.frame, t.waiting ?? 0);
+  return Number.isFinite(left) ? left : null;
+}
+
 export const unhittable = (t) => !!t && (t.doing === 'knocked_down'
   || (t.doing === 'in_the_air' && t.gap < JUMP_CLEAR_GAP)
   || (falling(t) && t.gap >= FALL_CLEAR_GAP));

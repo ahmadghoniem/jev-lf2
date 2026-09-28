@@ -54,6 +54,9 @@ const useRecent = ['outcome', 'hurt', 'attack'].find((m) => has(`recent-${m}`)) 
 const holdAttack = has('hold-attack');
 const smartBlock = has('smart-block');
 const skipBusyAsks = has('skip-busy-asks');
+// On trial: melee options say whether they land inside the enemy's stagger
+// (see `staggerText` in options.mjs).
+const staggerHint = has('stagger-hint');
 
 const profile = profileFor(name);
 if (!profile) throw new Error(`no profile for ${name}`);
@@ -130,7 +133,7 @@ const level = (await menuState(cdp).catch(() => null))?.difficulty;
 const difficulty = Object.keys(DIFFICULTY).find((k) => DIFFICULTY[k] === level) ?? 'unknown';
 const run = openRun({ meta: { label: arg('label', `${kind}-${name}`), policy: kind, character: name,
                               archetype: profile.archetype, difficulty, hz, decideEveryMs, seconds,
-                              useRecent, holdAttack, smartBlock, skipBusyAsks } });
+                              useRecent, holdAttack, smartBlock, skipBusyAsks, staggerHint } });
 
 console.log(`${name} (${profile.archetype}) under ${kind} on ${difficulty}, ${seconds}s → ${run.dir}`);
 console.log('ctrl-c releases the keys and closes the run\n');
@@ -149,7 +152,7 @@ process.on('SIGINT', stop);
 let lastShown = '';
 const counts = await runLoop({
   cdp, pool, kb, run, name, policy, overlay, hz, decideEveryMs, seconds, staleMs, keys, useRecent,
-  holdAttack, smartBlock, skipBusyAsks,
+  holdAttack, smartBlock, skipBusyAsks, staggerHint,
   noSync: has('no-sync'),
   onTick: ({ arena, action, source }) => {
     const line = `${source.padEnd(9)} ${action.padEnd(24)} hp ${String(arena.me.hp).padStart(4)}  mp ${String(arena.me.mp).padStart(4)}  nearest ${Math.round(arena.nearest)}`;

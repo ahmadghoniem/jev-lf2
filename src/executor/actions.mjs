@@ -117,7 +117,7 @@ function aimedAttack(keys, { seq = ['attack'], needReach = false, reach = 45, st
   // Attack never pressed (2026-09-27T20-37-29, tick 1104).
   let jumped = false;
   const started = () => step > 0 && step < seq.length * PRESS_EVERY;
-  const run = (a) => {
+  const run = (a, { down = [] } = {}) => {
     calls++;
     const t = enemy(a);
     if (!t) return { hold: [] };
@@ -211,6 +211,15 @@ function aimedAttack(keys, { seq = ['attack'], needReach = false, reach = 45, st
         const item = seq.length === 1 && press === 'attack' ? itemUnderHand(a) : null;
         if (item) return { hold: [item.dz >= 0 ? keys.up : keys.down] };
         const code = press === 'forward' ? keys[dirTo(a.me, t)] : keys[press];
+        // A key still down is let go for a tick first: released and pressed
+        // again inside one tick it never looks up to the game, and a tap of a
+        // key whose tap is in flight is dropped. Either way the step is lost.
+        // Over a block the reflex held, Defend was never pressed and Dennis
+        // sat in the block pose (2026-09-28T20-34-26, tick 709); after a turn
+        // tap, Forward was lost (2026-09-28T22-32-08, tick 1063). Across the
+        // recorded runs, specials begun with Defend already down fired 155 of
+        // 442 times (35%), against 1074 of 1836 (58%) with it up.
+        if (seq.length > 1 && down.includes(code)) return { hold: [] };
         if (press === 'jump') jumped = true;
         step++;
         pressedAt = calls;
