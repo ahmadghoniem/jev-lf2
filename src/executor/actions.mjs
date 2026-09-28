@@ -16,7 +16,7 @@
 
 import { P4_KEYS } from './keyboard.mjs';
 import { DRINK_TYPE, doing, unhittable, inSight, airborne } from '../state/arena.mjs';
-import { REACH_SLACK, animTicks } from '../lf2data/frames.mjs';
+import { REACH_SLACK, DASH_PRESS_TICKS, animTicks, dashBand } from '../lf2data/frames.mjs';
 import { framesFor } from '../lf2data/tables.mjs';
 import { label, plainName, slug } from '../state/options.mjs';
 import { incoming, inboundWeapon, laneDanger, itemUnderHand } from './reflex.mjs';
@@ -77,8 +77,16 @@ const moveNoise = createNoise(7);
 export const standoffFor = (profile, mp = Infinity) =>
   (profile?.hasRanged && mp >= (profile.cheapestRangedMp ?? 0) ? standoffOf(profile) : 0);
 
-/** How far a bare-handed hit reaches, for deciding when to press attack. */
-const meleeReach = (profile) => profile?.bestMelee?.reach ?? profile?.basicAttack?.reach ?? 45;
+/**
+ * How far a bare-handed hit reaches, for deciding when to press attack: the
+ * best melee move's reach, or the plain attack's when that is further. Deep's
+ * best melee is a jump into a hit measured at 3, which would have held his
+ * punch until he touched the enemy (its punch reaches 28).
+ */
+const meleeReach = (profile) => {
+  const best = profile?.bestMelee?.reach, basic = profile?.basicAttack?.kind === 'melee' ? profile.basicAttack.reach : null;
+  return (best == null && basic == null) ? 45 : Math.max(best ?? 0, basic ?? 0);
+};
 
 /**
  * A committed attack that waits until it is worth firing.
@@ -247,8 +255,8 @@ function aimedAttack(keys, { seq = ['attack'], needReach = false, reach = 45, st
  * its presses would be read as part of it.
  */
 function faced(keys, run) {
-  const step = (a) => {
-    const out = run(a);
+  const step = (a, ctx) => {
+    const out = run(a, ctx);
     const t = enemy(a);
     if (!t || t.infront || out.tap?.length || run.busy?.()) return out;
     if (!CAN_START.has(doing(a.me)) || Math.abs(t.x - a.me.x) <= BOT.X_DEADZONE) return out;
@@ -420,7 +428,10 @@ export function planAction(name, { arena, profile, keys = P4_KEYS } = {}) {
       // enemy is walking into its fire. The CPU suppresses lane-following while
       // a projectile is inbound for exactly this reason. The dodge stance owns
       // depth until the lane is clear; this holds only the sideways keys.
-      const w = weaponOnLane(a);
+      // A throw still in its wind-up counts too: after the lane dodge gave up
+      // on Deep's ball, close_distance pressed back toward his line and the
+      // dash that followed jumped into it (2026-09-28T20-52-43, ticks 1073-1081).
+      const w = weaponOnLane(a) ?? laneDanger(a);
       const stopAt = standoffFor(profile, a.me.mp);
       let hold = toward(a, keys, t, { stopAt, noDepth: !!w, zOff: side * BOT.AIM_Z });
       // The walk flinch, copied from the CPU: a direction key dropped for a
@@ -521,11 +532,19 @@ export function planAction(name, { arena, profile, keys = P4_KEYS } = {}) {
     return stance(jumpAttackStance(keys, { reach: jump?.reach ?? 0 }));
   }
 
-  if (name === 'run_attack') {
-    return target ? stance(chargeStance(keys, { dash: false, reach: meleeReach(profile) })) : null;
-  }
-  if (name === 'dash_attack') {
-    return target ? stance(chargeStance(keys, { dash: true, reach: meleeReach(profile) })) : null;
+  // A charge at an enemy already inside the fighter's reach is the plain
+  // attack. Run and dash attacks started within 50 of the enemy landed 17-18%
+  // of the time (1686 answers), where a plain Attack pressed from there landed
+  // 58-74%, and at a gap of a few units the run's direction flipped back and
+  // forth as the enemy's x crossed ours (2026-09-28T20-48-22, tick 1209).
+  if (name === 'run_attack' || name === 'dash_attack') {
+    if (!target) return null;
+    if (target.gap <= meleeReach(profile) + REACH_SLACK && target.zGap <= BOT.AIM_MAX_Z && !itemUnderHand(arena)) {
+      // Logged as `as: 'punch'`, so the runs tell these apart from real charges.
+      return { ...stance(aimedAttack(keys, { profile, needReach: true, reach: meleeReach(profile) })), as: 'punch' };
+    }
+    return stance(chargeStance(keys, { dash: name === 'dash_attack', reach: meleeReach(profile),
+                                       band: name === 'dash_attack' ? dashBand(profile) : null }));
   }
 
   // specials, and the ranged basic attack of an archer, both come from hit_*
@@ -620,12 +639,32 @@ function rollSide(a) {
   if (away && room[away] >= ROLL_DZ) return away;
   return room.up >= room.down ? 'up' : 'down';
 }
+/**
+ * The double-tap as holds, about the 60 ms press and 60 ms gap that
+ * `kb.doubleTap` uses: two ticks down (the first is the tick that chose the
+ * direction), one up, then held into the run. Null once the tap is done.
+ *
+ * A direction already down from the answer before is let go for a tick first.
+ * Held on, its press was ticks old and the tap after it read as a walk: Dennis
+ * walked a dash attack in from 196 to 64 after a close_distance held the same
+ * key (2026-09-28T20-38-12, ticks 308-346). Across the recorded runs, dash
+ * attacks started with the key down walked 10+ ticks without running 79 of 446
+ * times (18%), against 16 of 1318 (1%) started with it up.
+ */
+function tapStep(ticks, key, wasDown) {
+  const lead = wasDown ? 1 : 0;
+  if (ticks < lead) return { hold: [] };
+  if (ticks <= lead + 1) return { hold: [key] };
+  if (ticks === lead + 2) return { hold: [] };
+  return null;
+}
 function rollAway(keys) {
   let phase = 'ready';
   let dir = null;
   let side = null;
   let ticks = 0;
-  return (a) => {
+  let wasDown = false;
+  return (a, { down = [] } = {}) => {
     const t = enemy(a);
     const now = doing(a.me);
     ticks++;
@@ -634,13 +673,11 @@ function rollAway(keys) {
       dir = dirTo(a.me, t) === 'right' ? 'left' : 'right';
       side = rollSide(a);
       phase = 'tap'; ticks = 0;
+      wasDown = down.includes(keys[dir]);
     }
-    // The double-tap as holds, about the 60 ms press and 60 ms gap that
-    // `kb.doubleTap` uses: two ticks down (the first is the tick that chose the direction), one up,
-    // then held into the run.
     if (phase === 'tap') {
-      if (ticks <= 1) return { hold: [keys[dir]] };
-      if (ticks === 2) return { hold: [] };
+      const tap = tapStep(ticks, keys[dir], wasDown);
+      if (tap) return tap;
       phase = 'run'; ticks = 0;
       return { hold: [keys[dir]] };
     }
@@ -669,7 +706,8 @@ function runStance(keys, { toward, stopGap }) {
   let phase = 'ready';
   let dir = null;
   let ticks = 0;
-  return (a) => {
+  let wasDown = false;
+  return (a, { down = [] } = {}) => {
     const t = enemy(a);
     const now = doing(a.me);
     ticks++;
@@ -678,10 +716,11 @@ function runStance(keys, { toward, stopGap }) {
       dir = toward ? dirTo(a.me, t) : opposite(dirTo(a.me, t));
       phase = roomTo(a, dir) < RUN_START_ROOM ? 'done' : 'tap';
       ticks = 0;
+      wasDown = down.includes(keys[dir]);
     }
     if (phase === 'tap') {
-      if (ticks <= 1) return { hold: [keys[dir]] };
-      if (ticks === 2) return { hold: [] };
+      const tap = tapStep(ticks, keys[dir], wasDown);
+      if (tap) return tap;
       phase = 'run'; ticks = 0;
     }
     if (phase === 'run') {
@@ -710,17 +749,30 @@ function runStance(keys, { toward, stopGap }) {
  * lying on the floor. So it starts only from a stance that can run, at an
  * enemy that can be hit, and gives up without jumping if the run never shows.
  */
-function chargeStance(keys, { dash, reach }) {
+function chargeStance(keys, { dash, reach, band = null }) {
+  const near = band?.near ?? DASH_MIN_GAP, far = band?.far ?? Infinity;
   let phase = 'ready';
   let dir = null;
   let ticks = 0;
   // The smallest gap seen in the run, and the tick it was seen.
   let closest = Infinity;
   let closestAt = 0;
-  const run = (a) => {
+  let wasDown = false;
+  const run = (a, { down = [] } = {}) => {
     const t = enemy(a);
     const now = doing(a.me);
     ticks++;
+    // A run toward the enemy is a run along its line, into anything thrown or
+    // cast down it, and the run cannot be steered off in time: Dennis stepped
+    // up for 3 ticks while running and did not move in depth, then dashed into
+    // Deep's energy ball from 242 away and died in the air (2026-09-28T20-52-43,
+    // ticks 1073-1081). So no charge starts while something is coming down our
+    // line, and one under way is stopped, as the other attacks already wait.
+    // Once in the dash's jump there is nothing left to stop.
+    if (phase !== 'dash' && phase !== 'done' && phase !== 'stop' && laneDanger(a)) {
+      if (phase === 'run' && now === 'running') { phase = 'stop'; ticks = 0; }
+      else { phase = 'ready'; return { hold: [] }; }
+    }
     if (phase === 'ready') {
       if (!t || unhittable(t) || !ACTIONABLE.has(now)) return { hold: [] };
       closest = Infinity;
@@ -731,6 +783,7 @@ function chargeStance(keys, { dash, reach }) {
       dir = dirTo(a.me, t);
       phase = now === 'running' && a.me.facing === dir ? 'run' : 'tap';
       ticks = 0;
+      wasDown = down.includes(keys[dir]);
     }
     // An enemy that crosses over before the run is under way is run at from
     // where it is now. Held to the first side, Dennis ran and swung away from a
@@ -752,8 +805,8 @@ function chargeStance(keys, { dash, reach }) {
       if (ticks - closestAt > NOT_CLOSING_TICKS) { phase = 'stop'; ticks = 0; }
     }
     if (phase === 'tap') {
-      if (ticks <= 1) return { hold: [keys[dir]] };
-      if (ticks === 2) return { hold: [] };
+      const tap = tapStep(ticks, keys[dir], wasDown);
+      if (tap) return tap;
       phase = 'run'; ticks = 0;
     }
     if (phase === 'run') {
@@ -767,7 +820,12 @@ function chargeStance(keys, { dash, reach }) {
       const steer = t ? depthTo(a, keys, t.z) : [];
       const level = t && Math.abs(t.z - a.me.z) < BOT.HIT_Z;
       if (!level && ticks >= CHARGE_GIVE_UP) { phase = 'done'; return { hold: [] }; }
-      if (dash && t && t.gap >= DASH_MIN_GAP) {
+      // The dash jumps only from inside the gaps it hits from (`dashBand`),
+      // and runs on until then. It jumped as soon as it was running and level,
+      // from 242 into Deep's ball (2026-09-28T20-52-43, tick 1081), and 18% of
+      // the recorded jumps from beyond the band hit.
+      if (dash && t && t.gap > far) return { hold: [keys[dir], ...steer] };
+      if (dash && t && t.gap >= near) {
         if (!level) return { hold: [keys[dir], ...steer] };
         phase = 'dash'; ticks = 0; return { hold: [keys[dir]], tap: [keys.jump] };
       }
@@ -791,7 +849,7 @@ function chargeStance(keys, { dash, reach }) {
       // jump attack, and for the same reason: the enemy this was aimed at can
       // go down or step out during that time, and firing blind into either
       // just wastes the swing.
-      if (ticks < 5) return { hold: [keys[dir]] };
+      if (ticks < DASH_PRESS_TICKS) return { hold: [keys[dir]] };
       phase = 'done';
       if (t && t.infront && !unhittable(t) && t.gap <= reach + RUN_SKID) return { hold: [], tap: [keys.attack] };
       return { hold: [] };

@@ -13,7 +13,7 @@
 
 import { tierDamage, bucketRange, damageAt } from '../lf2data/profile.mjs';
 import { mpRegenPerSecond } from './fields.mjs';
-import { REACH_SLACK } from '../lf2data/frames.mjs';
+import { REACH_SLACK, dashBand } from '../lf2data/frames.mjs';
 import { standoffOf, RUN_IN_MIN_X, RUN_OUT_MAX_X, DASH_MIN_GAP, PRESS_EVERY } from './bot.mjs';
 import { framesFor } from '../lf2data/tables.mjs';
 
@@ -46,9 +46,9 @@ const WALK_OUT_ROOM = 40;
  * Every action worth offering this tick.
  *
  * @param profile    its entry from build/_profiles.json
- * @param nearby     things lying on the ground, with distances; only drinks
- *                   are offered (weapons are left out: offered thousands of
- *                   times across 52 runs and never chosen)
+ * @param nearby     things lying on the ground, with distances; none is
+ *                   offered now (weapons: offered thousands of times across
+ *                   52 runs and never chosen; drinks: see below)
  * @param nearest    distance to the closest threat, in game units
  * @param targetDown nothing started now can hit the nearest enemy: it is on
  *                   the floor, or in a jump close by (`unhittable` in arena.mjs)
@@ -95,9 +95,6 @@ export function buildOptions({ profile, nearby = [], nearest = Infinity, mp = 0,
       ? `The enemy is ${window} and cannot move or block for the moment. Close in and hit it before it recovers.`
       : `The enemy is ${window} at the end of an attack, so it cannot swing again yet — but it may already have a weapon in the air. Close in and hit it before it recovers.`;
   }
-
-  // A potion is only an option when there is health to win back.
-  const healthFraction = hpMax ? hp / hpMax : 1;
 
   // --- what the character can throw from where it stands
   const rangedName = (m) => (basic && m.entry === basic.entry ? 'shoot' : `special_${label(m)}`);
@@ -156,13 +153,13 @@ export function buildOptions({ profile, nearby = [], nearest = Infinity, mp = 0,
   const meleeName = (m) => (m.category === 'special' ? `special_${label(m)}` : label(m));
   const melee = profile.moves.filter((m) => m.kind === 'melee' && !m.needsWeapon
     && affordable(m) && !targetDown && canDo(meleeName(m))
-    && !(m.name === 'dash_attack' && hasTarget && nearest < DASH_MIN_GAP)
-    // A jump attack is played where the fighter stands, straight up, so it is
-    // offered only with the enemy level and inside its reach. Offered from 65
-    // away it hit the air in front of Freeze (observer: "jumping then
-    // attacking mid air for no reason", 2026-09-25T10-58-03); since 09-24 it
-    // cost 29 hp a try against 7-15 for the other close attacks.
-    && !(m.name === 'jump_attack' && !(hasTarget && aligned && nearest <= m.reach + REACH_SLACK)));
+    && !(m.name === 'dash_attack' && hasTarget && nearest < (dashBand(profile)?.near ?? DASH_MIN_GAP))
+    // The jump attack is not offered. Its Attack is pressed 7 ticks into the
+    // jump and the hitting frames play out near the top of it: across the
+    // recorded runs 3 of 63 presses in the air landed (5%), 0 of 19 at a
+    // staggered enemy, and the fighter came down open (2026-09-28T21-03-09,
+    // ticks 837-862: hit on landing, 178 to 124).
+    && m.name !== 'jump_attack');
   // The ordinary attack always belongs on the list. It costs nothing, it is the
   // archetype in one option, and the cap would otherwise spend all four slots on
   // heavier variants and drop the one move that is always available.
@@ -221,20 +218,9 @@ export function buildOptions({ profile, nearby = [], nearest = Infinity, mp = 0,
     ].filter(Boolean).join(' ');
   }
 
-  // --- a drink lying on the ground
-  // Milk restores health and beer restores MP: the game's CPU passes on milk
-  // above 370 hp and on beer above 250 MP (px.js). Beer was offered here as
-  // health, at low health.
-  for (const item of nearby) {
-    if (item.type !== 6) continue;
-    const beer = plainName(item.name) === 'beer';
-    if (beer ? mp > BEER_BELOW_MP : healthFraction >= DRINK_BELOW) continue;
-    options[`drink_${slug(plainName(item.name))}`] = [
-      `Walk over and drink the ${plainName(item.name)}, ${bucketRange(item.distance)} away.`,
-      `It restores ${beer ? 'MP' : 'health'}, but you are defenceless the whole way there and while drinking.`,
-      item.aligned === false ? 'It is not level with you, so you must step to its depth to pick it up.' : '',
-    ].filter(Boolean).join(' ');
-  }
+  // --- a drink lying on the ground: not offered. Answered 5 times in all the
+  // recorded runs; to come back as one option that runs clear of the enemy
+  // first and drinks there (the walk-over version is in git before 2026-09-29).
 
   // --- the things that are always available
   // Movement is a gear as well as a direction. The game reads a run only from a
@@ -428,11 +414,6 @@ const UTILITY_TEXT = {
   weapon: () => 'Make a weapon in your hands to fight with.',
   unknown: (move) => `The game calls this move "${move.name}"; the game data does not show what it does.`,
 };
-
-/** Below this fraction of health a potion is worth the walk; above it, the branch closes. */
-const DRINK_BELOW = 0.75;
-/** Beer is offered at or below this much MP, as the CPU drinks it. */
-const BEER_BELOW_MP = 250;
 
 /**
  * Jev is documented as distracted by large irrelevant state, and most of a

@@ -30,6 +30,18 @@ export function framesFor(dataId) {
   return frames;
 }
 
+const headerCache = new Map();
+
+/** A fighter's data-file header (walking, running, jump and dash speeds), by name. */
+export function headerFor(name) {
+  const key = name?.toLowerCase();
+  if (!headerCache.has(key)) {
+    const row = index.find((r) => r.type === 0 && r.character?.toLowerCase() === key);
+    headerCache.set(key, row ? load(row.file).header ?? null : null);
+  }
+  return headerCache.get(key);
+}
+
 /** The derived fighting profile for a live fighter, keyed the way it is stored. */
 export const profileFor = (name) => profiles[name?.toLowerCase()] ?? null;
 

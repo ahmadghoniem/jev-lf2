@@ -7,7 +7,7 @@
  * while the Jev call is still in flight.
  */
 
-import { framesFor } from './tables.mjs';
+import { framesFor, headerFor } from './tables.mjs';
 
 /**
  * itr kinds that actually hurt someone. `kind 0` is an ordinary attack and
@@ -26,6 +26,29 @@ const HURTS = new Set([0, 6]);
  * calls it a whiff.
  */
 export const REACH_SLACK = 25;
+
+/** Ticks from a dash's Jump to its Attack press, as the charge stance keys it. */
+export const DASH_PRESS_TICKS = 5;
+/** Ticks of the crouch before a dash leaves the ground, covered at running speed. */
+const DASH_CROUCH_TICKS = 2;
+
+/**
+ * The gaps a dash attack hits from, per fighter, from its data file: the
+ * crouch at running_speed, then dash_distance a tick until the Attack's hit
+ * frame, and the swing's reach past that. Nearer, the dash flies past the
+ * enemy; further, it comes down short. Across the recorded dash jumps, 46 of
+ * 146 inside this band hit (32%), 4 of 73 below it (5%) and 29 of 158 above
+ * it (18%) (scratch/dash-band-check.mjs, 2026-09-29). Dennis: 147-231.
+ * Null for a fighter without a dash attack or a data file.
+ */
+export function dashBand(profile) {
+  const header = headerFor(profile?.name);
+  const move = profile?.moves?.find((m) => m.name === 'dash_attack');
+  if (!header || !move) return null;
+  const near = DASH_CROUCH_TICKS * header.running_speed
+    + header.dash_distance * (DASH_PRESS_TICKS + (move.startupTicks ?? 0));
+  return { near, far: near + (move.reach ?? 0) + REACH_SLACK };
+}
 
 export const damagingItr = (frame) =>
   (frame?.itr ?? []).filter((it) => HURTS.has(it.kind) && it.injury > 0);

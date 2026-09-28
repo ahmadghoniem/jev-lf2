@@ -436,7 +436,7 @@ export async function runLoop({ cdp, pool, kb, run, name, policy, overlay, hz = 
         burst = kb.hold([]).then(() => plan.run(kb)).finally(() => { burst = null; });
       } else if (plan?.kind === 'stance') {
         stance = plan.step;
-        const step = stance(arena);
+        const step = stance(arena, { down: kb.stats.down });
         await kb.hold(step.hold ?? []);
         for (const code of step.tap ?? []) await kb.tap(code, undefined, { intended: !!step.special });
         // Nothing pressed and nothing mid-move: what this action was asked
@@ -477,6 +477,7 @@ export async function runLoop({ cdp, pool, kb, run, name, policy, overlay, hz = 
         hostile: !!i.hostile, speed: Math.round(i.speed ?? 0), vz: +(i.vz ?? 0).toFixed(1) })),
       action, source,
       ...(held && { held: held.action }),
+      ...(planned?.as && plannedFor === action && { as: planned.as }),
       ...(downFor > 0 && { downFor: Number.isFinite(downFor) ? downFor : -1 }),
       reflex: reflex?.reason ?? null,
       keys: kb.stats.down,
