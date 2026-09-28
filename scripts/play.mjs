@@ -44,8 +44,9 @@ const staleMs = Number(arg('stale-ms', 900));
 // decision's resolved action 38.6% of the time to OFF's 29.6%, and won
 // 1 of 7 to OFF's 3 of 7. The one-field breadcrumb nudges toward repeating
 // the last pick rather than reassessing fresh, with no offsetting benefit
-// found. --recent opts back in for a future test.
-const useRecent = has('recent');
+// found. --recent opts back in for a future test; --recent-outcome adds the hp
+// dealt and taken since that action took the keys.
+const useRecent = has('recent-outcome') ? 'outcome' : has('recent') ? 'action' : null;
 
 const profile = profileFor(name);
 if (!profile) throw new Error(`no profile for ${name}`);

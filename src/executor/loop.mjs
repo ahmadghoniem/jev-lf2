@@ -60,7 +60,7 @@ const DECIDED_TICKS = 90;
 const ROLL_OWNS_MS = 1000;
 export async function runLoop({ cdp, pool, kb, run, name, policy, overlay, hz = 30, noSync = false,
                                decideEveryMs = 500, seconds = 120, onTick, keys,
-                               staleMs = STALE_MS, useRecent = false } = {}) {
+                               staleMs = STALE_MS, useRecent = null } = {}) {
   const period = 1000 / hz;
   // `hz` is only the fallback pace, for a pool that cannot wait on a frame.
   const sync = typeof pool.next === 'function' && !noSync;
@@ -77,7 +77,27 @@ export async function runLoop({ cdp, pool, kb, run, name, policy, overlay, hz = 
   let planned = null;      // the cached plan for the current action
   let plannedFor = null;   // which action it was planned for
   let lastAsk = 0;
+  // What Jev is told about its own last answer. `useRecent` is null (nothing),
+  // 'action' (the last action alone) or 'outcome' (that, plus the action before
+  // it and the hp dealt and taken while it held the keys). The outcome has to be
+  // the one before: the next question goes out in the tick the last answer
+  // lands, so that answer has had no time to do anything yet (a first version
+  // reporting "since the last action" read 0 s on every decision).
   let recent = {};
+  let since = null;        // the last answer's start, for 'outcome'
+  const remember = (arena) => {
+    const now = Date.now();
+    let before = null;
+    if (useRecent === 'outcome' && since) {
+      const dealt = arena.threats.reduce((sum, t) => sum + Math.max(0, (since.foes.get(t.slot) ?? t.hp) - t.hp), 0);
+      before = { action: since.action, seconds: Number(((now - since.atMs) / 1000).toFixed(1)),
+                 you_dealt: dealt, you_took: Math.max(0, since.me - arena.me.hp) };
+    }
+    if (useRecent === 'outcome') {
+      since = { action, atMs: now, me: arena.me.hp, foes: new Map(arena.threats.map((t) => [t.slot, t.hp])) };
+    }
+    recent = { last_action: action, ...(before && { before_that: before }) };
+  };
   let shown = { policy: policy.name };   // what the overlay is currently saying
   let forceDraw = false;                 // set when an answer lands, cleared once drawn
   let deadStreak = 0;                    // consecutive not-alive reads (debounce)
@@ -259,7 +279,7 @@ export async function runLoop({ cdp, pool, kb, run, name, policy, overlay, hz = 
         action = result.action; source = policy.name; stance = null;
         if (!finishing) plannedFor = null;
         if (action === 'roll_away') rollUntil = Date.now() + ROLL_OWNS_MS;
-        if (useRecent) recent = { last_action: action };
+        if (useRecent) remember(arena);
         standing = { action, askedAtMs };
       } else if (result?.action) {
         // Overruled by the block for now, but still the answer for when the
@@ -285,7 +305,7 @@ export async function runLoop({ cdp, pool, kb, run, name, policy, overlay, hz = 
         action = deferred.action; stance = null;
         plannedFor = null;
         if (action === 'roll_away') rollUntil = Date.now() + ROLL_OWNS_MS;
-        if (useRecent) recent = { last_action: action };
+        if (useRecent) remember(arena);
       }
       deferred = null;
     }
