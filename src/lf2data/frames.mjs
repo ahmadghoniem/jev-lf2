@@ -27,7 +27,11 @@ const HURTS = new Set([0, 6]);
  */
 export const REACH_SLACK = 25;
 
-/** Ticks from a dash's Jump to its Attack press, as the charge stance keys it. */
+/**
+ * Ticks from a dash's Jump to its Attack press that the dash band is measured
+ * at. The charge stance presses when the hit would land, which from inside the
+ * band is on or before this tick.
+ */
 export const DASH_PRESS_TICKS = 5;
 /** Ticks of the crouch before a dash leaves the ground, covered at running speed. */
 const DASH_CROUCH_TICKS = 2;

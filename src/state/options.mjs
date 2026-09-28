@@ -61,7 +61,7 @@ export function buildOptions({ profile, nearby = [], nearest = Infinity, mp = 0,
                                hasTarget = false, threatened = false, targetOnScreen = true,
                                helpless = false, weaponInbound = false, guardWorn = false,
                                roomBehind = Infinity, allies = 0, staggerTicks = null,
-                               canDo = () => true }) {
+                               noDash = false, canDo = () => true }) {
   const options = {};
 
   const affordable = (m) => m.mp <= mp || m.allowedWhenShort;
@@ -154,6 +154,8 @@ export function buildOptions({ profile, nearby = [], nearest = Infinity, mp = 0,
   const melee = profile.moves.filter((m) => m.kind === 'melee' && !m.needsWeapon
     && affordable(m) && !targetDown && canDo(meleeName(m))
     && !(m.name === 'dash_attack' && hasTarget && nearest < (dashBand(profile)?.near ?? DASH_MIN_GAP))
+    // On trial (--no-dash): the dash attack not offered at all.
+    && !(noDash && m.name === 'dash_attack')
     // The jump attack is not offered. Its Attack is pressed 7 ticks into the
     // jump and the hitting frames play out near the top of it: across the
     // recorded runs 3 of 63 presses in the air landed (5%), 0 of 19 at a

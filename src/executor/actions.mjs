@@ -16,7 +16,7 @@
 
 import { P4_KEYS } from './keyboard.mjs';
 import { DRINK_TYPE, doing, unhittable, inSight, airborne } from '../state/arena.mjs';
-import { REACH_SLACK, DASH_PRESS_TICKS, animTicks, dashBand } from '../lf2data/frames.mjs';
+import { REACH_SLACK, animTicks, dashBand } from '../lf2data/frames.mjs';
 import { framesFor } from '../lf2data/tables.mjs';
 import { label, plainName, slug } from '../state/options.mjs';
 import { incoming, inboundWeapon, laneDanger, itemUnderHand } from './reflex.mjs';
@@ -553,7 +553,8 @@ export function planAction(name, { arena, profile, keys = P4_KEYS } = {}) {
       return { ...stance(aimedAttack(keys, { profile, needReach: true, reach: meleeReach(profile) })), as: 'punch' };
     }
     return stance(chargeStance(keys, { dash: name === 'dash_attack', reach: meleeReach(profile),
-                                       band: name === 'dash_attack' ? dashBand(profile) : null }));
+                                       band: name === 'dash_attack' ? dashBand(profile) : null,
+                                       dashMove: profile.moves?.find((m) => m.name === 'dash_attack') ?? null }));
   }
 
   // specials, and the ranged basic attack of an archer, both come from hit_*
@@ -758,11 +759,15 @@ function runStance(keys, { toward, stopGap }) {
  * lying on the floor. So it starts only from a stance that can run, at an
  * enemy that can be hit, and gives up without jumping if the run never shows.
  */
-function chargeStance(keys, { dash, reach, band = null }) {
+function chargeStance(keys, { dash, reach, band = null, dashMove = null }) {
   const near = band?.near ?? DASH_MIN_GAP, far = band?.far ?? Infinity;
+  const dashReach = (dashMove?.reach ?? reach) + REACH_SLACK;
+  const startup = dashMove?.startupTicks ?? 0;
   let phase = 'ready';
   let dir = null;
   let ticks = 0;
+  // How far ahead of us the enemy was on the last tick, for the dash's closing speed.
+  let lastAhead = null;
   // The smallest gap seen in the run, and the tick it was seen.
   let closest = Infinity;
   let closestAt = 0;
@@ -836,7 +841,8 @@ function chargeStance(keys, { dash, reach, band = null }) {
       if (dash && t && t.gap > far) return { hold: [keys[dir], ...steer] };
       if (dash && t && t.gap >= near) {
         if (!level) return { hold: [keys[dir], ...steer] };
-        phase = 'dash'; ticks = 0; return { hold: [keys[dir]], tap: [keys.jump] };
+        phase = 'dash'; ticks = 0; lastAhead = aheadOf(a, t);
+        return { hold: [keys[dir]], tap: [keys.jump] };
       }
       if (dash) {
         if (!level) return { hold: [keys[dir], ...steer] };
@@ -854,14 +860,28 @@ function chargeStance(keys, { dash, reach, band = null }) {
       phase = 'done';
     }
     if (phase === 'dash') {
-      // The burst's 160 ms from Jump to Attack. Same re-check as the plain
-      // jump attack, and for the same reason: the enemy this was aimed at can
-      // go down or step out during that time, and firing blind into either
-      // just wastes the swing.
-      if (ticks < DASH_PRESS_TICKS) return { hold: [keys[dir]] };
-      phase = 'done';
-      if (t && t.infront && !unhittable(t) && t.gap <= reach + RUN_SKID) return { hold: [], tap: [keys.attack] };
-      return { hold: [] };
+      // Attack is pressed during the forward dash frame (state 5, facing the
+      // way it dashes; the backward one takes no Attack) on the first tick the
+      // hit would land in reach: the gap 1 + startup ticks on, at the speed it
+      // is closing now. Pressed 5 ticks in only if the gap was within 99 then,
+      // 8 of 14 dash jumps from inside the band never pressed, the gap still
+      // 102-152 and closing about 20 a tick, and flew past the enemy
+      // (2026-09-28T22-28 to 23-08, 1 hit). Across all runs, dash attacks
+      // whose predicted gap was 30-90 hit 37 of 46 times (80%), under 0 hit 0 of 54,
+      // over 90 hit 15 of 89 (17%) (scratch/dash-press-check.mjs).
+      const frame = framesFor(a.me.id)?.[a.me.frame];
+      if (frame?.state !== 5 || a.me.facing !== dir) {
+        if (ticks <= DASH_START_TICKS) return { hold: [keys[dir]] };
+        phase = 'done'; return { hold: [] };
+      }
+      const ahead = t ? aheadOf(a, t) : null;
+      const closing = ahead !== null && lastAhead !== null ? lastAhead - ahead : 0;
+      lastAhead = ahead;
+      const atHit = ahead === null ? -1 : ahead - closing * (1 + startup);
+      // Down, in the air, or passed: the swing would be wasted.
+      if (!t || unhittable(t) || atHit < 0) { phase = 'done'; return { hold: [] }; }
+      if (Math.abs(t.z - a.me.z) < BOT.HIT_Z && atHit <= dashReach) { phase = 'done'; return { hold: [], tap: [keys.attack] }; }
+      return { hold: [keys[dir]] };
     }
     return { hold: [] };
   };
@@ -870,6 +890,10 @@ function chargeStance(keys, { dash, reach, band = null }) {
 }
 /** Ticks into a run after which a charge that never got level gives up. */
 const CHARGE_GIVE_UP = 16;
+/** Ticks after the dash's Jump that the crouch may take before the dash shows. */
+const DASH_START_TICKS = 4;
+/** How far ahead of the fighter the enemy is, along the way it runs. */
+const aheadOf = (a, t) => (a.me.facing === 'left' ? -t.dx : t.dx);
 /** A run that has not closed the gap by CLOSING_MIN in NOT_CLOSING_TICKS is stopped. */
 const CLOSING_MIN = 8;
 const NOT_CLOSING_TICKS = 6;
