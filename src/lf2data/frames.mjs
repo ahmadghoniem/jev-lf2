@@ -54,6 +54,8 @@ export function reachOfFrame(frame) {
  *
  * Follows the frame chain through `next`, which is where the engine goes when
  * the current frame's `wait` runs out.
+ *
+ * `bdefend` is what the hit adds to a blocking defender's guard meter.
  */
 export function nextHit(frames, frameId, waiting = 0, horizon = 12) {
   if (!frames) return null;
@@ -62,8 +64,10 @@ export function nextHit(frames, frameId, waiting = 0, horizon = 12) {
   for (let hop = 0; hop < 6; hop++) {
     const frame = frames[id];
     if (!frame) return null;
-    if (damagingItr(frame).length > 0) {
-      return { ticks: Math.max(0, elapsed), reach: reachOfFrame(frame) };
+    const hits = damagingItr(frame);
+    if (hits.length > 0) {
+      return { ticks: Math.max(0, elapsed), reach: reachOfFrame(frame),
+               bdefend: Math.max(...hits.map((it) => it.bdefend ?? 0)) };
     }
     elapsed += (frame.wait ?? 1) + 1;
     if (elapsed > horizon) return null;
@@ -137,6 +141,27 @@ export function animTicks(frames, frameId) {
     id = next;
   }
   return total;
+}
+
+/**
+ * Ticks left until the animation this fighter is in hands back to standing
+ * (`next: 999`), or Infinity when it has no fixed end: a fall lasts until the
+ * fighter reaches the floor, and its frames carry no `next`. Dennis lying face
+ * down is frame 230 (wait 30) and then the crouch 219, about 34 ticks.
+ */
+export function ticksToEnd(frames, frameId, waiting = 0) {
+  let id = frameId;
+  let left = -waiting;
+  for (let hop = 0; hop < 12; hop++) {
+    const frame = frames?.[id];
+    if (!frame) return 0;
+    left += (frame.wait ?? 1) + 1;
+    const next = frame.next;
+    if (next === 999) return Math.max(0, left);
+    if (typeof next !== 'number' || next <= 0 || next === id) return Infinity;
+    id = next;
+  }
+  return Infinity;
 }
 
 /** Ticks until this fighter's next damaging hitbox goes live, or `null`. */

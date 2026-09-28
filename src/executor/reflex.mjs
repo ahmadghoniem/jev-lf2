@@ -30,7 +30,7 @@ export function incoming(arena, { within = 6 } = {}) {
     // in — a wind-up frame reaches nowhere, which is how wind-ups went unseen.
     if (t.gap > hit.reach + REACH_SLACK) continue;
     if (!worst || hit.ticks < worst.ticks) {
-      worst = { slot: t.slot, ticks: hit.ticks, reach: hit.reach, gap: t.gap };
+      worst = { slot: t.slot, ticks: hit.ticks, reach: hit.reach, gap: t.gap, bdefend: hit.bdefend };
     }
   }
   return worst;
@@ -219,6 +219,25 @@ export function guardHolds(me, weapon) {
   return Math.max(0, (me.guard ?? 0) - eta) + bdefendOf(weapon?.id) <= GUARD_BREAK;
 }
 
+/** Where Defend starts a block, and where it starts a roll, which nothing hits. */
+const BLOCKS_FROM = new Set(['neutral', 'walking', 'blocking']);
+const ROLLS_FROM = new Set(['running', 'landing']);
+
+/**
+ * Whether Defend held now does anything against this swing. In 60 games at
+ * 350 ms, 58% of the swing blocks were held while Dennis could not block
+ * (staggered, knocked down, mid-attack), and against Deep's bdefend-60 swings,
+ * which break any guard, 30 ticks from a block pose cost 33.0 hp against 33.9
+ * from no block (2026-09-28). Such a block only took the keys from Jev's action.
+ */
+function swingBlockWorks(me, threat) {
+  const mine = doing(me);
+  if (ROLLS_FROM.has(mine)) return true;
+  if (!BLOCKS_FROM.has(mine)) return false;
+  const bdefend = threat.bdefend ?? 0;
+  return bdefend <= UNBLOCKABLE && Math.max(0, (me.guard ?? 0) - threat.ticks) + bdefend <= GUARD_BREAK;
+}
+
 /**
  * What the reflex layer wants, ahead of any decision. `null` means it has no
  * opinion and the policy's choice stands.
@@ -241,9 +260,11 @@ export function guardHolds(me, weapon) {
  *
  * It is stateful, so the caller holds one per run and passes the arena in each
  * tick, exactly like the held-weapon and liveness trackers.
+ *
+ * `smartBlock` blocks a swing only where the block works; see `swingBlockWorks`.
  */
 export function createReflex({ maxBlockTicks = BOT.BLOCK_COMMIT_FRAMES,
-                               restTicks = BOT.BLOCK_REST_FRAMES } = {}) {
+                               restTicks = BOT.BLOCK_REST_FRAMES, smartBlock = false } = {}) {
   let blocked = 0;
   let rest = 0;
   let evade = null; // { dir, z, still }: the side being stepped to, to notice a wall
@@ -363,6 +384,7 @@ export function createReflex({ maxBlockTicks = BOT.BLOCK_COMMIT_FRAMES,
     }
     const threat = incoming(arena, opts);
     if (threat) {
+      if (smartBlock && !swingBlockWorks(arena.me, threat)) return null;
       // Inside the rest window the guard stays down on purpose: the swing has
       // passed, and the better answer is the counter the policy is about to pick.
       if (rest > 0) { rest--; return null; }

@@ -48,6 +48,12 @@ const staleMs = Number(arg('stale-ms', 900));
 // --recent-hurt and --recent-attack tell Jev other things instead (see
 // src/executor/recent.mjs).
 const useRecent = ['outcome', 'hurt', 'attack'].find((m) => has(`recent-${m}`)) ?? (has('recent') ? 'action' : null);
+// Three changes on trial (see loop.mjs and reflex.mjs): an attack walking in
+// keeps the keys from the next attack answer, the swing block only where it
+// works, and no questions while Dennis is down.
+const holdAttack = has('hold-attack');
+const smartBlock = has('smart-block');
+const skipBusyAsks = has('skip-busy-asks');
 
 const profile = profileFor(name);
 if (!profile) throw new Error(`no profile for ${name}`);
@@ -123,7 +129,8 @@ await warming;
 const level = (await menuState(cdp).catch(() => null))?.difficulty;
 const difficulty = Object.keys(DIFFICULTY).find((k) => DIFFICULTY[k] === level) ?? 'unknown';
 const run = openRun({ meta: { label: arg('label', `${kind}-${name}`), policy: kind, character: name,
-                              archetype: profile.archetype, difficulty, hz, decideEveryMs, seconds } });
+                              archetype: profile.archetype, difficulty, hz, decideEveryMs, seconds,
+                              useRecent, holdAttack, smartBlock, skipBusyAsks } });
 
 console.log(`${name} (${profile.archetype}) under ${kind} on ${difficulty}, ${seconds}s → ${run.dir}`);
 console.log('ctrl-c releases the keys and closes the run\n');
@@ -142,6 +149,7 @@ process.on('SIGINT', stop);
 let lastShown = '';
 const counts = await runLoop({
   cdp, pool, kb, run, name, policy, overlay, hz, decideEveryMs, seconds, staleMs, keys, useRecent,
+  holdAttack, smartBlock, skipBusyAsks,
   noSync: has('no-sync'),
   onTick: ({ arena, action, source }) => {
     const line = `${source.padEnd(9)} ${action.padEnd(24)} hp ${String(arena.me.hp).padStart(4)}  mp ${String(arena.me.mp).padStart(4)}  nearest ${Math.round(arena.nearest)}`;

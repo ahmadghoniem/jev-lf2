@@ -13,7 +13,10 @@
 
 import { readArena, doing, createLiveness, createHeldTracker, createItemMotion, ENERGY_SLACK } from '../state/arena.mjs';
 import { createCoverage } from '../telemetry/coverage.mjs';
-import { profileFor } from '../lf2data/tables.mjs';
+import { profileFor, framesFor } from '../lf2data/tables.mjs';
+import { ticksToEnd } from '../lf2data/frames.mjs';
+import { GROUPS } from '../state/nest.mjs';
+import { P4_KEYS } from './keyboard.mjs';
 import { planAction, findSpecial, ROLL_START_TICKS } from './actions.mjs';
 import { createReflex, laneDanger } from './reflex.mjs';
 import { offer } from './policies.mjs';
@@ -59,9 +62,33 @@ const DEAD_CONFIRM_TICKS = 15;
 const DECIDED_TICKS = 90;
 /** How long a chosen roll keeps the reflex off: run-up, tumble, and a margin. */
 const ROLL_OWNS_MS = 1000;
+
+/**
+ * `holdAttack`: an attack Jev chose keeps the keys from the next attack or
+ * move-in answer until its attack key is pressed, for up to this many ticks.
+ * In 30 games at 350 ms, 64% of attack answers ended before Attack was ever
+ * pressed; 43-48% were replaced by the next answer after a median 10-11 ticks
+ * (one answer interval), with the enemy a median 141-148 away, still walking
+ * in (2026-09-28). Two intervals give that walk room to finish.
+ */
+const HOLD_TICKS = 20;
+const isAttack = (a) => GROUPS.some((g) => (g.name === 'special_move' || g.name === 'melee_attack') && g.match(a));
+const MOVES_IN = GROUPS.find((g) => g.name === 'move_toward').match;
+/** Answers that wait for an attack walking in; a roll, a block or a retreat does not. */
+const waitsForAttack = (a) => isAttack(a) || MOVES_IN(a);
+/** What an attack can still be walking in from. */
+const HOLDABLE = new Set(['neutral', 'walking', 'running', 'blocking', 'landing', 'skidding']);
+/**
+ * `skipBusyAsks`: no question goes out while Dennis cannot act for longer than
+ * an answer takes, and the first one goes out so that it lands as he gets up.
+ * 32% of 7455 answers at 350 ms landed while he was knocked down (16%),
+ * staggered (13%) or in a broken guard (3%), about a fight that had moved on.
+ */
+const DOWN = new Set(['knocked_down', 'staggered', 'broken_guard']);
 export async function runLoop({ cdp, pool, kb, run, name, policy, overlay, hz = 30, noSync = false,
                                decideEveryMs = 500, seconds = 120, onTick, keys,
-                               staleMs = STALE_MS, useRecent = null } = {}) {
+                               staleMs = STALE_MS, useRecent = null,
+                               holdAttack = false, smartBlock = false, skipBusyAsks = false } = {}) {
   const period = 1000 / hz;
   // `hz` is only the fallback pace, for a pool that cannot wait on a frame.
   const sync = typeof pool.next === 'function' && !noSync;
@@ -104,7 +131,7 @@ export async function runLoop({ cdp, pool, kb, run, name, policy, overlay, hz = 
   const coverage = createCoverage();
   // And the reflex layer's own state, so its block is a finite parry with a rest
   // between rather than a guard held until it breaks.
-  const reflexFor = createReflex();
+  const reflexFor = createReflex({ smartBlock });
 
   const profile = profileFor(name);
   if (!profile) throw new Error(`no derived profile for ${name} — rebuild build/_profiles.json`);
@@ -120,6 +147,17 @@ export async function runLoop({ cdp, pool, kb, run, name, policy, overlay, hz = 
   let standing = null;     // Jev's latest answer, for when a reflex lets go
   let deferred = null;     // a different answer waiting for a committed special
   let answered = null;     // Jev's latest answer, kept even once applied
+  let held = null;         // an answer waiting for an attack to walk in (holdAttack)
+  let attackOf = null;     // the Jev attack holding the keys, and since which tick
+  let attackTick = 0;
+  let fired = false;       // whether its plan has pressed Attack
+  let stepEmpty = false;   // whether the last tick's plan pressed nothing
+  let latencyMs = null;    // ask to arrival, smoothed (skipBusyAsks)
+  const attackCode = (keys ?? P4_KEYS).attack;
+  // An attack Jev chose, not yet pressed, still walking in or mid-move.
+  const walkingIn = (arena) => holdAttack && source === policy.name && attackOf === action && !fired
+    && tick - attackTick <= HOLD_TICKS
+    && (planned?.busy?.() || (!stepEmpty && HOLDABLE.has(doing(arena.me))));
   const HOLDS = new Set(['defend', 'wait']);
   const ROLLING = (frame) => frame >= 102 && frame <= 107;
   let paused = false;
@@ -228,6 +266,7 @@ export async function runLoop({ cdp, pool, kb, run, name, policy, overlay, hz = 
     if (reflex) {
       counts.reflexes++;
       deferred = null;     // the reflex hands back through `standing`
+      held = null;
       action = reflex.action; source = 'reflex'; stance = null;
       plannedFor = null;   // a reflex tick is a new order; re-plan it
     }
@@ -237,6 +276,9 @@ export async function runLoop({ cdp, pool, kb, run, name, policy, overlay, hz = 
       const { result, askedAt, askedAtMs } = pending;
       pending = null;
       if (result?.action) answered = { action: result.action, askedAtMs };
+      if (result?.action) held = null;   // a newer answer replaces a held one
+      const tookMs = Date.now() - askedAtMs;
+      latencyMs = latencyMs == null ? tookMs : 0.8 * latencyMs + 0.2 * tookMs;
       if (Date.now() - askedAtMs > staleMs) counts.stale++;
       // A special being keyed in or chained finishes first; see `committed`
       // in actions.mjs. The answer takes over as soon as it lets go.
@@ -244,6 +286,11 @@ export async function runLoop({ cdp, pool, kb, run, name, policy, overlay, hz = 
                && planned?.committed?.()) {
         deferred = standing = { action: result.action, askedAtMs };
         counts.deferred = (counts.deferred ?? 0) + 1;
+      }
+      // An attack still walking in is let finish; see HOLD_TICKS.
+      else if (result?.action && result.action !== action && waitsForAttack(result.action) && walkingIn(arena)) {
+        held = standing = { action: result.action, askedAtMs };
+        counts.held = (counts.held ?? 0) + 1;
       }
       // A thrown weapon is already in the air and the block answers it, so that
       // one reflex holds against a late answer; everything else steps aside.
@@ -293,6 +340,18 @@ export async function runLoop({ cdp, pool, kb, run, name, policy, overlay, hz = 
       deferred = null;
     }
 
+    // The held answer takes over once the attack is pressed, gives up, or
+    // runs out of time.
+    if (held && !walkingIn(arena)) {
+      if (source === policy.name && Date.now() - held.askedAtMs <= staleMs) {
+        action = held.action; stance = null;
+        plannedFor = null;
+        memory.applied(arena, action);
+        counts.heldApplied = (counts.heldApplied ?? 0) + 1;
+      }
+      held = null;
+    }
+
     // --- once the reflex lets go, Jev's latest answer takes the keys back.
     // Before, an answer that landed while a star was being blocked was thrown
     // away, and the fighter stood in a dropped guard until the next decision:
@@ -313,7 +372,13 @@ export async function runLoop({ cdp, pool, kb, run, name, policy, overlay, hz = 
     }
 
     // --- ask for the next one, without waiting for it
-    if (!pending && !burst && Date.now() - lastAsk >= decideEveryMs) {
+    // Not while down for longer than an answer takes to arrive.
+    const downFor = skipBusyAsks && DOWN.has(doing(arena.me))
+      ? ticksToEnd(framesFor(arena.me.id), arena.me.frame, arena.me.waiting ?? 0) : 0;
+    const lead = Math.ceil((latencyMs ?? decideEveryMs) * hz / 1000);
+    const due = !pending && !burst && Date.now() - lastAsk >= decideEveryMs;
+    if (due && downFor > lead) counts.downWaits = (counts.downWaits ?? 0) + 1;
+    if (due && downFor <= lead) {
       lastAsk = Date.now();
       const options = offer(arena, profile);
       // The panel names the options as they are chosen, so the list on screen is
@@ -350,14 +415,21 @@ export async function runLoop({ cdp, pool, kb, run, name, policy, overlay, hz = 
     // there. The stance still re-reads the arena every tick; only its
     // construction is cached.
     if (!burst) {
+      if (source !== policy.name || !isAttack(action)) attackOf = null;
+      else if (plannedFor !== action) {
+        if (attackOf !== action) attackTick = tick;
+        attackOf = action; fired = false;
+      }
       if (plannedFor !== action) {
         planned = planAction(action, { arena, profile, keys });
         plannedFor = action;
       }
       const plan = planned;
+      stepEmpty = !plan;
       if (plan?.kind === 'burst') {
         counts.bursts++;
         plannedFor = null;
+        fired = true;
         // Keys a stance or the block left down would play into the burst: a
         // dash attack started over a held Defend and a left from the block's
         // turn jumped Henry the wrong way and spent 18 MP on a special.
@@ -370,6 +442,8 @@ export async function runLoop({ cdp, pool, kb, run, name, policy, overlay, hz = 
         // Nothing pressed and nothing mid-move: what this action was asked
         // about stopped holding. Ask again rather than sit out the interval.
         const empty = !step.hold?.length && !step.tap?.length;
+        stepEmpty = empty;
+        if (step.tap?.includes(attackCode) || step.hold?.includes(attackCode)) fired = true;
         if (empty && source === policy.name && action !== 'wait' && !plan.busy?.()) {
           if (++idleTicks >= IDLE_REASK_TICKS) { lastAsk = 0; idleTicks = 0; }
         } else idleTicks = 0;
@@ -402,6 +476,8 @@ export async function runLoop({ cdp, pool, kb, run, name, policy, overlay, hz = 
         range: Math.round(i.range), dx: Math.round(i.dx), dz: Math.round(i.dz), closing: !!i.closing,
         hostile: !!i.hostile, speed: Math.round(i.speed ?? 0), vz: +(i.vz ?? 0).toFixed(1) })),
       action, source,
+      ...(held && { held: held.action }),
+      ...(downFor > 0 && { downFor: Number.isFinite(downFor) ? downFor : -1 }),
       reflex: reflex?.reason ?? null,
       keys: kb.stats.down,
     });
