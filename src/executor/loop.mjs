@@ -61,6 +61,16 @@ const DEAD_CONFIRM_TICKS = 15;
  * enemy was dead.
  */
 const DECIDED_TICKS = 90;
+/**
+ * An answer that took the keys while the fighter was down or in its own move
+ * is not followed by a new ask until the fighter can act on it, for up to this
+ * many ticks. The ask gate below holds asks only while the move has more ticks
+ * left than a reply takes, so the next reply could still land on the tick the
+ * fighter got free: in 5 games at 73e4017, 27 of 107 answers that arrived in
+ * an own move (25%) were replaced before the fighter could act, 17 of them by
+ * an ask sent while it was still busy (scratch/busy-replaced.mjs).
+ */
+const UNTRIED_MAX_TICKS = 45;
 /** How long a chosen roll keeps the reflex off: run-up, tumble, and a margin. */
 const ROLL_OWNS_MS = 1000;
 
@@ -165,6 +175,11 @@ export async function runLoop({ cdp, pool, kb, run, name, policy, overlay, hz = 
   let fired = false;       // whether its plan has pressed Attack
   let stepEmpty = false;   // whether the last tick's plan pressed nothing
   let latencyMs = null;    // ask to arrival, smoothed
+  let untriedAt = null;    // tick an answer took the keys while the fighter could not act
+  const markUntried = (arena) => {
+    const d = doing(arena.me);
+    untriedAt = DOWN.has(d) || OWN_MOVE.has(d) ? tick : null;
+  };
   const attackCode = (keys ?? P4_KEYS).attack;
   // An attack Jev chose, not yet pressed, still walking in or mid-move.
   const walkingIn = (arena) => source === policy.name && attackOf === action && !fired
@@ -322,6 +337,7 @@ export async function runLoop({ cdp, pool, kb, run, name, policy, overlay, hz = 
         if (action === 'roll_away') rollUntil = Date.now() + ROLL_OWNS_MS;
 
         standing = { action, askedAtMs };
+        markUntried(arena);
       } else if (result?.action) {
         // Overruled by the block for now, but still the answer for when the
         // weapon has passed.
@@ -344,6 +360,7 @@ export async function runLoop({ cdp, pool, kb, run, name, policy, overlay, hz = 
     if (deferred && source === policy.name && !planned?.committed?.()) {
       if (Date.now() - deferred.askedAtMs <= staleMs) {
         action = deferred.action; stance = null;
+        markUntried(arena);
         plannedFor = null;
         if (action === 'roll_away') rollUntil = Date.now() + ROLL_OWNS_MS;
 
@@ -356,6 +373,7 @@ export async function runLoop({ cdp, pool, kb, run, name, policy, overlay, hz = 
     if (held && !walkingIn(arena)) {
       if (source === policy.name && Date.now() - held.askedAtMs <= staleMs) {
         action = held.action; stance = null;
+        markUntried(arena);
         plannedFor = null;
 
         counts.heldApplied = (counts.heldApplied ?? 0) + 1;
@@ -391,10 +409,16 @@ export async function runLoop({ cdp, pool, kb, run, name, policy, overlay, hz = 
     const downFor = DOWN.has(myDoing) ? left : 0;
     const ownFor = OWN_MOVE.has(myDoing) && Number.isFinite(left) ? left : 0;
     const lead = Math.ceil((latencyMs ?? decideEveryMs) * hz / 1000);
+    // An answer that took the keys while the fighter could not act keeps them
+    // until it can; see UNTRIED_MAX_TICKS.
+    if (untriedAt !== null && ((!DOWN.has(myDoing) && !OWN_MOVE.has(myDoing))
+        || tick - untriedAt > UNTRIED_MAX_TICKS)) untriedAt = null;
+    const untried = untriedAt !== null;
     const due = !pending && !burst && Date.now() - lastAsk >= decideEveryMs;
+    if (due && untried) counts.untriedWaits = (counts.untriedWaits ?? 0) + 1;
     if (due && downFor > lead) counts.downWaits = (counts.downWaits ?? 0) + 1;
     if (due && ownFor > lead) counts.ownWaits = (counts.ownWaits ?? 0) + 1;
-    if (due && downFor <= lead && ownFor <= lead) {
+    if (due && !untried && downFor <= lead && ownFor <= lead) {
       lastAsk = Date.now();
       const options = offer(arena, profile, { staggerHint });
       // The panel names the options as they are chosen, so the list on screen is
@@ -497,6 +521,7 @@ export async function runLoop({ cdp, pool, kb, run, name, policy, overlay, hz = 
       ...(planned?.as && plannedFor === action && { as: planned.as }),
       ...(downFor > 0 && { downFor: Number.isFinite(downFor) ? downFor : -1 }),
       ...(ownFor > 0 && { ownFor }),
+      ...(untried && { untried: true }),
       reflex: reflex?.reason ?? null,
       keys: kb.stats.down,
     });
