@@ -61,7 +61,7 @@ export function buildOptions({ profile, nearby = [], nearest = Infinity, mp = 0,
                                enemyDoing = null, aligned = true, targetDown = false,
                                hasTarget = false, threatened = false, targetOnScreen = true,
                                helpless = false, weaponInbound = false, guardWorn = false,
-                               roomBehind = Infinity, allies = 0, pain = null, down = null,
+                               roomBehind = Infinity, allies = 0, pain = null,
                                depth = 0, zClosing = 0, canDo = () => true }) {
   const options = {};
 
@@ -248,10 +248,8 @@ export function buildOptions({ profile, nearby = [], nearest = Infinity, mp = 0,
   // fast, but commits to the direction, where walking can be revised every tick.
   // Offered once the distance is long enough that walking would be slow, and
   // out to a run when there is ground to cover to break off.
-  const downNote = hasTarget && targetDown ? downText(down, profile, nearest, depth, affordable) : '';
   if (hasTarget && nearest > RUN_IN_MIN_X) {
-    options.run_in = ['Run at the enemy — double-tap toward it. It closes ground about twice as fast as walking, but the direction is committed for the burst.', downNote]
-      .filter(Boolean).join(' ');
+    options.run_in = 'Run at the enemy — double-tap toward it. It closes ground about twice as fast as walking, but the direction is committed for the burst.';
   }
   if (hasTarget && nearest <= RUN_OUT_MAX_X && roomBehind >= RUN_OUT_ROOM) {
     options.run_out = 'Run away from the enemy — double-tap away from it. It breaks off quickly to reset the distance, where walking away is slow.';
@@ -266,7 +264,6 @@ export function buildOptions({ profile, nearby = [], nearest = Infinity, mp = 0,
     : (standoff
       ? 'Close on the enemy, but stop at your firing range. Once the shot reaches, hold and fire rather than walking in.'
       : 'Move toward the enemy to get into range.');
-  if (downNote) options.close_distance = `${options.close_distance} ${downNote}`;
   if (roomBehind >= WALK_OUT_ROOM) {
     options.open_distance = 'Move away from the enemy, walking, to get out of its reach. Nothing is committed, so it can be changed at any moment.';
   }
@@ -411,31 +408,6 @@ function painText(move, arrive, pain, profile) {
     + (superPunch ? ` On it, this becomes the super punch (damage ${superPunch.damageTier}).` : '');
 }
 const fireText = (move) => `It goes off about ${(fireTicks(move) / 30).toFixed(1)} s after the first key press.`;
-
-/**
- * An enemy on the floor (`downWindow` in arena.mjs): when it gets up, and
- * when the ordinary attack walked in would land, since nothing hits it before
- * it is up. From the observer: rush in only with a move ready to fire as it
- * wakes up, otherwise it is a waste (2026-09-29T17-41-03, tick 233).
- */
-function downText(down, profile, nearest, depth, affordable) {
-  if (!down) return '';
-  const sec = (ticks) => (ticks / 30).toFixed(1);
-  const up = down.left != null
-    ? `The enemy is on the floor and gets up in about ${sec(down.left)} s.`
-    : `The enemy is falling${down.lies != null ? ` and lies on the floor for about ${sec(down.lies)} s once it lands` : ''}.`;
-  const basic = profile.basicAttack;
-  const move = profile.moves.find((m) => m.kind === 'melee' && basic && m.entry === basic.entry && affordable(m))
-    ?? profile.moves.find((m) => m.kind === 'melee' && !m.needsWeapon && affordable(m)
-      && m.name !== 'dash_attack' && m.name !== 'jump_attack');
-  const arrive = move ? meleeArrival(move, nearest, depth, profile) : null;
-  const lands = arrive == null ? ''
-    : down.left == null ? ` Walked in, your ${label(move)} would be ready to land in about ${sec(arrive)} s.`
-    : arrive <= down.left
-      ? ` Walked in, your ${label(move)} would be ready about ${sec(down.left - arrive)} s before it is up.`
-      : ` Walked in, your ${label(move)} would be ready about ${sec(arrive - down.left)} s after it is up, when it can already act.`;
-  return `${up} Nothing hits it until it is up.${lands} Closing in pays only if you arrive with a move ready to fire as it gets up; otherwise the walk is wasted.`;
-}
 
 /**
  * The walk into line a straight shot needs first: the executor steps in depth

@@ -235,6 +235,19 @@ const BLOCKS_FROM = new Set(['neutral', 'walking', 'blocking']);
 const ROLLS_FROM = new Set(['running', 'landing']);
 
 /**
+ * Whether Defend pressed now does anything at all: it starts a block or a
+ * roll, or the frame has a hit_d transition. Elsewhere (staggered, lying,
+ * falling, mid-attack without hit_d) px.js ignores it, and a held key only
+ * blocks the next press of the same key by Jev's action. One rule for every
+ * reflex that holds Defend.
+ */
+function defendWorks(me) {
+  const mine = doing(me);
+  if (BLOCKS_FROM.has(mine) || ROLLS_FROM.has(mine)) return true;
+  return framesFor(me.id)?.[me.frame]?.transitions?.d != null;
+}
+
+/**
  * Whether Defend held now does anything against this swing. In 60 games at
  * 350 ms, 58% of the swing blocks were held while Dennis could not block
  * (staggered, knocked down, mid-attack), and against Deep's bdefend-60 swings,
@@ -244,7 +257,7 @@ const ROLLS_FROM = new Set(['running', 'landing']);
 function swingBlockWorks(me, threat) {
   const mine = doing(me);
   if (ROLLS_FROM.has(mine)) return true;
-  if (!BLOCKS_FROM.has(mine)) return false;
+  if (!defendWorks(me)) return false;
   const bdefend = threat.bdefend ?? 0;
   return bdefend <= UNBLOCKABLE && Math.max(0, (me.guard ?? 0) - threat.ticks) + bdefend <= GUARD_BREAK;
 }
@@ -360,11 +373,9 @@ export function createReflex({ maxBlockTicks = BOT.BLOCK_COMMIT_FRAMES,
     // it or a roll, are the rest.
     const thrown = inboundWeapon(arena);
     if (thrown && !unblockable(thrown.id)) {
-      // In an attack frame of our own that takes no Defend (state 3, no
-      // hit_d), px.js forms no block, and the held key only kept the Attack
-      // repeats of an energy-ball chain from being pressed.
-      const own = framesFor(arena.me.id)?.[arena.me.frame];
-      if (own?.state === 3 && own.transitions?.d == null) return null;
+      // Held where Defend does nothing, the key only kept the Attack repeats
+      // of an energy-ball chain from being pressed (`defendWorks`).
+      if (!defendWorks(arena.me)) return null;
       const when = Number.isFinite(thrown.eta) ? `~${thrown.eta.toFixed(0)} ticks out` : 'closing';
       // The block, not the depth step. Against Rudolf's stars the step is where
       // the damage came from: in the three Henry vs Rudolf runs of 2026-09-23,

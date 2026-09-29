@@ -434,23 +434,6 @@ export function painWindow(t) {
   return Number.isFinite(left) && Number.isFinite(whole) ? { left, gone: Math.max(0, whole - left) } : null;
 }
 
-/** A fighter's lying frame (230 face down, 231 face up, 30 ticks each). */
-const LYING_FRAME = 230;
-/**
- * A fighter falling or lying on the floor: `left`, the ticks until it is up
- * (the lying frame, then the crouch; Deep's 34 from frame 230), null while it
- * falls, since a fall lasts until it reaches the floor; `lies`, the ticks a
- * landing leaves it there. Null when it is neither.
- */
-export function downWindow(t) {
-  const frames = t && framesFor(t.id);
-  const state = frames?.[t.frame]?.state;
-  if (state !== 14 && !falling(t)) return null;
-  const left = state === 14 ? ticksToEnd(frames, t.frame, t.waiting ?? 0) : null;
-  const lies = ticksToEnd(frames, LYING_FRAME, 0);
-  return { left: Number.isFinite(left) ? left : null, lies: Number.isFinite(lies) ? lies : null };
-}
-
 /**
  * How fast the depth gap to each enemy is shrinking, in units a tick over the
  * last few reads, whoever is walking; set as `zClosing` on each threat. One
