@@ -4,20 +4,23 @@
  * `--max-reply-ms`, checking once a minute; exits 1 after `--wait-min`
  * minutes. series.mjs runs it before each game.
  *
- *   node scripts/wait-for-jev.mjs --max-reply-ms 400 --wait-min 20
+ *   node scripts/wait-for-jev.mjs --max-reply-ms 450 --wait-min 20
  *
  * A game played while Jev is slow measures the service: on 2026-09-29 the
  * median reply went from 301 ms to 553-558 ms within two hours, and of 20
  * games the 10 with the slowest replies dealt 236 per 1000 ticks against 308.
  * The probe replays the latest recorded ask's state and action options (about
- * 1400 input tokens, against about 2200 for a real ask with its follow-ups).
+ * 1400 input tokens, against about 2200 for a real ask with its follow-ups);
+ * it still read close to the real asks: 338 and 376 ms before two games whose
+ * asks took a median 375 and 363. 450 lies between normal (290-380) and the
+ * slow spell (550 and up); at 400 it held a game for minutes at 409-413.
  */
 
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { arg, loadApiKey } from '../src/cli.mjs';
 import { createClient } from '../src/jev/client.mjs';
 
-const maxReplyMs = Number(arg('max-reply-ms', 400));
+const maxReplyMs = Number(arg('max-reply-ms', 450));
 const waitMin = Number(arg('wait-min', 20));
 const PROBE_ASKS = 5;
 const DEADLINE_MS = 1400;  // play.mjs's; a miss counts as this
