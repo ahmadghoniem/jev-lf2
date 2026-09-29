@@ -43,6 +43,9 @@ const staleMs = Number(arg('stale-ms', 900));
 // On trial: melee options say whether they land inside the enemy's dance of
 // pain (see `painText` in options.mjs).
 const painHint = has('pain-hint');
+// On trial: melee options out of reach say how long the approach and the hit
+// take (see `approachText` in options.mjs).
+const reachTime = has('reach-time');
 // The code a run was played with, so runs are grouped by commit rather than
 // by flags; a checkout with local changes is marked "+dirty".
 const gitCommit = () => {
@@ -128,7 +131,7 @@ const level = (await menuState(cdp).catch(() => null))?.difficulty;
 const difficulty = Object.keys(DIFFICULTY).find((k) => DIFFICULTY[k] === level) ?? 'unknown';
 const run = openRun({ meta: { label: arg('label', `${kind}-${name}`), policy: kind, character: name,
                               archetype: profile.archetype, difficulty, hz, decideEveryMs, seconds,
-                              painHint, commit: gitCommit() } });
+                              painHint, reachTime, commit: gitCommit() } });
 
 console.log(`${name} (${profile.archetype}) under ${kind} on ${difficulty}, ${seconds}s → ${run.dir}`);
 console.log('ctrl-c releases the keys and closes the run\n');
@@ -146,7 +149,7 @@ process.on('SIGINT', stop);
 
 let lastShown = '';
 const counts = await runLoop({
-  cdp, pool, kb, run, name, policy, overlay, hz, decideEveryMs, seconds, staleMs, keys, painHint,
+  cdp, pool, kb, run, name, policy, overlay, hz, decideEveryMs, seconds, staleMs, keys, painHint, reachTime,
   noSync: has('no-sync'),
   onTick: ({ arena, action, source }) => {
     const line = `${source.padEnd(9)} ${action.padEnd(24)} hp ${String(arena.me.hp).padStart(4)}  mp ${String(arena.me.mp).padStart(4)}  nearest ${Math.round(arena.nearest)}`;

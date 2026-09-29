@@ -11,7 +11,7 @@ Check field names against a current `ticks.jsonl` line before relying on them.
   ends, so the run in progress and crashed runs have none; filter with
   `fs.existsSync`.
 - The manifest holds `label` (the series arm), `character`, `difficulty`,
-  `decideEveryMs`, the trial flags on (`painHint`; older runs also
+  `decideEveryMs`, the trial flags on (`painHint`, `reachTime`; older runs also
   `staggerHint`, `useRecent`, `holdAttack`, `smartBlock`, `skipBusyAsks`), `commit` (from
   73e4017 on) and `loop` (the loop's counters, including `outcome`).
 - Wins: `manifest.loop.outcome` is `won`, `lost` or `time` (since

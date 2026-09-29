@@ -14,7 +14,7 @@
 import { tierDamage, bucketRange, damageAt } from '../lf2data/profile.mjs';
 import { mpRegenPerSecond } from './fields.mjs';
 import { REACH_SLACK } from '../lf2data/frames.mjs';
-import { standoffOf, RUN_IN_MIN_X, RUN_OUT_MAX_X, PRESS_EVERY } from './bot.mjs';
+import { standoffOf, RUN_IN_MIN_X, RUN_OUT_MAX_X, PRESS_EVERY, BOT } from './bot.mjs';
 import { framesFor, headerFor } from '../lf2data/tables.mjs';
 
 /**
@@ -52,6 +52,8 @@ const WALK_OUT_ROOM = 40;
  * @param nearest    distance to the closest threat, in game units
  * @param targetDown nothing started now can hit the nearest enemy: it is on
  *                   the floor, or in a jump close by (`unhittable` in arena.mjs)
+ * @param depth      depth gap to the nearest threat
+ * @param reachTime  melee options out of reach say when they would hit
  * @param roomBehind ground between the fighter and the stage edge behind it
  * @param canDo      whether the executor can actually carry an option out
  */
@@ -61,7 +63,7 @@ export function buildOptions({ profile, nearby = [], nearest = Infinity, mp = 0,
                                hasTarget = false, threatened = false, targetOnScreen = true,
                                helpless = false, weaponInbound = false, guardWorn = false,
                                roomBehind = Infinity, allies = 0, pain = null,
-                               canDo = () => true }) {
+                               depth = 0, reachTime = false, canDo = () => true }) {
   const options = {};
 
   const affordable = (m) => m.mp <= mp || m.allowedWhenShort;
@@ -185,7 +187,9 @@ export function buildOptions({ profile, nearby = [], nearest = Infinity, mp = 0,
         : 'The enemy is out of its reach, so this means closing in first.',
       window ? 'The enemy is helpless right now, so this cannot be answered or blocked.' : '',
       behind ? 'The enemy is behind you; you will turn first, which costs a moment.' : '',
-      hasTarget && !targetDown ? painText(move, meleeArrival(move, nearest, profile), pain, profile) : '',
+      hasTarget && !targetDown ? painText(move, meleeArrival(move, nearest, depth, profile), pain, profile) : '',
+      reachTime && hasTarget && !targetDown && !inReach && !pain
+        ? approachText(meleeArrival(move, nearest, depth, profile)) : '',
       cost(move),
       // An archer's attack button fires an arrow that costs MP even point
       // blank, so without saying so the free melee moves read as the weaker
@@ -354,16 +358,30 @@ const RUN_START_TICKS = 3;
 /**
  * Ticks from now until a melee move hits, walked or run in from here: the
  * answer's delay, the approach at the fighter's own speed (its data-file
- * header), then the move's wind-up. Null without a speed to go on.
+ * header), then the move's wind-up. The fighter walks both ways at once, so
+ * the approach is the longer of the two: along to its reach, and in depth to
+ * `BOT.AIM_MAX_Z`, where the executor presses. Null without a speed to go on.
  */
-function meleeArrival(move, nearest, profile) {
+function meleeArrival(move, nearest, depth, profile) {
   const header = headerFor(profile.name);
   const runs = move.name === 'run_attack' || move.name === 'dash_attack';
   const speed = runs ? header?.running_speed : header?.walking_speed;
+  const speedZ = runs ? header?.running_speedz : header?.walking_speedz;
   if (!speed || !Number.isFinite(nearest)) return null;
   const gap = Math.max(0, nearest - (move.reach ?? 0) - REACH_SLACK);
-  return ANSWER_TICKS + (gap > 0 && runs ? RUN_START_TICKS : 0) + Math.ceil(gap / speed) + fireTicks(move);
+  const gapZ = speedZ ? Math.max(0, depth - BOT.AIM_MAX_Z) : 0;
+  const walk = Math.max(Math.ceil(gap / speed), speedZ ? Math.ceil(gapZ / speedZ) : 0);
+  return ANSWER_TICKS + (gap > 0 && runs ? RUN_START_TICKS : 0) + walk + fireTicks(move);
 }
+
+/**
+ * When a melee answer out of reach would hit, from our own fighter's speeds
+ * alone. A punch picked from 121-200 away pressed Attack 1 time in 23 (4%):
+ * the walk in takes 25-45 ticks, three or four asks, and one of them replaces
+ * it (scratch/attack-replaced.mjs, 2026-09-29).
+ */
+const approachText = (arrive) => (arrive == null ? ''
+  : `You reach it and this hits in about ${(arrive / 30).toFixed(1)} s; it can move before then.`);
 
 /**
  * Whether a melee answer lands inside the enemy's dance of pain (`painWindow`
