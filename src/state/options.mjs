@@ -53,7 +53,6 @@ const WALK_OUT_ROOM = 40;
  * @param targetDown nothing started now can hit the nearest enemy: it is on
  *                   the floor, or in a jump close by (`unhittable` in arena.mjs)
  * @param depth      depth gap to the nearest threat
- * @param reachTime  melee options out of reach say when they would hit
  * @param roomBehind ground between the fighter and the stage edge behind it
  * @param canDo      whether the executor can actually carry an option out
  */
@@ -63,7 +62,7 @@ export function buildOptions({ profile, nearby = [], nearest = Infinity, mp = 0,
                                hasTarget = false, threatened = false, targetOnScreen = true,
                                helpless = false, weaponInbound = false, guardWorn = false,
                                roomBehind = Infinity, allies = 0, pain = null,
-                               depth = 0, reachTime = false, canDo = () => true }) {
+                               depth = 0, canDo = () => true }) {
   const options = {};
 
   const affordable = (m) => m.mp <= mp || m.allowedWhenShort;
@@ -188,8 +187,6 @@ export function buildOptions({ profile, nearby = [], nearest = Infinity, mp = 0,
       window ? 'The enemy is helpless right now, so this cannot be answered or blocked.' : '',
       behind ? 'The enemy is behind you; you will turn first, which costs a moment.' : '',
       hasTarget && !targetDown ? painText(move, meleeArrival(move, nearest, depth, profile), pain, profile) : '',
-      reachTime && hasTarget && !targetDown && !inReach && !pain
-        ? approachText(meleeArrival(move, nearest, depth, profile)) : '',
       cost(move),
       // An archer's attack button fires an arrow that costs MP even point
       // blank, so without saying so the free melee moves read as the weaker
@@ -373,15 +370,6 @@ function meleeArrival(move, nearest, depth, profile) {
   const walk = Math.max(Math.ceil(gap / speed), speedZ ? Math.ceil(gapZ / speedZ) : 0);
   return ANSWER_TICKS + (gap > 0 && runs ? RUN_START_TICKS : 0) + walk + fireTicks(move);
 }
-
-/**
- * When a melee answer out of reach would hit, from our own fighter's speeds
- * alone. A punch picked from 121-200 away pressed Attack 1 time in 23 (4%):
- * the walk in takes 25-45 ticks, three or four asks, and one of them replaces
- * it (scratch/attack-replaced.mjs, 2026-09-29).
- */
-const approachText = (arrive) => (arrive == null ? ''
-  : `You reach it and this hits in about ${(arrive / 30).toFixed(1)} s; it can move before then.`);
 
 /**
  * Whether a melee answer lands inside the enemy's dance of pain (`painWindow`

@@ -25,7 +25,7 @@ function guardWorn(arena) {
 }
 
 /** Options the executor can actually carry out, described for a reader. */
-export function offer(arena, profile, { painHint = false, reachTime = false } = {}) {
+export function offer(arena, profile) {
   const near = arena.threats[0];
   const options = buildOptions({
     profile,
@@ -45,8 +45,7 @@ export function offer(arena, profile, { painHint = false, reachTime = false } = 
     targetOnScreen: near ? inSight(near, profile) : true,
     threatened: !!incoming(arena, { within: 12 }),
     helpless: !!near?.helpless,
-    pain: painHint ? painWindow(near) : null,
-    reachTime,
+    pain: painWindow(near),
     depth: near?.zGap ?? 0,
     weaponInbound: !!inboundWeapon(arena),
     guardWorn: guardWorn(arena),

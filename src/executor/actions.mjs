@@ -179,8 +179,18 @@ function aimedAttack(keys, { seq = ['attack'], needReach = false, reach = 45, st
     // Aim from beside the enemy's line rather than on it: too far off and
     // nothing connects, so step in; nearer than the CPU blocks from, step out
     // first, for at most AIM_OUT_TICKS so a stage edge cannot hold it forever.
+    // A melee move still out of reach walks along and in depth together, as
+    // rush_attack does. Depth first came with the ball casts (39ccda4), which
+    // must be level to fire; the punch took the same order. 233 of 1567 melee
+    // answers (15%) walked only in depth for 3+ ticks with the enemy over 70
+    // away, a median 7 ticks, and 68% of those never pressed Attack; 44% of a
+    // punch's far ticks held only a depth key, against 0% for rush_attack
+    // (Dennis v Deep, 2026-09-29).
     if (!anyDepth && Math.abs(dz) > BOT.AIM_MAX_Z) {
       if (step > 0 && step < seq.length * PRESS_EVERY) step = 0;
+      if (needReach && !started() && t.gap > reach + REACH_SLACK) {
+        return { hold: toward(a, keys, t, { zOff: side * BOT.AIM_Z }) };
+      }
       return { hold: depthTo(a, keys, t.z + side * BOT.AIM_Z) };
     }
     // Only for a single press: a special's three presses already take about
