@@ -113,8 +113,9 @@ export function buildOptions({ profile, nearby = [], nearest = Infinity, mp = 0,
     && !targetDown && (!hasTarget || (targetOnScreen && damageAt(m, nearest) > 0))
     && canDo(rangedName(m)));
   // On the enemy's line a straight shot that chains beats a single steering
-  // one: it goes off as soon, flies faster (Dennis's energy ball 15 a tick,
-  // his chasing ball about 8) and keeps coming while Attack is pressed. The
+  // one: it goes off as soon, arrives sooner (Dennis's energy ball flies 15 a
+  // tick; his chasing ball starts at 3 and turns, and took about 0.5 s from
+  // its spawn at every distance) and keeps coming while Attack is pressed. The
   // steering ball's one advantage, needing no lining up, is worth nothing
   // there. Described side by side, level with Freeze, Jev still picked
   // Dennis's chasing ball 29 times to his energy ball's 2 (4 games,
@@ -130,10 +131,16 @@ export function buildOptions({ profile, nearby = [], nearest = Infinity, mp = 0,
     const isBasic = basic && move.entry === basic.entry;
     options[rangedName(move)] = [
       reachText(move, hasTarget ? nearest : null),
+      hasTarget ? lineText(move, depth, profile) : '',
       fireText(move),
+      flightText(move, hasTarget ? nearest : null),
       volleyText(move),
-      `Damage is ${move.damageTier}${move.falloff ? ' up close' : ''}${move.volley ? ' per shot' : ''}.`,
+      `Damage is ${move.damageTier} (${move.damage})${move.falloff ? ' up close' : ''}${move.volley ? ' per shot' : ''}.`,
       effects(move),
+      move.homes && move.knocksDown && !move.volley && profile.moves.some((m) => m.kind === 'ranged' && !m.homes && m.volley)
+        ? 'It lands one hit per cast: the hit knocks the enemy down, so it cannot pile up hits the way a fast chaining shot does.'
+        : '',
+      guardText(move),
       cost(move),
       isBasic ? "This is this fighter's ordinary attack, so it is always available."
         : 'This is a signature special move, and the only way to hurt an enemy without walking into its range.',
@@ -395,6 +402,55 @@ function painText(move, arrive, pain, profile) {
 const fireText = (move) => `It goes off about ${(fireTicks(move) / 30).toFixed(1)} s after the first key press.`;
 
 /**
+ * The walk into line a straight shot needs first: the executor steps in depth
+ * until the enemy is within `BOT.AIM_MAX_Z`, at the fighter's walking_speedz.
+ * No recorded text said so, and an energy ball picked off the line went off
+ * within 45 ticks 13 times in 39 (Dennis, 2026-09-27 to 09-29).
+ */
+function lineText(move, depth, profile) {
+  if (move.homes || !(depth > BOT.AIM_MAX_Z)) return '';
+  const speedZ = headerFor(profile.name)?.walking_speedz;
+  const ticks = speedZ ? Math.ceil((depth - BOT.AIM_MAX_Z) / speedZ) : null;
+  const walk = ticks === null ? 'you walk into line first'
+    : ticks <= 2 ? 'you step into line now' : `you walk into line first, about ${(ticks / 30).toFixed(1)} s`;
+  return `The enemy is ${Math.round(depth)} off your line: ${walk}, before it goes off.`;
+}
+
+/**
+ * Time from the spawn to the enemy: a straight shot at its own speed over the
+ * distance, a steering one as measured (MEASURED_FLIGHT in profile.mjs).
+ */
+function flightText(move, distance) {
+  if (move.homes) {
+    return move.flightTicks ? `Once it goes off it takes about ${(move.flightTicks / 30).toFixed(1)} s to reach the enemy, from any distance.` : '';
+  }
+  if (!move.speed || distance === null || !Number.isFinite(distance)) return '';
+  return `Once it goes off it reaches the enemy in about ${Math.max(0.1, distance / move.speed / 30).toFixed(1)} s.`;
+}
+
+/** px.js breaks a guard when a blocked hit takes its meter over this (GUARD_BREAK in reflex.mjs). */
+const GUARD_BREAK = 30;
+/** What px.js sets the guard meter to on a clean hit; it drops 1 a tick. */
+const GUARD_AFTER_HIT = 45;
+
+/**
+ * What blocking it does to the enemy's guard, from the hit's bdefend. A shot
+ * that lands leaves the meter at 45, so a volley whose next shot follows
+ * within 15 + bdefend ticks breaks a guard raised against it.
+ */
+function guardText(move) {
+  const b = move.bdefend ?? 0;
+  if (move.breaksGuard || b <= 0) return '';
+  if (b > GUARD_BREAK) return 'A blocked one breaks the guard.';
+  const ticks = (move.volley?.shots ?? []).map((s) => s.tick);
+  const gaps = ticks.slice(1).map((t, i) => t - ticks[i]).filter((g) => g > 0);
+  if (gaps.length && GUARD_AFTER_HIT - Math.max(...gaps) + b > GUARD_BREAK) {
+    return 'A blocked shot wears the guard only a little; once a shot lands, the next blocked one breaks it.';
+  }
+  return 'A blocked one wears the guard only a little.';
+}
+
+/**
  * What pressing Attack again while it fires adds, from the move's own frames
  * (see `volleyOf` in profile.mjs): Dennis's energy ball goes on to four balls
  * for 150 MP, Henry's five arrows and Rudolf's stars repeat for as long as MP
@@ -412,7 +468,8 @@ function volleyText(move) {
   }
   const first = v.shots.filter((s) => s.mp === move.mp).length;
   const span = v.shots.at(-1).tick - v.shots[0].tick;
-  return `Pressing Attack again while it fires keeps it going: ${v.shots.length} shots of ${each} in all, over about ${sec(span)} s, for ${v.shots.at(-1).mp} MP (${first === 1 ? 'the first shot' : `the first ${first}`} alone ${move.mp}).`;
+  const total = v.shots.reduce((s, x) => s + x.damage, 0);
+  return `Pressing Attack again while it fires keeps it going: ${v.shots.length} shots of ${each} in all (${total}), over about ${sec(span)} s, for ${v.shots.at(-1).mp} MP (${first === 1 ? 'the first shot' : `the first ${first}`} alone ${move.mp}).`;
 }
 
 /**

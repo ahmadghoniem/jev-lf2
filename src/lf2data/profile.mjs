@@ -165,6 +165,14 @@ const isEntryFrame = (frame) => frame.state === undefined || ENTRY_STATES.has(fr
  * 43% from 450 to 499, so its reach is taken as 450.
  */
 const MEASURED_RANGE = { henry_arrow1: 450 };
+/**
+ * Ticks a steering ball takes from its spawn to the hit, measured in play: the
+ * engine steers it, so no frame says how fast it goes. Dennis's chasing ball
+ * starts at 3 a tick and turns after its target; from its first frame it hit
+ * after a median 21 ticks at every distance (20 under 150, 24 at 300-450, 436
+ * hits since 2026-09-20; scratch/ball-arrival.mjs), 6 of them before the spawn.
+ */
+const MEASURED_FLIGHT = { dennis_chase: 15 };
 
 export function buildProfile(name, frames, objects) {
   // What a spawn does depends on the frame it starts on: John's heal and his
@@ -175,6 +183,8 @@ export function buildProfile(name, frames, objects) {
     const o = objects.get(s.oid);
     const info = { ...s, ...(o ?? {}), ...(o?.at?.(s.action) ?? {}) };
     if (o?.chasesAt?.(s.action)) info.homes = true;
+    info.speed = Math.max(info.speed ?? 0, Math.abs(s.dvx ?? 0)) || null;
+    if (info.homes && MEASURED_FLIGHT[o?.name]) info.flightTicks = MEASURED_FLIGHT[o.name];
     if (!(info.damage > 0) && o?.hiddenAt) {
       const hidden = o.hiddenAt(s.action);
       if (hidden > 0) Object.assign(info, { damage: hidden, range: null, falloff: null });
@@ -268,6 +278,9 @@ export function buildProfile(name, frames, objects) {
         // down (see `painText` in options.mjs).
         fall: damage ? hitFall(m, projectiles) || 20 : null,
         breaksGuard: hitBdefend(m, projectiles) > 60,
+        // What a blocked hit adds to the guard meter (see `guardText` in
+        // options.mjs).
+        bdefend: damage ? hitBdefend(m, projectiles) : null,
         // Some projectiles are short-lived and weaken as they go — Henry's
         // blastpush is 80 up close and gone past about 600 — where others fly
         // until they hit. Null for a melee move and for a projectile that keeps
@@ -277,6 +290,10 @@ export function buildProfile(name, frames, objects) {
         // chose his three times against a Freeze walking off his line and each
         // was replaced while he was still walking to it (2026-09-25T10-33-30).
         homes: projectiles.some((p) => p.homes),
+        // How fast the strongest shot flies, a tick, or for a steering one the
+        // ticks it was measured to take (MEASURED_FLIGHT); the options turn
+        // either into the time to reach the enemy.
+        ...flightOf(projectiles),
         volley: projectiles.length > 0 ? volleyOf(frames, target, spawnInfo, isProjectile) : null,
         spawns: projectiles.map((p) => p.oid),
       });
@@ -338,7 +355,9 @@ function fromAction(frames, action, maxDepth = 40) {
   let travelled = 0;
   let range = null;
   const seen = new Set();
-  for (let id = action, step = 0; step < maxDepth && frames.has(id) && !seen.has(id); step++) {
+  const order = [];
+  let id = action;
+  for (let step = 0; step < maxDepth && frames.has(id) && !seen.has(id); step++) {
     seen.add(id);
     const f = frames.get(id);
     let injury = 0;
@@ -348,20 +367,33 @@ function fromAction(frames, action, maxDepth = 40) {
       fall = Math.max(fall, it.fall ?? 0);
       bdefend = Math.max(bdefend, it.bdefend ?? 0);
     }
+    order.push({ id, injury, dvx: Math.abs(f.dvx ?? 0) });
     if (Math.abs(f.dvx ?? 0) > 0) moving = true;
     travelled += Math.abs(f.dvx ?? 0) * (f.wait ?? 0);
     const last = falloff.at(-1);
     if (last && last.injury === injury) last.to = travelled;
     else falloff.push({ to: travelled, injury });
     if (f.next === 1000) { range = travelled; break; }
-    if (typeof f.next !== 'number' || f.next <= 0 || f.next >= 999) break;
+    if (typeof f.next !== 'number' || f.next <= 0 || f.next >= 999) { id = null; break; }
     id = f.next;
   }
+  // A thing that flies until it hits spends its flight in the frames it loops
+  // through, so a hit lands with theirs. Dennis's chasing ball opens on one
+  // frame of 65 for 3 ticks, then loops at 40: of 219 clean hits, 213 did 39
+  // or 40 and 4 did 65 (Dennis games from 2026-09-27).
+  const loopAt = range === null && seen.has(id) ? order.findIndex((o) => o.id === id) : -1;
+  if (loopAt >= 0) {
+    const inLoop = Math.max(...order.slice(loopAt).map((o) => o.injury));
+    if (inLoop > 0) damage = inLoop;
+  }
+  // Its own speed in flight, from the same frames; a spawn's push is added in
+  // `spawnInfo`.
+  const speed = Math.max(0, ...(loopAt >= 0 ? order.slice(loopAt) : order).map((o) => o.dvx)) || null;
   // Under 100 of travel the thing is placed, not thrown — Firen's and Julian's
   // explosions stand still, Firen's flame is a trail laid while he runs — and
   // where it lands depends on the caster, so no distance band describes it.
   const finite = range !== null && range >= 100 && damage > 0;
-  return { damage, fall, bdefend, travels: moving && damage > 0,
+  return { damage, fall, bdefend, speed, travels: moving && damage > 0,
            range: finite ? Math.round(range) : null,
            falloff: finite ? falloff.filter((b) => b.injury > 0).map((b) => ({ to: Math.round(b.to), injury: b.injury })) : null };
 }
@@ -560,6 +592,12 @@ function projectileRange(projectiles) {
   if (!projectiles.length || projectiles.some((p) => !p.falloff)) return { range: null, falloff: null };
   const best = projectiles.reduce((a, b) => ((b.damage ?? 0) > (a.damage ?? 0) ? b : a));
   return { range: best.range, falloff: best.falloff };
+}
+
+function flightOf(projectiles) {
+  if (!projectiles.length) return {};
+  const best = projectiles.reduce((a, b) => ((b.damage ?? 0) > (a.damage ?? 0) ? b : a));
+  return best.homes ? { flightTicks: best.flightTicks ?? null } : { speed: best.speed ?? null };
 }
 
 const hitFall = (m, projectiles) => (m.injury != null ? m.fall

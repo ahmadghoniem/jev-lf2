@@ -13,6 +13,7 @@ import { framesFor, BUSY_STATES } from '../lf2data/tables.mjs';
 import { ticksToHit, nextSpawn, ticksToEnd } from '../lf2data/frames.mjs';
 import { bucketRange } from '../lf2data/profile.mjs';
 import { plainName } from './options.mjs';
+import { BOT } from './bot.mjs';
 
 /** Data-file types that can be picked up. 6 is milk and beer. */
 const ITEM_TYPES = new Set([1, 2, 4, 6]);
@@ -282,7 +283,9 @@ export function readArena(entities, { slot, name, isLive, heldTracker, motionTra
              range: Math.hypot(dx, dz),
              side: dx >= 0 ? 'right' : 'left',
              infront: (dx >= 0) === (me.facing === 'right'),
-             aligned: Math.abs(dz) <= Z_TOLERANCE && Math.abs(dy) <= Y_TOLERANCE,
+             // Level where the executor presses without stepping in depth, so
+             // an option called level fires as described (was Z_TOLERANCE 12).
+             aligned: Math.abs(dz) <= BOT.AIM_MAX_Z && Math.abs(dy) <= Y_TOLERANCE,
              onScreen: Math.abs(e.x - cameraX) <= VIEW_HALF - ON_SCREEN_MARGIN };
   };
 
