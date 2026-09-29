@@ -25,7 +25,7 @@ function guardWorn(arena) {
 }
 
 /** Options the executor can actually carry out, described for a reader. */
-export function offer(arena, profile, { staggerHint = false, noDash = false } = {}) {
+export function offer(arena, profile, { staggerHint = false } = {}) {
   const near = arena.threats[0];
   const options = buildOptions({
     profile,
@@ -46,7 +46,6 @@ export function offer(arena, profile, { staggerHint = false, noDash = false } = 
     threatened: !!incoming(arena, { within: 12 }),
     helpless: !!near?.helpless,
     staggerTicks: staggerHint ? staggerLeft(near) : null,
-    noDash,
     weaponInbound: !!inboundWeapon(arena),
     guardWorn: guardWorn(arena),
     roomBehind: roomBehind(arena),

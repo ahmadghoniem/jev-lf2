@@ -13,8 +13,8 @@
 
 import { tierDamage, bucketRange, damageAt } from '../lf2data/profile.mjs';
 import { mpRegenPerSecond } from './fields.mjs';
-import { REACH_SLACK, dashBand } from '../lf2data/frames.mjs';
-import { standoffOf, RUN_IN_MIN_X, RUN_OUT_MAX_X, DASH_MIN_GAP, PRESS_EVERY } from './bot.mjs';
+import { REACH_SLACK } from '../lf2data/frames.mjs';
+import { standoffOf, RUN_IN_MIN_X, RUN_OUT_MAX_X, PRESS_EVERY } from './bot.mjs';
 import { framesFor, headerFor } from '../lf2data/tables.mjs';
 
 /**
@@ -61,7 +61,7 @@ export function buildOptions({ profile, nearby = [], nearest = Infinity, mp = 0,
                                hasTarget = false, threatened = false, targetOnScreen = true,
                                helpless = false, weaponInbound = false, guardWorn = false,
                                roomBehind = Infinity, allies = 0, staggerTicks = null,
-                               noDash = false, canDo = () => true }) {
+                               canDo = () => true }) {
   const options = {};
 
   const affordable = (m) => m.mp <= mp || m.allowedWhenShort;
@@ -153,9 +153,10 @@ export function buildOptions({ profile, nearby = [], nearest = Infinity, mp = 0,
   const meleeName = (m) => (m.category === 'special' ? `special_${label(m)}` : label(m));
   const melee = profile.moves.filter((m) => m.kind === 'melee' && !m.needsWeapon
     && affordable(m) && !targetDown && canDo(meleeName(m))
-    && !(m.name === 'dash_attack' && hasTarget && nearest < (dashBand(profile)?.near ?? DASH_MIN_GAP))
-    // On trial (--no-dash): the dash attack not offered at all.
-    && !(noDash && m.name === 'dash_attack')
+    // The dash attack is not offered. From inside the gaps it hits from, 1 of
+    // 14 dash jumps hit (2026-09-28T22-28 to 23-08): 8 never pressed Attack
+    // and flew past, 3 were hit out of the air by the enemy's jump attack.
+    && m.name !== 'dash_attack'
     // The jump attack is not offered. Its Attack is pressed 7 ticks into the
     // jump and the hitting frames play out near the top of it: across the
     // recorded runs 3 of 63 presses in the air landed (5%), 0 of 19 at a

@@ -89,7 +89,7 @@ export async function runLoop({ cdp, pool, kb, run, name, policy, overlay, hz = 
                                decideEveryMs = 500, seconds = 120, onTick, keys,
                                staleMs = STALE_MS, useRecent = null,
                                holdAttack = false, smartBlock = false, skipBusyAsks = false,
-                               staggerHint = false, noDash = false } = {}) {
+                               staggerHint = false } = {}) {
   const period = 1000 / hz;
   // `hz` is only the fallback pace, for a pool that cannot wait on a frame.
   const sync = typeof pool.next === 'function' && !noSync;
@@ -381,7 +381,7 @@ export async function runLoop({ cdp, pool, kb, run, name, policy, overlay, hz = 
     if (due && downFor > lead) counts.downWaits = (counts.downWaits ?? 0) + 1;
     if (due && downFor <= lead) {
       lastAsk = Date.now();
-      const options = offer(arena, profile, { staggerHint, noDash });
+      const options = offer(arena, profile, { staggerHint });
       // The panel names the options as they are chosen, so the list on screen is
       // the list Jev was handed — not a redraw of the last answer's keys.
       shown = { ...shown, options: Object.keys(options) };
