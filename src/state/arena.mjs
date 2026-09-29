@@ -14,6 +14,7 @@ import { ticksToHit, nextSpawn, ticksToEnd } from '../lf2data/frames.mjs';
 import { bucketRange } from '../lf2data/profile.mjs';
 import { plainName } from './options.mjs';
 import { BOT } from './bot.mjs';
+import { kitOf } from './kit.mjs';
 
 /** Data-file types that can be picked up. 6 is milk and beer. */
 const ITEM_TYPES = new Set([1, 2, 4, 6]);
@@ -516,7 +517,7 @@ const mana = (f) => {
  * is distraction by large irrelevant state, and the fourth enemy across the
  * stage has never changed an answer.
  */
-export function semanticState({ arena, profile }) {
+export function semanticState({ arena, profile, enemyKit = false }) {
   const { me, threats, allies, held, items, flying } = arena;
   return {
     me: {
@@ -537,6 +538,7 @@ export function semanticState({ arena, profile }) {
       vulnerable: t.vulnerable,
       hp: health(t),
       mp: `${Math.min(t.mp ?? 0, MP_CAP)} of ${MP_CAP}`,
+      ...(enemyKit ? { character: t.name, kit: kitOf(t.name) } : {}),
     })),
     // Things to walk over and take. A weapon in flight is not one of these, so
     // it is listed separately below rather than as a pickup.

@@ -77,7 +77,7 @@ let client = null;
 if (kind === 'jev') {
   loadApiKey();
   client = createClient();
-  policy = jevPolicy(client, profile, { deadlineMs: Number(arg('deadline-ms', 1400)) });
+  policy = jevPolicy(client, profile, { deadlineMs: Number(arg('deadline-ms', 1400)), enemyKit: has('enemy-kit') });
 } else if (kind === 'force') {
   policy = forcePolicy(arg('move', 'shoot'));
 } else {
@@ -127,7 +127,7 @@ const level = (await menuState(cdp).catch(() => null))?.difficulty;
 const difficulty = Object.keys(DIFFICULTY).find((k) => DIFFICULTY[k] === level) ?? 'unknown';
 const run = openRun({ meta: { label: arg('label', `${kind}-${name}`), policy: kind, character: name,
                               archetype: profile.archetype, difficulty, hz, decideEveryMs, seconds,
-                              commit: gitCommit() } });
+                              enemyKit: has('enemy-kit'), commit: gitCommit() } });
 
 console.log(`${name} (${profile.archetype}) under ${kind} on ${difficulty}, ${seconds}s → ${run.dir}`);
 console.log('ctrl-c releases the keys and closes the run\n');

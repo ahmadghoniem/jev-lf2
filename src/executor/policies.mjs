@@ -101,12 +101,12 @@ export function forcePolicy(move) {
  * lands late answers a question about a fight that has moved on — and `null`
  * on a miss, which the loop treats as "keep doing what you were doing".
  */
-export function jevPolicy(client, profile, { deadlineMs = 1400 } = {}) {
+export function jevPolicy(client, profile, { deadlineMs = 1400, enemyKit = false } = {}) {
   return {
     name: 'jev',
     questions: (options, arena) => questionSet(options, arena, profile),
     async decide({ arena, options, questions = questionSet(options, arena, profile) }) {
-      const state = semanticState({ arena, profile });
+      const state = semanticState({ arena, profile, enemyKit });
       const t0 = Date.now();
       const answer = await client.ask({ state, questions, deadlineMs });
       const latencyMs = Date.now() - t0;
