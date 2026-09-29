@@ -9,7 +9,7 @@
  */
 
 import { framesFor } from '../lf2data/tables.mjs';
-import { nextHit, nextSpawn, reachOfFrame, REACH_SLACK } from '../lf2data/frames.mjs';
+import { nextHit, nextSpawn, reachOfFrame, lifeTicks, REACH_SLACK, BODY_HALF } from '../lf2data/frames.mjs';
 import { Z_TOLERANCE, Y_TOLERANCE, doing, unhittable, airborne } from '../state/arena.mjs';
 import { BOT } from '../state/bot.mjs';
 import { steers } from '../lf2data/profile.mjs';
@@ -68,6 +68,7 @@ export function inboundWeapon(arena) {
     // Moving away: it has passed. Blocked anyway, a star that went by 23 off
     // our line turned Henry away from Rudolf (2026-09-24T20-37-48, tick 1175).
     if (item.speed < 0) continue;
+    if (diesShort(item)) continue;
     const eta = arrivalTicks(item);
     // Inside the CPU's 150, answer as it does. Beyond it, only when the weapon
     // is fast enough that waiting would leave no time to clear the lane: a
@@ -82,8 +83,6 @@ export function inboundWeapon(arena) {
   return null;
 }
 
-/** Half a fighter's body box (Dennis's is 43 wide, Henry's 43, Freeze's 41). */
-const BODY_HALF = 20;
 const contactCache = new Map();
 /**
  * How far from our centre a flying object touches us: its hitbox's front edge
@@ -115,6 +114,17 @@ export function arrivalTicks(item) {
   const gap = Math.max(0, item.range - contactRange(item.id));
   if (gap === 0) return 0;
   return item.speed > 0 ? gap / item.speed : Infinity;
+}
+
+/**
+ * Whether a ball runs out of HP before it can touch us (see `lifeTicks`).
+ * Deep's balls live 10 ticks and fly 150, and the block was held for about 55
+ * ticks against balls that ended short of Dennis (2026-09-29T17-31-48 note).
+ */
+export function diesShort(item) {
+  if (!item.energy || !(item.speed > 0) || item.hp == null) return false;
+  const life = lifeTicks(framesFor(item.id), item.frame, item.hp);
+  return life != null && life * item.speed < item.range - contactRange(item.id);
 }
 
 /**
@@ -161,6 +171,7 @@ export function laneDanger(arena) {
     // step's time check passes, and a star that had just gone by walked
     // Henry up the stage for 259 ticks (2026-09-24T20-09-01, tick 1398).
     if (item.speed < 0) continue;
+    if (diesShort(item)) continue;
     const eta = arrivalTicks(item);
     const at = arrivalDz(item, eta);
     if (Math.abs(at) >= LANE_CLEAR) continue;
@@ -349,6 +360,11 @@ export function createReflex({ maxBlockTicks = BOT.BLOCK_COMMIT_FRAMES,
     // it or a roll, are the rest.
     const thrown = inboundWeapon(arena);
     if (thrown && !unblockable(thrown.id)) {
+      // In an attack frame of our own that takes no Defend (state 3, no
+      // hit_d), px.js forms no block, and the held key only kept the Attack
+      // repeats of an energy-ball chain from being pressed.
+      const own = framesFor(arena.me.id)?.[arena.me.frame];
+      if (own?.state === 3 && own.transitions?.d == null) return null;
       const when = Number.isFinite(thrown.eta) ? `~${thrown.eta.toFixed(0)} ticks out` : 'closing';
       // The block, not the depth step. Against Rudolf's stars the step is where
       // the damage came from: in the three Henry vs Rudolf runs of 2026-09-23,

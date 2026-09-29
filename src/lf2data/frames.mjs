@@ -57,6 +57,30 @@ export function dashBand(profile) {
 export const damagingItr = (frame) =>
   (frame?.itr ?? []).filter((it) => HURTS.has(it.kind) && it.injury > 0);
 
+/** Half a fighter's body box (Dennis's is 43 wide, Henry's 43, Freeze's 41). */
+export const BODY_HALF = 20;
+/** The HP a cast object starts with (px.js). */
+export const OBJECT_HP = 500;
+
+/**
+ * Ticks a flying object has left before its own HP runs out and it turns into
+ * a harmless frame. px.js takes the frame's `hit_a` off a type-3 object's HP
+ * every tick and moves it to `hit_d` at 0: Deep's ball drains 50 a tick from
+ * 500, flies 10 ticks at 15 and ends on frame 40, which has no hitbox. Null for
+ * a frame that does not drain, and for one whose `hit_d` frame still hits: the
+ * chasers (Dennis's, Bat's, Jan's, Firzen's, Julian's) turn into a hitting
+ * frame there and fly on. `frames` is a Map or an object keyed by frame id.
+ */
+export function lifeTicks(frames, frameId, hp = OBJECT_HP) {
+  const get = (id) => (frames instanceof Map ? frames.get(id) : frames?.[id]);
+  const frame = get(frameId);
+  const drain = frame?.transitions?.a;
+  const endId = frame?.transitions?.d;
+  if (!(drain > 0) || endId == null) return null;
+  if (damagingItr(get(endId)).length) return null;
+  return Math.max(0, Math.ceil(hp / drain));
+}
+
 /**
  * How far a frame's hit reaches past the fighter's own body, in game units.
  * Measured from the hurt box rather than from the sprite origin, because the

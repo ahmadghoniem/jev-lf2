@@ -12,7 +12,7 @@
  * covers all 30-odd characters without a table of special cases.
  */
 
-import { damagingItr, reachOfFrame } from './frames.mjs';
+import { damagingItr, reachOfFrame, lifeTicks, BODY_HALF } from './frames.mjs';
 import { BOT } from '../state/bot.mjs';
 
 /** Distance buckets, in game units. Tuned to LF2's own numbers: a character is
@@ -67,8 +67,15 @@ export const BASIC_ATTACKS = {
  * fighter's own hurt box because `centerx` is absent on most frames.
  */
 const reachOf = (frame) => Math.round(Math.max(0, reachOfFrame(frame)));
+/** A frame's centre, the way `reachOfFrame` places it. */
+const centreOf = (frame) => frame.centerx ?? (frame.bdy?.[0] ? frame.bdy[0].x + frame.bdy[0].w / 2 : 0);
 
-/** Walks a move's `next` chain, collecting reach, spawns and damage. */
+/**
+ * Walks a move's `next` chain, collecting reach, spawns and damage. A melee
+ * hit followed by a shot in the same chain counts as the shot: Deep's blast
+ * swings on frame 236 and throws his ball on 237, and stopping at the swing
+ * read it as a melee move of reach 74, where the ball hits from about 260.
+ */
 function inspectMove(frames, entryId, isProjectile, maxDepth = 24) {
   let id = entryId;
   let ticks = 0;
@@ -86,6 +93,8 @@ function inspectMove(frames, entryId, isProjectile, maxDepth = 24) {
   let fall = 0;
   let bdefend = 0;
   let landsOnFrame = null;
+  let melee = null;
+  let shot = false;
 
   for (let step = 0; step < maxDepth; step++) {
     const frame = frames.get(id);
@@ -107,27 +116,33 @@ function inspectMove(frames, entryId, isProjectile, maxDepth = 24) {
 
     for (const o of frame.opoint) {
       // A `facing` of 10 or more spawns floor(facing / 10) copies (px.js).
+      // `ahead` is where it appears, ahead of the caster's centre.
       spawns.push({ oid: o.oid, action: o.action ?? 0, dvx: o.dvx ?? 0, dvy: o.dvy ?? 0,
-                    count: (o.facing ?? 0) >= 10 ? Math.floor(o.facing / 10) : 1 });
+                    count: (o.facing ?? 0) >= 10 ? Math.floor(o.facing / 10) : 1,
+                    ahead: Math.round((o.x ?? 0) - centreOf(frame)) });
     }
     const hit = damagingItr(frame)[0];
-    if (hit) {
-      injury = hit.injury;
-      fall = hit.fall ?? 0;
-      bdefend = hit.bdefend ?? 0;
-      reach = Math.max(reach, reachOf(frame));
+    if (hit && !melee) {
+      melee = { mp, hpCost, allowedWhenShort, startupTicks: ticks, hitTicks, reach: Math.max(reach, reachOf(frame)),
+                spawns: [...spawns], injury: hit.injury, fall: hit.fall ?? 0, bdefend: hit.bdefend ?? 0,
+                landsOnFrame: id };
+      // A hit and a shot on one frame are read as the hit, as before: Firen's
+      // burn_run swings his body (45) and lays flames (20) from its first frame.
+      if (spawns.some(isProjectile)) return melee;
+    } else if (spawns.slice(melee ? melee.spawns.length : 0).some(isProjectile)) {
+      // Only a spawn that hits ends the walk: Henry's blastpush puffs a harmless
+      // cloud one frame before the wind that does the damage.
       landsOnFrame = id;
+      shot = true;
       break;
     }
-    // Only a spawn that hits ends the walk: Henry's blastpush puffs a harmless
-    // cloud one frame before the wind that does the damage.
-    if (spawns.some(isProjectile)) { landsOnFrame = id; break; }
 
     ticks += typeof frame.wait === 'number' ? frame.wait : 0;
     hitTicks += (typeof frame.wait === 'number' ? frame.wait : 0) + 1;
     if (typeof frame.next !== 'number' || frame.next <= 0) break;
     id = frame.next;
   }
+  if (melee && !shot) return melee;
   return { mp, hpCost, allowedWhenShort, startupTicks: ticks, hitTicks, reach, spawns, injury, fall, bdefend, landsOnFrame };
 }
 
@@ -193,6 +208,14 @@ export function buildProfile(name, frames, objects) {
     if (measured && !info.falloff && info.damage > 0) {
       info.range = measured;
       info.falloff = [{ to: measured, injury: info.damage }];
+    }
+    // A ball that runs out of HP in flight reaches as far as it gets in that
+    // time, counted from the caster: where it appears, its flight, its hitbox's
+    // front and half the target's body. Deep's: 50 + 150 + 37 + 20 = 257, and
+    // his ball hit from up to about 260 away (2026-09-29 runs).
+    if (info.life && !info.homes && info.range == null && info.damage > 0) {
+      info.range = Math.round((s.ahead ?? 0) + info.life.travel + info.life.front + BODY_HALF);
+      info.falloff = [{ to: info.range, injury: info.damage }];
     }
     return info;
   };
@@ -393,9 +416,15 @@ function fromAction(frames, action, maxDepth = 40) {
   // explosions stand still, Firen's flame is a trail laid while he runs — and
   // where it lands depends on the caster, so no distance band describes it.
   const finite = range !== null && range >= 100 && damage > 0;
+  // One that flies until its own HP runs out (see `lifeTicks`) has a range
+  // too; `spawnInfo` counts it from the caster.
+  const drains = !finite && speed ? order.map((o) => lifeTicks(frames, o.id)).find((t) => t != null) : null;
+  const front = Math.max(0, ...order.map((o) => reachOfFrame(frames.get(o.id))));
+  const life = drains != null && damage > 0 ? { ticks: drains, travel: drains * speed, front: Math.round(front) } : null;
   return { damage, fall, bdefend, speed, travels: moving && damage > 0,
            range: finite ? Math.round(range) : null,
-           falloff: finite ? falloff.filter((b) => b.injury > 0).map((b) => ({ to: Math.round(b.to), injury: b.injury })) : null };
+           falloff: finite ? falloff.filter((b) => b.injury > 0).map((b) => ({ to: Math.round(b.to), injury: b.injury })) : null,
+           ...(life ? { life } : {}) };
 }
 
 /**

@@ -11,7 +11,7 @@
  * `reflex` — because otherwise there is no way to tell whose result it is.
  */
 
-import { readArena, doing, createLiveness, createHeldTracker, createItemMotion, ENERGY_SLACK } from '../state/arena.mjs';
+import { readArena, doing, createLiveness, createHeldTracker, createItemMotion, createDepthTrend, ENERGY_SLACK } from '../state/arena.mjs';
 import { createCoverage } from '../telemetry/coverage.mjs';
 import { profileFor, framesFor } from '../lf2data/tables.mjs';
 import { ticksToEnd } from '../lf2data/frames.mjs';
@@ -141,6 +141,8 @@ export async function runLoop({ cdp, pool, kb, run, name, policy, overlay, hz = 
   const motionTracker = createItemMotion();
   // Cast energy is tracked apart: it never rests, so any move is flight.
   const energyTracker = createItemMotion({ slack: ENERGY_SLACK });
+  // And how fast each enemy's depth gap is closing, for the options.
+  const depthTrend = createDepthTrend();
   // What was in play and never read; see coverage.mjs.
   const coverage = createCoverage();
   // And the reflex layer's own state, so its block is a finite parry with a rest
@@ -211,6 +213,7 @@ export async function runLoop({ cdp, pool, kb, run, name, policy, overlay, hz = 
     timing.wait.push(t0 - tWait);
     const arena = readArena(live, { name, isLive, heldTracker, motionTracker, energyTracker, stageWidth, stageDepth });
     tick++; counts.ticks++;
+    depthTrend(arena);
     coverage.observe(live, arena, tick);
 
     if (!arena) { await kb.releaseAll(); if (!sync) await pace(t0, period); continue; }
@@ -317,8 +320,11 @@ export async function runLoop({ cdp, pool, kb, run, name, policy, overlay, hz = 
         // Each answer owns one execution, except that the same answer arriving
         // while a special is half played lets it finish. A special takes 15
         // ticks, about one decision interval, so restarting it on every repeat
-        // meant it rarely completed.
-        const finishing = result.action === action && source === policy.name && planned?.busy?.();
+        // meant it rarely completed. Committed covers the repeat window after
+        // the last key, where a restart dropped the chain (88% one shot when
+        // the same energy answer arrived during frames 235-241, 40% otherwise).
+        const finishing = result.action === action && source === policy.name
+          && (planned?.busy?.() || planned?.committed?.());
         action = result.action; source = policy.name; stance = null;
         if (!finishing) plannedFor = null;
         if (action === 'roll_away') rollUntil = Date.now() + ROLL_OWNS_MS;
@@ -493,7 +499,7 @@ export async function runLoop({ cdp, pool, kb, run, name, policy, overlay, hz = 
       // pool slot and would otherwise fill this with dead objects.
       energy: arena.energy.filter((i) => i.inFlight).slice(0, 3).map((i) => ({ slot: i.slot, name: i.name,
         range: Math.round(i.range), dx: Math.round(i.dx), dz: Math.round(i.dz), closing: !!i.closing,
-        hostile: !!i.hostile, speed: Math.round(i.speed ?? 0), vz: +(i.vz ?? 0).toFixed(1) })),
+        hostile: !!i.hostile, speed: Math.round(i.speed ?? 0), vz: +(i.vz ?? 0).toFixed(1), hp: i.hp })),
       action, source,
       ...(held && { held: held.action }),
       ...(planned?.as && plannedFor === action && { as: planned.as }),

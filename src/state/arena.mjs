@@ -275,6 +275,12 @@ export function readArena(entities, { slot, name, isLive, heldTracker, motionTra
   // dropping ourselves would end the run.
   const others = fighters.filter((f) => f !== me && f.alive && (!isLive || isLive(f)));
   const cameraX = Math.min(Math.max(me.x, VIEW_HALF), Math.max(VIEW_HALF, stageWidth - VIEW_HALF));
+  // The margin keeps a body half out of view from counting, which only
+  // happens at a view edge inside the stage: with the camera held at a stage
+  // end, Deep lying at x 0 next to Dennis read off the screen and only
+  // close_distance and wait were offered (2026-09-29T17-41-03, tick 233).
+  const viewLeft = cameraX <= VIEW_HALF ? -Infinity : cameraX - VIEW_HALF + ON_SCREEN_MARGIN;
+  const viewRight = cameraX >= stageWidth - VIEW_HALF ? Infinity : cameraX + VIEW_HALF - ON_SCREEN_MARGIN;
   const geo = (e) => {
     const dx = e.x - me.x;
     const dz = e.z - me.z;
@@ -286,7 +292,7 @@ export function readArena(entities, { slot, name, isLive, heldTracker, motionTra
              // Level where the executor presses without stepping in depth, so
              // an option called level fires as described (was Z_TOLERANCE 12).
              aligned: Math.abs(dz) <= BOT.AIM_MAX_Z && Math.abs(dy) <= Y_TOLERANCE,
-             onScreen: Math.abs(e.x - cameraX) <= VIEW_HALF - ON_SCREEN_MARGIN };
+             onScreen: e.x >= viewLeft && e.x <= viewRight };
   };
 
   const threats = others.filter((f) => f.team !== me.team).map(geo)
@@ -328,7 +334,9 @@ export function readArena(entities, { slot, name, isLive, heldTracker, motionTra
   // reads as closing. A cast object that has ended stays in its pool slot where
   // it stopped, never moving again, so the motion read drops it.
   const energy = entities.filter((e) => e.type === ENERGY_TYPE && e.group !== me.team)
-    .map((e) => geo({ slot: e.slot, name: e.name, id: e.id, type: e.type, x: e.x, y: e.y, z: e.z, frame: e[F.frame] }))
+    // Its HP runs its life: some balls end when it runs out (see `lifeTicks`).
+    .map((e) => geo({ slot: e.slot, name: e.name, id: e.id, type: e.type, x: e.x, y: e.y, z: e.z, frame: e[F.frame],
+                      hp: e[F.hp] }))
     .map((i) => ({ ...i, energy: true, ...((energyTracker ?? motionTracker)
       ? (energyTracker ?? motionTracker)(i, [])
       : { inFlight: false, closing: false, carried: false }) }))
@@ -424,6 +432,41 @@ export function painWindow(t) {
   const left = ticksToEnd(frames, t.frame, t.waiting ?? 0);
   const whole = ticksToEnd(frames, 226, 0);
   return Number.isFinite(left) && Number.isFinite(whole) ? { left, gone: Math.max(0, whole - left) } : null;
+}
+
+/** A fighter's lying frame (230 face down, 231 face up, 30 ticks each). */
+const LYING_FRAME = 230;
+/**
+ * A fighter falling or lying on the floor: `left`, the ticks until it is up
+ * (the lying frame, then the crouch; Deep's 34 from frame 230), null while it
+ * falls, since a fall lasts until it reaches the floor; `lies`, the ticks a
+ * landing leaves it there. Null when it is neither.
+ */
+export function downWindow(t) {
+  const frames = t && framesFor(t.id);
+  const state = frames?.[t.frame]?.state;
+  if (state !== 14 && !falling(t)) return null;
+  const left = state === 14 ? ticksToEnd(frames, t.frame, t.waiting ?? 0) : null;
+  const lies = ticksToEnd(frames, LYING_FRAME, 0);
+  return { left: Number.isFinite(left) ? left : null, lies: Number.isFinite(lies) ? lies : null };
+}
+
+/**
+ * How fast the depth gap to each enemy is shrinking, in units a tick over the
+ * last few reads, whoever is walking; set as `zClosing` on each threat. One
+ * per run, called on every arena.
+ */
+export function createDepthTrend(reads = 3) {
+  const seen = new Map();
+  return (arena) => {
+    for (const t of arena?.threats ?? []) {
+      const gaps = seen.get(t.slot) ?? [];
+      gaps.push(t.zGap);
+      if (gaps.length > reads + 1) gaps.shift();
+      seen.set(t.slot, gaps);
+      t.zClosing = gaps.length > 1 ? (gaps[0] - gaps.at(-1)) / (gaps.length - 1) : 0;
+    }
+  };
 }
 
 export const unhittable = (t) => !!t && (t.doing === 'knocked_down'
