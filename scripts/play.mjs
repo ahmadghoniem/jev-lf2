@@ -32,7 +32,9 @@ const name = arg('name', 'Deep');
 const kind = arg('policy', 'heuristic');
 const seconds = Number(arg('seconds', 60));
 const hz = Number(arg('hz', 30));
-const decideEveryMs = Number(arg('decide-ms', 500));
+// Asks go out every max(this, reply time). At 0 against 350, with replies near
+// 350 ms, the asks came 367 ms apart either way (10 games each, 2026-09-29).
+const decideEveryMs = Number(arg('decide-ms', 350));
 // Must track loop.mjs's own STALE_MS default: passing staleMs at all, even
 // via this flag's default, overrides that constant, so a change to one and
 // not the other is silently inert. Caught 2026-09-28: loop.mjs was retuned to
