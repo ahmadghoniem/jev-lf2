@@ -40,9 +40,9 @@ const decideEveryMs = Number(arg('decide-ms', 500));
 // fixes the same day -- kept running at the old 1500, since series.mjs never
 // passes --stale-ms and this default did the overriding.
 const staleMs = Number(arg('stale-ms', 900));
-// On trial: melee options say whether they land inside the enemy's stagger
-// (see `staggerText` in options.mjs).
-const staggerHint = has('stagger-hint');
+// On trial: melee options say whether they land inside the enemy's dance of
+// pain (see `painText` in options.mjs).
+const painHint = has('pain-hint');
 // The code a run was played with, so runs are grouped by commit rather than
 // by flags; a checkout with local changes is marked "+dirty".
 const gitCommit = () => {
@@ -128,7 +128,7 @@ const level = (await menuState(cdp).catch(() => null))?.difficulty;
 const difficulty = Object.keys(DIFFICULTY).find((k) => DIFFICULTY[k] === level) ?? 'unknown';
 const run = openRun({ meta: { label: arg('label', `${kind}-${name}`), policy: kind, character: name,
                               archetype: profile.archetype, difficulty, hz, decideEveryMs, seconds,
-                              staggerHint, commit: gitCommit() } });
+                              painHint, commit: gitCommit() } });
 
 console.log(`${name} (${profile.archetype}) under ${kind} on ${difficulty}, ${seconds}s → ${run.dir}`);
 console.log('ctrl-c releases the keys and closes the run\n');
@@ -146,7 +146,7 @@ process.on('SIGINT', stop);
 
 let lastShown = '';
 const counts = await runLoop({
-  cdp, pool, kb, run, name, policy, overlay, hz, decideEveryMs, seconds, staleMs, keys, staggerHint,
+  cdp, pool, kb, run, name, policy, overlay, hz, decideEveryMs, seconds, staleMs, keys, painHint,
   noSync: has('no-sync'),
   onTick: ({ arena, action, source }) => {
     const line = `${source.padEnd(9)} ${action.padEnd(24)} hp ${String(arena.me.hp).padStart(4)}  mp ${String(arena.me.mp).padStart(4)}  nearest ${Math.round(arena.nearest)}`;

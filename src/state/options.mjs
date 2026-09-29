@@ -60,7 +60,7 @@ export function buildOptions({ profile, nearby = [], nearest = Infinity, mp = 0,
                                enemyDoing = null, aligned = true, targetDown = false,
                                hasTarget = false, threatened = false, targetOnScreen = true,
                                helpless = false, weaponInbound = false, guardWorn = false,
-                               roomBehind = Infinity, allies = 0, staggerTicks = null,
+                               roomBehind = Infinity, allies = 0, painTicks = null,
                                canDo = () => true }) {
   const options = {};
 
@@ -185,7 +185,7 @@ export function buildOptions({ profile, nearby = [], nearest = Infinity, mp = 0,
         : 'The enemy is out of its reach, so this means closing in first.',
       window ? 'The enemy is helpless right now, so this cannot be answered or blocked.' : '',
       behind ? 'The enemy is behind you; you will turn first, which costs a moment.' : '',
-      hasTarget && !targetDown ? staggerText(meleeArrival(move, nearest, profile), staggerTicks) : '',
+      hasTarget && !targetDown ? painText(move, meleeArrival(move, nearest, profile), painTicks, profile) : '',
       cost(move),
       // An archer's attack button fires an arrow that costs MP even point
       // blank, so without saying so the free melee moves read as the weaker
@@ -366,17 +366,20 @@ function meleeArrival(move, nearest, profile) {
 }
 
 /**
- * Whether a melee answer lands inside the enemy's stagger. Across the recorded
- * runs 44% of 3,447 stagger windows drew no new answer before they ended, and
- * from 120-199 away a special landed on a staggered enemy 49% of the time
- * against 27% for walking in; a walk-in was told nothing of the time it takes.
+ * Whether a melee answer lands inside the enemy's dance of pain (`painLeft` in
+ * arena.mjs), the one opening long enough to walk into: 28 ticks, against 7
+ * for an ordinary stagger. Any hit knocks it down, and a plain Attack on it
+ * becomes the fighter's super punch where its data has one (70 for Dennis, 10
+ * for Firen and Rudolf, none for Julian and Knight).
  */
-function staggerText(arrive, left) {
+function painText(move, arrive, left, profile) {
   if (arrive == null || left == null) return '';
   const sec = (ticks) => (ticks / 30).toFixed(1);
-  return `The enemy is reeling from a hit for about ${sec(left)} s more and cannot act or block until then. `
-    + `From here this lands about ${sec(arrive)} s from now, counting the moment to answer, `
-    + `${arrive <= left ? 'while it is still reeling' : 'after it has recovered'}.`;
+  const superPunch = move.input === 'a' && move.name !== 'super_punch'
+    && profile.moves.find((m) => m.name === 'super_punch' && m.input === 'a');
+  return `The enemy is in the dance of pain for about ${sec(left)} s: it cannot act or block, and any hit knocks it down. `
+    + `This lands in about ${sec(arrive)} s, ${arrive <= left ? 'in time' : 'too late'}.`
+    + (superPunch ? ` On it, this becomes the super punch (damage ${superPunch.damageTier}).` : '');
 }
 const fireText = (move) => `It goes off about ${(fireTicks(move) / 30).toFixed(1)} s after the first key press.`;
 

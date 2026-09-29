@@ -408,13 +408,14 @@ export const JUMP_CLEAR_GAP = 200;
 export const FALL_CLEAR_GAP = 100;
 const falling = (t) => t.frame >= 180 && t.frame <= 191;
 /**
- * Ticks a fighter stays reeling from a hit (injured, state 11) or dizzy (16),
- * read off its own frames, or null when it is neither. Dennis's injured
- * frames last 7 ticks a hit, his dizzy ones 28.
+ * Ticks left in a fighter's dance of pain (state 16, frames 226-229 in every
+ * fighter's file, 28 ticks from the start), or null when it is not in one.
+ * The game puts a fighter there once its fall value passes 40 and sets it to
+ * 60, so any further hit (20 or more) knocks it down.
  */
-export function staggerLeft(t) {
+export function painLeft(t) {
   const frames = t && framesFor(t.id);
-  if (![11, 16].includes(frames?.[t.frame]?.state)) return null;
+  if (frames?.[t.frame]?.state !== 16) return null;
   const left = ticksToEnd(frames, t.frame, t.waiting ?? 0);
   return Number.isFinite(left) ? left : null;
 }
