@@ -6,6 +6,9 @@
  *
  *   node scripts/series.mjs --fighter Henry --vs Rudolf --games 3
  *   node scripts/series.mjs --fighter Davis --vs Firen --games 3 --difficulty difficult --seconds 300
+ *
+ * Before each Jev game it waits for Jev to reply within `--max-reply-ms`
+ * (default 400, 0 to skip; see wait-for-jev.mjs) and stops if it never does.
  */
 
 import { spawnSync } from 'node:child_process';
@@ -18,6 +21,7 @@ const games = Number(arg('games', 3));
 const difficulty = arg('difficulty', 'difficult');
 const seconds = arg('seconds', '300');
 const policy = arg('policy', 'jev');
+const maxReplyMs = arg('max-reply-ms', '400');
 // Anything after a literal `--` on the command line is forwarded to play.mjs
 // as-is, so a one-off flag (--no-recent, --stale-ms 700) can be tried across
 // a whole series without a dedicated series.mjs option for it.
@@ -30,6 +34,11 @@ const latestRun = () => readdirSync('runs').filter((d) => /^\d{4}-/.test(d)).sor
 const played = [];
 for (let i = 1; i <= games; i++) {
   console.log(`\n=== game ${i} of ${games}: ${fighter} v ${vs}`);
+  if (policy === 'jev' && Number(maxReplyMs)
+      && node('scripts/wait-for-jev.mjs', ['--max-reply-ms', maxReplyMs]) !== 0) {
+    console.error('Jev too slow; stopping');
+    break;
+  }
   if (node('scripts/menu.mjs', ['--setup', '--fighter', fighter, '--vs', vs, '--difficulty', difficulty]) !== 0) {
     console.error('setup failed; stopping');
     break;
