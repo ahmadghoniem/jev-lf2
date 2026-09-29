@@ -483,7 +483,7 @@ const mana = (f) => {
  * is distraction by large irrelevant state, and the fourth enemy across the
  * stage has never changed an answer.
  */
-export function semanticState({ arena, profile, recent = {} }) {
+export function semanticState({ arena, profile }) {
   const { me, threats, allies, held, items, flying } = arena;
   return {
     me: {
@@ -526,6 +526,5 @@ export function semanticState({ arena, profile, recent = {} }) {
       allies: allies.length,
       ally_status: allies.length ? health(allies[0]) : 'none',
     },
-    recent,
   };
 }

@@ -26,6 +26,7 @@ import { createOverlay } from '../src/executor/overlay.mjs';
 import { proveInput, reportProbe } from '../src/executor/inputcheck.mjs';
 import { arg, has, loadApiKey } from '../src/cli.mjs';
 import { existsSync, readFileSync, writeFileSync, unlinkSync, mkdirSync, readdirSync } from 'node:fs';
+import { execSync } from 'node:child_process';
 
 const name = arg('name', 'Deep');
 const kind = arg('policy', 'heuristic');
@@ -39,24 +40,18 @@ const decideEveryMs = Number(arg('decide-ms', 500));
 // fixes the same day -- kept running at the old 1500, since series.mjs never
 // passes --stale-ms and this default did the overriding.
 const staleMs = Number(arg('stale-ms', 900));
-// Off by default: 14-game on/off comparison (7 each, Dennis v Deep,
-// difficult, 2026-09-27) found recent ON self-repeated the previous
-// decision's resolved action 38.6% of the time to OFF's 29.6%, and won
-// 1 of 7 to OFF's 3 of 7. The one-field breadcrumb nudges toward repeating
-// the last pick rather than reassessing fresh, with no offsetting benefit
-// found. --recent opts back in for a future test; --recent-outcome,
-// --recent-hurt and --recent-attack tell Jev other things instead (see
-// src/executor/recent.mjs).
-const useRecent = ['outcome', 'hurt', 'attack'].find((m) => has(`recent-${m}`)) ?? (has('recent') ? 'action' : null);
-// Three changes on trial (see loop.mjs and reflex.mjs): an attack walking in
-// keeps the keys from the next attack answer, the swing block only where it
-// works, and no questions while Dennis is down.
-const holdAttack = has('hold-attack');
-const smartBlock = has('smart-block');
-const skipBusyAsks = has('skip-busy-asks');
 // On trial: melee options say whether they land inside the enemy's stagger
 // (see `staggerText` in options.mjs).
 const staggerHint = has('stagger-hint');
+// The code a run was played with, so runs are grouped by commit rather than
+// by flags; a checkout with local changes is marked "+dirty".
+const gitCommit = () => {
+  try {
+    const head = execSync('git rev-parse --short HEAD', { encoding: 'utf8' }).trim();
+    const dirty = execSync('git status --porcelain -- src scripts', { encoding: 'utf8' }).trim();
+    return dirty ? `${head}+dirty` : head;
+  } catch { return null; }
+};
 
 const profile = profileFor(name);
 if (!profile) throw new Error(`no profile for ${name}`);
@@ -133,7 +128,7 @@ const level = (await menuState(cdp).catch(() => null))?.difficulty;
 const difficulty = Object.keys(DIFFICULTY).find((k) => DIFFICULTY[k] === level) ?? 'unknown';
 const run = openRun({ meta: { label: arg('label', `${kind}-${name}`), policy: kind, character: name,
                               archetype: profile.archetype, difficulty, hz, decideEveryMs, seconds,
-                              useRecent, holdAttack, smartBlock, skipBusyAsks, staggerHint } });
+                              staggerHint, commit: gitCommit() } });
 
 console.log(`${name} (${profile.archetype}) under ${kind} on ${difficulty}, ${seconds}s → ${run.dir}`);
 console.log('ctrl-c releases the keys and closes the run\n');
@@ -151,8 +146,7 @@ process.on('SIGINT', stop);
 
 let lastShown = '';
 const counts = await runLoop({
-  cdp, pool, kb, run, name, policy, overlay, hz, decideEveryMs, seconds, staleMs, keys, useRecent,
-  holdAttack, smartBlock, skipBusyAsks, staggerHint,
+  cdp, pool, kb, run, name, policy, overlay, hz, decideEveryMs, seconds, staleMs, keys, staggerHint,
   noSync: has('no-sync'),
   onTick: ({ arena, action, source }) => {
     const line = `${source.padEnd(9)} ${action.padEnd(24)} hp ${String(arena.me.hp).padStart(4)}  mp ${String(arena.me.mp).padStart(4)}  nearest ${Math.round(arena.nearest)}`;

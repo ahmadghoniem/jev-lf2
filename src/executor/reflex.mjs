@@ -261,10 +261,10 @@ function swingBlockWorks(me, threat) {
  * It is stateful, so the caller holds one per run and passes the arena in each
  * tick, exactly like the held-weapon and liveness trackers.
  *
- * `smartBlock` blocks a swing only where the block works; see `swingBlockWorks`.
+ * A swing is blocked only where the block works; see `swingBlockWorks`.
  */
 export function createReflex({ maxBlockTicks = BOT.BLOCK_COMMIT_FRAMES,
-                               restTicks = BOT.BLOCK_REST_FRAMES, smartBlock = false } = {}) {
+                               restTicks = BOT.BLOCK_REST_FRAMES } = {}) {
   let blocked = 0;
   let rest = 0;
   let evade = null; // { dir, z, still }: the side being stepped to, to notice a wall
@@ -384,7 +384,7 @@ export function createReflex({ maxBlockTicks = BOT.BLOCK_COMMIT_FRAMES,
     }
     const threat = incoming(arena, opts);
     if (threat) {
-      if (smartBlock && !swingBlockWorks(arena.me, threat)) return null;
+      if (!swingBlockWorks(arena.me, threat)) return null;
       // Inside the rest window the guard stays down on purpose: the swing has
       // passed, and the better answer is the counter the policy is about to pick.
       if (rest > 0) { rest--; return null; }

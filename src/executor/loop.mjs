@@ -22,7 +22,6 @@ import { createReflex, laneDanger } from './reflex.mjs';
 import { offer } from './policies.mjs';
 import { stageWidth as readStageWidth, stageDepth as readStageDepth } from './setup.mjs';
 import { bucketRange } from '../lf2data/profile.mjs';
-import { createRecent } from './recent.mjs';
 
 /**
  * An answer about a fight this old is about a different fight. Measured in
@@ -45,7 +44,9 @@ const STALE_MS = 900;
  * idle for 13 ticks with the current answer still "valid" by staleMs, since
  * staleMs only measures ask-to-apply time, not whether the target held
  * (2026-09-27T19-05-17, tick 563). A held special's between-press gaps are
- * not this: `busy()` covers those.
+ * not this: `busy()` covers those. Nor are the ticks the fighter spends in
+ * its own move or down, when no key would do anything: 39% of the asks sent
+ * within 8 ticks of the one before came from such ticks (2026-09-29).
  */
 const IDLE_REASK_TICKS = 4;
 
@@ -64,7 +65,7 @@ const DECIDED_TICKS = 90;
 const ROLL_OWNS_MS = 1000;
 
 /**
- * `holdAttack`: an attack Jev chose keeps the keys from the next attack or
+ * An attack Jev chose keeps the keys from the next attack or
  * move-in answer until its attack key is pressed, for up to this many ticks.
  * In 30 games at 350 ms, 64% of attack answers ended before Attack was ever
  * pressed; 43-48% were replaced by the next answer after a median 10-11 ticks
@@ -79,17 +80,29 @@ const waitsForAttack = (a) => isAttack(a) || MOVES_IN(a);
 /** What an attack can still be walking in from. */
 const HOLDABLE = new Set(['neutral', 'walking', 'running', 'blocking', 'landing', 'skidding']);
 /**
- * `skipBusyAsks`: no question goes out while Dennis cannot act for longer than
- * an answer takes, and the first one goes out so that it lands as he gets up.
- * 32% of 7455 answers at 350 ms landed while he was knocked down (16%),
+ * No question goes out while the fighter cannot act for longer than an answer
+ * takes, and the first one goes out so that it lands as it can act again.
+ * 32% of 7455 answers at 350 ms landed while Dennis was knocked down (16%),
  * staggered (13%) or in a broken guard (3%), about a fight that had moved on.
  */
 const DOWN = new Set(['knocked_down', 'staggered', 'broken_guard']);
+/**
+ * The same for the fighter's own move: a swing and its recovery, a shot, a
+ * landing, a skid. Across 463 runs 36% of the answers that took the keys
+ * arrived during one; of the melee answers among them 23% were replaced by
+ * the next answer before the fighter could act and 33% ever pressed a key,
+ * against 83% of those that arrived with it free (scratch/busy-answers.mjs).
+ * Only a move whose end the frames give counts. The prediction is seldom
+ * late: at p90 it ran over the real end by 2 ticks or less for every fighter
+ * and pose but Davis's wind-up (5), Firen's wind-up and recovery and Woody's shot
+ * (3). An early one, when a combo chains on, only asks sooner
+ * (scratch/own-move-end.mjs).
+ */
+const OWN_MOVE = new Set(['winding_up_attack', 'attacking', 'recovering', 'shooting', 'landing',
+                          'skidding', 'picking_up', 'throwing']);
 export async function runLoop({ cdp, pool, kb, run, name, policy, overlay, hz = 30, noSync = false,
                                decideEveryMs = 500, seconds = 120, onTick, keys,
-                               staleMs = STALE_MS, useRecent = null,
-                               holdAttack = false, smartBlock = false, skipBusyAsks = false,
-                               staggerHint = false } = {}) {
+                               staleMs = STALE_MS, staggerHint = false } = {}) {
   const period = 1000 / hz;
   // `hz` is only the fallback pace, for a pool that cannot wait on a frame.
   const sync = typeof pool.next === 'function' && !noSync;
@@ -106,8 +119,6 @@ export async function runLoop({ cdp, pool, kb, run, name, policy, overlay, hz = 
   let planned = null;      // the cached plan for the current action
   let plannedFor = null;   // which action it was planned for
   let lastAsk = 0;
-  // What Jev is told about the fight so far; see recent.mjs for the modes.
-  const memory = createRecent({ mode: useRecent, policyName: policy.name });
   let shown = { policy: policy.name };   // what the overlay is currently saying
   let forceDraw = false;                 // set when an answer lands, cleared once drawn
   let deadStreak = 0;                    // consecutive not-alive reads (debounce)
@@ -132,7 +143,7 @@ export async function runLoop({ cdp, pool, kb, run, name, policy, overlay, hz = 
   const coverage = createCoverage();
   // And the reflex layer's own state, so its block is a finite parry with a rest
   // between rather than a guard held until it breaks.
-  const reflexFor = createReflex({ smartBlock });
+  const reflexFor = createReflex();
 
   const profile = profileFor(name);
   if (!profile) throw new Error(`no derived profile for ${name} — rebuild build/_profiles.json`);
@@ -148,15 +159,15 @@ export async function runLoop({ cdp, pool, kb, run, name, policy, overlay, hz = 
   let standing = null;     // Jev's latest answer, for when a reflex lets go
   let deferred = null;     // a different answer waiting for a committed special
   let answered = null;     // Jev's latest answer, kept even once applied
-  let held = null;         // an answer waiting for an attack to walk in (holdAttack)
+  let held = null;         // an answer waiting for an attack to walk in
   let attackOf = null;     // the Jev attack holding the keys, and since which tick
   let attackTick = 0;
   let fired = false;       // whether its plan has pressed Attack
   let stepEmpty = false;   // whether the last tick's plan pressed nothing
-  let latencyMs = null;    // ask to arrival, smoothed (skipBusyAsks)
+  let latencyMs = null;    // ask to arrival, smoothed
   const attackCode = (keys ?? P4_KEYS).attack;
   // An attack Jev chose, not yet pressed, still walking in or mid-move.
-  const walkingIn = (arena) => holdAttack && source === policy.name && attackOf === action && !fired
+  const walkingIn = (arena) => source === policy.name && attackOf === action && !fired
     && tick - attackTick <= HOLD_TICKS
     && (planned?.busy?.() || (!stepEmpty && HOLDABLE.has(doing(arena.me))));
   const HOLDS = new Set(['defend', 'wait']);
@@ -219,7 +230,6 @@ export async function runLoop({ cdp, pool, kb, run, name, policy, overlay, hz = 
       continue;
     }
     deadStreak = 0;
-    memory.observe(arena, { action, source });
     noEnemyStreak = arena.threats.length ? 0 : noEnemyStreak + 1;
     if (noEnemyStreak >= DECIDED_TICKS) { counts.outcome = 'won'; break; }
 
@@ -310,7 +320,7 @@ export async function runLoop({ cdp, pool, kb, run, name, policy, overlay, hz = 
         action = result.action; source = policy.name; stance = null;
         if (!finishing) plannedFor = null;
         if (action === 'roll_away') rollUntil = Date.now() + ROLL_OWNS_MS;
-        memory.applied(arena, action);
+
         standing = { action, askedAtMs };
       } else if (result?.action) {
         // Overruled by the block for now, but still the answer for when the
@@ -336,7 +346,7 @@ export async function runLoop({ cdp, pool, kb, run, name, policy, overlay, hz = 
         action = deferred.action; stance = null;
         plannedFor = null;
         if (action === 'roll_away') rollUntil = Date.now() + ROLL_OWNS_MS;
-        memory.applied(arena, action);
+
       }
       deferred = null;
     }
@@ -347,7 +357,7 @@ export async function runLoop({ cdp, pool, kb, run, name, policy, overlay, hz = 
       if (source === policy.name && Date.now() - held.askedAtMs <= staleMs) {
         action = held.action; stance = null;
         plannedFor = null;
-        memory.applied(arena, action);
+
         counts.heldApplied = (counts.heldApplied ?? 0) + 1;
       }
       held = null;
@@ -373,13 +383,18 @@ export async function runLoop({ cdp, pool, kb, run, name, policy, overlay, hz = 
     }
 
     // --- ask for the next one, without waiting for it
-    // Not while down for longer than an answer takes to arrive.
-    const downFor = skipBusyAsks && DOWN.has(doing(arena.me))
+    // Not while down or in its own move for longer than an answer takes to
+    // arrive; see DOWN and OWN_MOVE.
+    const myDoing = doing(arena.me);
+    const left = DOWN.has(myDoing) || OWN_MOVE.has(myDoing)
       ? ticksToEnd(framesFor(arena.me.id), arena.me.frame, arena.me.waiting ?? 0) : 0;
+    const downFor = DOWN.has(myDoing) ? left : 0;
+    const ownFor = OWN_MOVE.has(myDoing) && Number.isFinite(left) ? left : 0;
     const lead = Math.ceil((latencyMs ?? decideEveryMs) * hz / 1000);
     const due = !pending && !burst && Date.now() - lastAsk >= decideEveryMs;
     if (due && downFor > lead) counts.downWaits = (counts.downWaits ?? 0) + 1;
-    if (due && downFor <= lead) {
+    if (due && ownFor > lead) counts.ownWaits = (counts.ownWaits ?? 0) + 1;
+    if (due && downFor <= lead && ownFor <= lead) {
       lastAsk = Date.now();
       const options = offer(arena, profile, { staggerHint });
       // The panel names the options as they are chosen, so the list on screen is
@@ -394,7 +409,7 @@ export async function runLoop({ cdp, pool, kb, run, name, policy, overlay, hz = 
       const record = { settled: false, askedAt, askedAtMs: Date.now(), result: null };
       pending = record;
       counts.decisions++;
-      policy.decide({ arena, options, questions, recent: memory.told() }).then((result) => {
+      policy.decide({ arena, options, questions }).then((result) => {
         record.result = result; record.settled = true;
         run?.judgement({
           tick: askedAt, schema, criteria: { action: options },
@@ -445,7 +460,8 @@ export async function runLoop({ cdp, pool, kb, run, name, policy, overlay, hz = 
         const empty = !step.hold?.length && !step.tap?.length;
         stepEmpty = empty;
         if (step.tap?.includes(attackCode) || step.hold?.includes(attackCode)) fired = true;
-        if (empty && source === policy.name && action !== 'wait' && !plan.busy?.()) {
+        if (empty && source === policy.name && action !== 'wait' && !plan.busy?.()
+            && !DOWN.has(myDoing) && !OWN_MOVE.has(myDoing)) {
           if (++idleTicks >= IDLE_REASK_TICKS) { lastAsk = 0; idleTicks = 0; }
         } else idleTicks = 0;
       } else {
@@ -480,6 +496,7 @@ export async function runLoop({ cdp, pool, kb, run, name, policy, overlay, hz = 
       ...(held && { held: held.action }),
       ...(planned?.as && plannedFor === action && { as: planned.as }),
       ...(downFor > 0 && { downFor: Number.isFinite(downFor) ? downFor : -1 }),
+      ...(ownFor > 0 && { ownFor }),
       reflex: reflex?.reason ?? null,
       keys: kb.stats.down,
     });

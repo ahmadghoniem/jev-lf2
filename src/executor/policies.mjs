@@ -103,8 +103,8 @@ export function jevPolicy(client, profile, { deadlineMs = 1400 } = {}) {
   return {
     name: 'jev',
     questions: (options, arena) => questionSet(options, arena, profile),
-    async decide({ arena, options, questions = questionSet(options, arena, profile), recent }) {
-      const state = semanticState({ arena, profile, recent });
+    async decide({ arena, options, questions = questionSet(options, arena, profile) }) {
+      const state = semanticState({ arena, profile });
       const t0 = Date.now();
       const answer = await client.ask({ state, questions, deadlineMs });
       const latencyMs = Date.now() - t0;
