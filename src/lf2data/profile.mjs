@@ -263,6 +263,10 @@ export function buildProfile(name, frames, objects) {
         // arrow's 60 put Rudolf down on 14 of 36 hits, the ones that landed on
         // an earlier hit, while a single hit over 60 floors a fresh fighter.
         knocksDown: hitFall(m, projectiles) > 60,
+        // The fall the first hit adds, 0 counting as 20 the way px.js adds it.
+        // It decides whether a hit on a fighter in the dance of pain knocks it
+        // down (see `painText` in options.mjs).
+        fall: damage ? hitFall(m, projectiles) || 20 : null,
         breaksGuard: hitBdefend(m, projectiles) > 60,
         // Some projectiles are short-lived and weaken as they go — Henry's
         // blastpush is 80 up close and gone past about 600 — where others fly

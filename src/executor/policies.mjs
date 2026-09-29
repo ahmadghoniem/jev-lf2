@@ -7,7 +7,7 @@
  */
 
 import { buildOptions } from '../state/options.mjs';
-import { semanticState, doing, unhittable, inSight, painLeft } from '../state/arena.mjs';
+import { semanticState, doing, unhittable, inSight, painWindow } from '../state/arena.mjs';
 import { nestOptions, followUps, resolveChoice } from '../state/nest.mjs';
 import { profileFor } from '../lf2data/tables.mjs';
 import { mpRegenPerSecond } from '../state/fields.mjs';
@@ -45,7 +45,7 @@ export function offer(arena, profile, { painHint = false } = {}) {
     targetOnScreen: near ? inSight(near, profile) : true,
     threatened: !!incoming(arena, { within: 12 }),
     helpless: !!near?.helpless,
-    painTicks: painHint ? painLeft(near) : null,
+    pain: painHint ? painWindow(near) : null,
     weaponInbound: !!inboundWeapon(arena),
     guardWorn: guardWorn(arena),
     roomBehind: roomBehind(arena),

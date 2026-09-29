@@ -408,16 +408,19 @@ export const JUMP_CLEAR_GAP = 200;
 export const FALL_CLEAR_GAP = 100;
 const falling = (t) => t.frame >= 180 && t.frame <= 191;
 /**
- * Ticks left in a fighter's dance of pain (state 16, frames 226-229 in every
- * fighter's file, 28 ticks from the start), or null when it is not in one.
- * The game puts a fighter there once its fall value passes 40 and sets it to
- * 60, so any further hit (20 or more) knocks it down.
+ * A fighter's dance of pain (state 16, frames 226-229 in every fighter's file,
+ * 28 ticks): the ticks `left` in it and the ticks `gone` since it began, or
+ * null when it is not in one. The game puts a fighter there once its fall
+ * value passes 40, sets it to 60, and takes 1 off a tick; a hit knocks it
+ * down past 60, so only a hit whose fall is more than the ticks gone does.
+ * That held for 306 of 306 of our hits (scratch/dop-fall-rule.mjs).
  */
-export function painLeft(t) {
+export function painWindow(t) {
   const frames = t && framesFor(t.id);
   if (frames?.[t.frame]?.state !== 16) return null;
   const left = ticksToEnd(frames, t.frame, t.waiting ?? 0);
-  return Number.isFinite(left) ? left : null;
+  const whole = ticksToEnd(frames, 226, 0);
+  return Number.isFinite(left) && Number.isFinite(whole) ? { left, gone: Math.max(0, whole - left) } : null;
 }
 
 export const unhittable = (t) => !!t && (t.doing === 'knocked_down'

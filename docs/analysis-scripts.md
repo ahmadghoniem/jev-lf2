@@ -55,7 +55,10 @@ Check field names against a current `ticks.jsonl` line before relying on them.
   broken, 102-107 roll, 180-191 falling, 222/224 stagger, 226-229 dance of pain,
   70 super punch (plain Attack on a dance-of-pain enemy).
 - Game fall rule (px.js): each hit adds itr.fall (20 if 0). Over 60: falls.
-  Over 40: dance of pain. Over 20: stagger.
+  Over 40: dance of pain. Over 20: stagger. Entering the dance sets it to 60,
+  and it drops 1 a tick outside hit-lag, so a hit on a dancing enemy knocks it
+  down only if its fall is more than the ticks since the dance began (306 of
+  306 of our hits, `scratch/dop-fall-rule.mjs`).
 
 ## Method
 

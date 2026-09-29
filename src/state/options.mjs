@@ -60,7 +60,7 @@ export function buildOptions({ profile, nearby = [], nearest = Infinity, mp = 0,
                                enemyDoing = null, aligned = true, targetDown = false,
                                hasTarget = false, threatened = false, targetOnScreen = true,
                                helpless = false, weaponInbound = false, guardWorn = false,
-                               roomBehind = Infinity, allies = 0, painTicks = null,
+                               roomBehind = Infinity, allies = 0, pain = null,
                                canDo = () => true }) {
   const options = {};
 
@@ -185,7 +185,7 @@ export function buildOptions({ profile, nearby = [], nearest = Infinity, mp = 0,
         : 'The enemy is out of its reach, so this means closing in first.',
       window ? 'The enemy is helpless right now, so this cannot be answered or blocked.' : '',
       behind ? 'The enemy is behind you; you will turn first, which costs a moment.' : '',
-      hasTarget && !targetDown ? painText(move, meleeArrival(move, nearest, profile), painTicks, profile) : '',
+      hasTarget && !targetDown ? painText(move, meleeArrival(move, nearest, profile), pain, profile) : '',
       cost(move),
       // An archer's attack button fires an arrow that costs MP even point
       // blank, so without saying so the free melee moves read as the weaker
@@ -366,19 +366,24 @@ function meleeArrival(move, nearest, profile) {
 }
 
 /**
- * Whether a melee answer lands inside the enemy's dance of pain (`painLeft` in
- * arena.mjs), the one opening long enough to walk into: 28 ticks, against 7
- * for an ordinary stagger. Any hit knocks it down, and a plain Attack on it
- * becomes the fighter's super punch where its data has one (70 for Dennis, 10
- * for Firen and Rudolf, none for Julian and Knight).
+ * Whether a melee answer lands inside the enemy's dance of pain (`painWindow`
+ * in arena.mjs), the one opening long enough to walk into: 28 ticks, against 7
+ * for an ordinary stagger. A plain Attack on it becomes the fighter's super
+ * punch where its data has one (70 for Dennis, 10 for Firen and Rudolf, none
+ * for Julian and Knight). "Knocks it down" is said only when the hit's fall is
+ * more than the ticks the dance will have run when it lands: Dennis's
+ * many_foot (fall 1) and Firen's super punch (fall 1) never do.
  */
-function painText(move, arrive, left, profile) {
-  if (arrive == null || left == null) return '';
+function painText(move, arrive, pain, profile) {
+  if (arrive == null || !pain) return '';
   const sec = (ticks) => (ticks / 30).toFixed(1);
   const superPunch = move.input === 'a' && move.name !== 'super_punch'
     && profile.moves.find((m) => m.name === 'super_punch' && m.input === 'a');
-  return `The enemy is in the dance of pain for about ${sec(left)} s: it cannot act or block, and any hit knocks it down. `
-    + `This lands in about ${sec(arrive)} s, ${arrive <= left ? 'in time' : 'too late'}.`
+  const hit = superPunch || move;
+  const lands = arrive > pain.left ? 'It recovers before this lands.'
+    : `This lands in about ${sec(arrive)} s, before it recovers, `
+      + `${hit.fall > pain.gone + arrive ? 'and knocks it down' : 'but does not knock it down'}.`;
+  return `The enemy is in the dance of pain for about ${sec(pain.left)} s more: it cannot act or block. ${lands}`
     + (superPunch ? ` On it, this becomes the super punch (damage ${superPunch.damageTier}).` : '');
 }
 const fireText = (move) => `It goes off about ${(fireTicks(move) / 30).toFixed(1)} s after the first key press.`;
