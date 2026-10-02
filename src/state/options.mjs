@@ -14,7 +14,7 @@
 import { tierDamage, bucketRange, damageAt } from '../lf2data/profile.mjs';
 import { mpRegenPerSecond } from './fields.mjs';
 import { REACH_SLACK } from '../lf2data/frames.mjs';
-import { standoffOf, RUN_IN_MIN_X, RUN_OUT_MAX_X, PRESS_EVERY, BOT } from './bot.mjs';
+import { standoffOf, meleeReach, RUN_IN_MIN_X, RUN_OUT_MAX_X, PRESS_EVERY, BOT } from './bot.mjs';
 import { framesFor, headerFor } from '../lf2data/tables.mjs';
 
 /**
@@ -30,6 +30,34 @@ export const firesBall = (move) => (move.spawns ?? []).some((id) => {
 
 /** An enemy in one of these can turn and block. */
 export const FREE_TO_BLOCK = new Set(['neutral', 'walking', 'running', 'blocking']);
+
+/**
+ * Set by scripts/play.mjs flags. Always on (trialled 2026-09-30): no ranged special while a
+ * plain melee move on the list already reaches the enemy, for the note "jev needs to not do any
+ * specials when in melee range he needs to do melee attacks"
+ * (2026-09-29T22-36-37, tick 1457); melee specials and the ordinary attack
+ * stay. Judged where the enemy will be when the answer takes effect: in the
+ * first 3 trial games all 7 ranged specials begun inside that reach were
+ * picked with the enemy 104-204 away or 52-55 off the line, and it came in
+ * during the 17-21 ticks the answer took (scratch/close-special-asks.mjs).
+ * `jumpBack` (--jump-back): offer
+ * `jump_back` with the enemy close, for the note "can we try evading close
+ * range melee attacks not projectiles by jumping backwards"
+ * (2026-10-01T23-39-33, tick 1).
+ */
+export const optionTrial = { jumpBack: false };
+
+/** Our own states in which no evasion can start. */
+const CANNOT_EVADE = new Set(['staggered', 'blocking', 'broken_guard', 'knocked_down']);
+/**
+ * Where jump_back is offered: the window scratch/melee-hits-taken.mjs counts
+ * close swings in, where 68% of the HP Henry lost over 62 games went.
+ */
+const JUMP_BACK_X = 120;
+const JUMP_BACK_Z = 20;
+const JUMP_BACK_ROOM = 100;
+/** LF2's fall speed added each tick in the air. */
+const GRAVITY = 1.7;
 
 /** How a weapon's four swing types read as options. */
 /** Room the roll needs behind the fighter to end out of reach. */
@@ -62,7 +90,8 @@ export function buildOptions({ profile, nearby = [], nearest = Infinity, mp = 0,
                                hasTarget = false, threatened = false, targetOnScreen = true,
                                helpless = false, weaponInbound = false, guardWorn = false,
                                roomBehind = Infinity, allies = 0, pain = null,
-                               depth = 0, zClosing = 0, canDo = () => true }) {
+                               depth = 0, zClosing = 0, xClosing = 0, myDoing = null,
+                               answerTicks = ANSWER_TICKS, canDo = () => true }) {
   const options = {};
 
   const affordable = (m) => m.mp <= mp || m.allowedWhenShort;
@@ -97,6 +126,41 @@ export function buildOptions({ profile, nearby = [], nearest = Infinity, mp = 0,
       : `The enemy is ${window} at the end of an attack, so it cannot swing again yet — but it may already have a weapon in the air. Close in and hit it before it recovers.`;
   }
 
+  // --- what it can do with its hands, and whether anything is in reach
+  // Worked out before the ranged moves, which it can take off the list.
+  // A dash attack at an enemy nearer than the dash carries goes past it.
+  // A melee special is named like the ranged ones, so it is grouped with them
+  // and fired by their executor. Named by its frame alone it had no executor
+  // and was never offered: Davis's many_punch and singlong, 2026-09-24.
+  const meleeName = (m) => (m.category === 'special' ? `special_${label(m)}` : label(m));
+  const melee = profile.moves.filter((m) => m.kind === 'melee' && !m.needsWeapon
+    && affordable(m) && !targetDown && canDo(meleeName(m))
+    // The dash attack is not offered. From inside the gaps it hits from, 1 of
+    // 14 dash jumps hit (2026-09-28T22-28 to 23-08): 8 never pressed Attack
+    // and flew past, 3 were hit out of the air by the enemy's jump attack.
+    && m.name !== 'dash_attack'
+    // The jump attack is not offered. Its Attack is pressed 7 ticks into the
+    // jump and the hitting frames play out near the top of it: across the
+    // recorded runs 3 of 63 presses in the air landed (5%), 0 of 19 at a
+    // staggered enemy, and the fighter came down open (2026-09-28T21-03-09,
+    // ticks 837-862: hit on landing, 178 to 124).
+    && m.name !== 'jump_attack');
+  // The ordinary attack always belongs on the list. It costs nothing, it is the
+  // archetype in one option, and the cap would otherwise spend all four slots on
+  // heavier variants and drop the one move that is always available.
+  // Compared by entry frame, not by identity: the profile comes back from JSON,
+  // so `basicAttack` and its twin in `moves` are separate objects.
+  const shortlist = [...dedupe(melee.filter((m) => m.category !== 'special'), MAX_MELEE),
+    ...melee.filter((m) => m.category === 'special')];
+  const basicMove = basic ? melee.find((m) => m.entry === basic.entry) : null;
+  if (basicMove && !shortlist.some((m) => m.entry === basicMove.entry)) shortlist.push(basicMove);
+  // The gap and the depth gap once the answer takes effect, from how fast
+  // each is closing now; a gap that is opening is taken as it stands.
+  const gapThen = nearest - Math.max(0, xClosing) * answerTicks;
+  const levelThen = aligned || (zClosing > 0 && depth - zClosing * answerTicks <= BOT.AIM_MAX_Z);
+  const plainInReach = hasTarget && levelThen
+    && shortlist.some((m) => m.category !== 'special' && gapThen <= m.reach + REACH_SLACK);
+
   // --- what the character can throw from where it stands
   const rangedName = (m) => (basic && m.entry === basic.entry ? 'shoot' : `special_${label(m)}`);
   // A short-lived projectile is offered only while the enemy is inside its
@@ -111,6 +175,7 @@ export function buildOptions({ profile, nearby = [], nearest = Infinity, mp = 0,
   // of 131 decisions of one game.
   const reachable = profile.moves.filter((m) => m.kind === 'ranged' && affordable(m)
     && !targetDown && (!hasTarget || (targetOnScreen && damageAt(m, nearest) > 0))
+    && !(plainInReach && m.category === 'special')
     && canDo(rangedName(m)));
   // On the enemy's line a straight shot that chains beats a single steering
   // one: it goes off as soon, arrives sooner (Dennis's energy ball flies 15 a
@@ -139,11 +204,9 @@ export function buildOptions({ profile, nearby = [], nearest = Infinity, mp = 0,
     const isBasic = basic && move.entry === basic.entry;
     options[rangedName(move)] = [
       reachText(move, hasTarget ? nearest : null),
-      hasTarget ? lineText(move, depth, profile) : '',
-      fireText(move),
-      flightText(move, hasTarget ? nearest : null),
+      hasTarget ? lineText(move, depth) : '',
       volleyText(move),
-      `Damage is ${move.damageTier} (${move.damage})${move.falloff ? ' up close' : ''}${move.volley ? ' per shot' : ''}.`,
+      `Damage is ${move.damageTier} (${move.damage})${move.falloff ? ' up close' : ''}${volleyDamage(move)}.`,
       effects(move),
       move.homes && move.knocksDown && !move.volley && profile.moves.some((m) => m.kind === 'ranged' && !m.homes && m.volley)
         ? 'It lands one hit per cast: the hit knocks the enemy down, so it cannot pile up hits the way a fast chaining shot does.'
@@ -161,53 +224,32 @@ export function buildOptions({ profile, nearby = [], nearest = Infinity, mp = 0,
     ].filter(Boolean).join(' ');
   }
 
-  // --- what it can do with its hands, and whether anything is in reach
-  // A dash attack at an enemy nearer than the dash carries goes past it.
-  // A melee special is named like the ranged ones, so it is grouped with them
-  // and fired by their executor. Named by its frame alone it had no executor
-  // and was never offered: Davis's many_punch and singlong, 2026-09-24.
-  const meleeName = (m) => (m.category === 'special' ? `special_${label(m)}` : label(m));
-  const melee = profile.moves.filter((m) => m.kind === 'melee' && !m.needsWeapon
-    && affordable(m) && !targetDown && canDo(meleeName(m))
-    // The dash attack is not offered. From inside the gaps it hits from, 1 of
-    // 14 dash jumps hit (2026-09-28T22-28 to 23-08): 8 never pressed Attack
-    // and flew past, 3 were hit out of the air by the enemy's jump attack.
-    && m.name !== 'dash_attack'
-    // The jump attack is not offered. Its Attack is pressed 7 ticks into the
-    // jump and the hitting frames play out near the top of it: across the
-    // recorded runs 3 of 63 presses in the air landed (5%), 0 of 19 at a
-    // staggered enemy, and the fighter came down open (2026-09-28T21-03-09,
-    // ticks 837-862: hit on landing, 178 to 124).
-    && m.name !== 'jump_attack');
-  // The ordinary attack always belongs on the list. It costs nothing, it is the
-  // archetype in one option, and the cap would otherwise spend all four slots on
-  // heavier variants and drop the one move that is always available.
-  // Compared by entry frame, not by identity: the profile comes back from JSON,
-  // so `basicAttack` and its twin in `moves` are separate objects.
-  const shortlist = [...dedupe(melee.filter((m) => m.category !== 'special'), MAX_MELEE),
-    ...melee.filter((m) => m.category === 'special')];
-  const basicMove = basic ? melee.find((m) => m.entry === basic.entry) : null;
-  if (basicMove && !shortlist.some((m) => m.entry === basicMove.entry)) shortlist.push(basicMove);
   for (const move of shortlist) {
     const inReach = aligned && nearest <= move.reach + REACH_SLACK;
+    // Inside the plain attack's reach a run or dash attack is keyed as the
+    // plain Attack from where the fighter stands (actions.mjs), so it is
+    // told that way; an archer's plain Attack is the shot and costs its MP.
+    const plainHere = (move.name === 'run_attack' || move.name === 'dash_attack')
+      && aligned && nearest <= meleeReach(profile) + REACH_SLACK;
+    const shotHere = plainHere && basic?.kind === 'ranged';
     options[meleeName(move)] = [
       `${describeMelee(move)}.`,
       move.category === 'special' ? 'This is a signature special move, fired up close.' : '',
-      fireText(move),
       `Damage is ${move.damageTier}.`,
       effects(move),
-      inReach ? 'The enemy is already inside its reach.'
+      plainHere ? `In reach: no run, your plain attack from where you stand${shotHere ? ' (your shot, which costs its MP)' : ''}.`
+        : inReach ? 'The enemy is already inside its reach.'
         : misaligned ? 'You are not level with the enemy, so this needs you to line up first.'
         : 'The enemy is out of its reach, so this means closing in first.',
       window ? 'The enemy is helpless right now, so this cannot be answered or blocked.' : '',
       behind ? 'The enemy is behind you; you will turn first, which costs a moment.' : '',
       hasTarget && !targetDown ? painText(move, meleeArrival(move, nearest, depth, profile), pain, profile) : '',
-      cost(move),
+      shotHere ? '' : cost(move),
       // An archer's attack button fires an arrow that costs MP even point
       // blank, so without saying so the free melee moves read as the weaker
       // choice: offered about 110 times in one run, chosen never, while the
       // observer watched Henry spend 150 MP on blastpush at 70 away.
-      !move.mp && basic?.kind === 'ranged'
+      !move.mp && basic?.kind === 'ranged' && !shotHere
         ? `Your ordinary attack and your specials spend MP even point blank, so this is the hit to use up close${mp < 150 ? ', especially now that MP is short' : ''}, and it saves MP for the specials.`
         : '',
     ].filter(Boolean).join(' ');
@@ -289,11 +331,14 @@ export function buildOptions({ profile, nearby = [], nearest = Infinity, mp = 0,
   // Not from an enemy on the floor or in the air with nothing coming: that is
   // a window to hit it (observer: "two unnecessary rolls", one of them from a
   // knocked-down Freeze 7 away, 2026-09-25T11-59-36).
-  // Proximity alone used to offer it too: 19 of 46 rolls across four games had
-  // nothing coming (2026-09-27, notes.jsonl). Offered like the block now, on
-  // an actual threat rather than range, so Jev only spends a pick on it when
-  // something is coming.
-  if (hasTarget && roomBehind >= ROLL_ROOM && (threatened || weaponInbound)
+  // Also offered on proximity alone (within 220). Gating it on a threat
+  // (5eb2102, 2026-09-28) took it from 82% of asks inside reach to 11%, and
+  // the picks went to ranged specials fired point blank: blastpush from 7% to
+  // 12% of those asks (scratch/close-ask-options.mjs), so it was put back.
+  // Kept while we are staggered, blocking or down, where it cannot start: taken
+  // away there (--roll-gate), 0 of 4 games won against 2 of 4 with it
+  // (2026-10-01T23-54 to 10-02T00-09, evade-ab.sh).
+  if (hasTarget && roomBehind >= ROLL_ROOM && (threatened || weaponInbound || nearest <= 220)
       && !(targetDown && !threatened && !weaponInbound)) {
     options.roll_away = [
       'Roll away from the enemy: a short run, then a tumble along the ground. Nothing can hit you during the tumble and nothing breaks it, and you end about 200 further away, out of its reach.',
@@ -307,6 +352,24 @@ export function buildOptions({ profile, nearby = [], nearest = Infinity, mp = 0,
       'You cannot attack or block until it finishes.',
     ].filter(Boolean).join(' ');
   }
+  // A jump back against a swing up close. Not against a weapon in the air:
+  // a shot or star hits an airborne body as well as a standing one.
+  if (optionTrial.jumpBack && hasTarget && !targetDown && !weaponInbound
+      && !CANNOT_EVADE.has(myDoing) && nearest <= JUMP_BACK_X && depth <= JUMP_BACK_Z
+      && roomBehind >= JUMP_BACK_ROOM) {
+    const header = headerFor(profile.name);
+    const carry = header?.jump_distance && header?.jump_height
+      ? Math.round((header.jump_distance * 2 * Math.abs(header.jump_height)) / GRAVITY / 10) * 10 : null;
+    // Benefit first, one caveat. Replayed on 40 recorded asks with the enemy
+    // in punching range, the older text (direction, timing, three caveats)
+    // was picked at 2, this one at 11 (scratch/jump-back-text-replay.mjs,
+    // 2026-10-02); in two games the older one was picked at 0 of 18 asks.
+    options.jump_back = [
+      `Jump back out of the enemy's reach: you land about ${carry ?? 190} away, facing it${profile.hasRanged ? ', where your shot reaches it and its punches do not' : ''}.`,
+      'A punch or kick that starts after you leave the ground, about a fifth of a second from now, misses.',
+      'It starts sooner than a roll and is the quickest way out of punching range.',
+    ].join(' ');
+  }
   options.wait = 'Hold position and do nothing this instant.';
 
   // An enemy drinking is the one window that pays twice: it cannot answer, and
@@ -314,7 +377,7 @@ export function buildOptions({ profile, nearby = [], nearest = Infinity, mp = 0,
   // run while Henry waited and shot from 350). With nothing coming at us, the
   // passive answers are closed so the choice is only how to hit it.
   if (enemyDoing === 'drinking' && !threatened && !weaponInbound) {
-    for (const passive of ['wait', 'defend', 'open_distance', 'roll_away']) delete options[passive];
+    for (const passive of ['wait', 'defend', 'open_distance', 'roll_away', 'jump_back']) delete options[passive];
   }
 
   return options;
@@ -345,13 +408,11 @@ function reachText(move, distance) {
 }
 
 /**
- * Time from a move's first key to its hit: a special's three presses (and any
- * follow-up), PRESS_EVERY apart, then its wind-up. Henry's five arrows take
- * about 0.6 s where his plain arrow takes about 0.3 s, and the observer saw
- * the difference; the enemy can act, and hit him, in between.
+ * Time from a move's first key to its hit: a special's combo in one tick and
+ * any follow-up PRESS_EVERY apart after it, then its wind-up.
  */
 export function fireTicks(move) {
-  const presses = move.category === 'special' ? 3 + (move.followUp?.length ?? 0) : 1;
+  const presses = move.category === 'special' ? 1 + (move.followUp?.length ?? 0) : 1;
   // A jump attack first rises for JUMP_RISE_TICKS (the executor's 220 ms).
   const rise = move.input === 'j+a' ? JUMP_RISE_TICKS : 0;
   return rise + (presses - 1) * PRESS_EVERY + (move.hitTicks ?? move.startupTicks ?? 0);
@@ -364,8 +425,8 @@ const JUMP_RISE_TICKS = 7;
  * 34 ms a tick.
  */
 const ANSWER_TICKS = 10;
-/** Ticks of the double-tap before a run moves (see `tapStep` in actions.mjs). */
-const RUN_START_TICKS = 3;
+/** Ticks of the one-frame double-tap before a run moves (`tapStep` in actions.mjs). */
+const RUN_START_TICKS = 1;
 
 /**
  * Ticks from now until a melee move hits, walked or run in from here: the
@@ -407,33 +468,18 @@ function painText(move, arrive, pain, profile) {
   return `The enemy is in the dance of pain for about ${sec(pain.left)} s more: it cannot act or block. ${lands}`
     + (superPunch ? ` On it, this becomes the super punch (damage ${superPunch.damageTier}).` : '');
 }
-const fireText = (move) => `It goes off about ${(fireTicks(move) / 30).toFixed(1)} s after the first key press.`;
-
 /**
  * The walk into line a straight shot needs first: the executor steps in depth
- * until the enemy is within `BOT.AIM_MAX_Z`, at the fighter's walking_speedz.
- * No recorded text said so, and an energy ball picked off the line went off
- * within 45 ticks 13 times in 39 (Dennis, 2026-09-27 to 09-29).
+ * until the enemy is within `BOT.AIM_MAX_Z`. No recorded text said so, and an
+ * energy ball picked off the line went off within 45 ticks 13 times in 39
+ * (Dennis, 2026-09-27 to 09-29). The seconds it takes, the time to fire and
+ * the flight time were dropped on 2026-09-30 at the user's request; replayed
+ * on 90 Henry asks they cut 170 input tokens and no reply time
+ * (scratch/timing-text-latency-2026-09-30.log).
  */
-function lineText(move, depth, profile) {
+function lineText(move, depth) {
   if (move.homes || !(depth > BOT.AIM_MAX_Z)) return '';
-  const speedZ = headerFor(profile.name)?.walking_speedz;
-  const ticks = speedZ ? Math.ceil((depth - BOT.AIM_MAX_Z) / speedZ) : null;
-  const walk = ticks === null ? 'you walk into line first'
-    : ticks <= 2 ? 'you step into line now' : `you walk into line first, about ${(ticks / 30).toFixed(1)} s`;
-  return `The enemy is ${Math.round(depth)} off your line: ${walk}, before it goes off.`;
-}
-
-/**
- * Time from the spawn to the enemy: a straight shot at its own speed over the
- * distance, a steering one as measured (MEASURED_FLIGHT in profile.mjs).
- */
-function flightText(move, distance) {
-  if (move.homes) {
-    return move.flightTicks ? `Once it goes off it takes about ${(move.flightTicks / 30).toFixed(1)} s to reach the enemy, from any distance.` : '';
-  }
-  if (!move.speed || distance === null || !Number.isFinite(distance)) return '';
-  return `Once it goes off it reaches the enemy in about ${Math.max(0.1, distance / move.speed / 30).toFixed(1)} s.`;
+  return `The enemy is ${Math.round(depth)} off your line: you walk into line first, before it goes off.`;
 }
 
 /** px.js breaks a guard when a blocked hit takes its meter over this (GUARD_BREAK in reflex.mjs). */
@@ -465,6 +511,20 @@ function guardText(move) {
  * lasts. Told as a single 30 that only staggers, Dennis's energy ball was
  * picked 0 times in 506 offers next to his 65 chasing ball.
  */
+/**
+ * Whose damage the figure is. A volley that fans out (Henry's five arrows)
+ * carries the whole first press's total, 125; one that does not carries one
+ * shot's. The text said "per shot" for both.
+ */
+function volleyDamage(move) {
+  const v = move.volley;
+  if (!v) return '';
+  const first = v.shots.filter((s) => s.mp === move.mp);
+  const most = Math.max(...v.shots.map((s) => s.damage));
+  return move.damage > most && first.length > 1
+    ? `, with all ${first.length} shots of one press landing (${most} each)` : ' per shot';
+}
+
 function volleyText(move) {
   const v = move.volley;
   if (!v) return '';

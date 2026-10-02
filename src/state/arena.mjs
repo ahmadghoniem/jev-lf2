@@ -14,7 +14,6 @@ import { ticksToHit, nextSpawn, ticksToEnd } from '../lf2data/frames.mjs';
 import { bucketRange } from '../lf2data/profile.mjs';
 import { plainName } from './options.mjs';
 import { BOT } from './bot.mjs';
-import { kitOf } from './kit.mjs';
 
 /** Data-file types that can be picked up. 6 is milk and beer. */
 const ITEM_TYPES = new Set([1, 2, 4, 6]);
@@ -436,19 +435,22 @@ export function painWindow(t) {
 }
 
 /**
- * How fast the depth gap to each enemy is shrinking, in units a tick over the
- * last few reads, whoever is walking; set as `zClosing` on each threat. One
- * per run, called on every arena.
+ * How fast the depth gap and the x gap to each enemy are shrinking, in units
+ * a tick over the last few reads, whoever is walking; set as `zClosing` and
+ * `xClosing` on each threat. One per run, called on every arena.
  */
 export function createDepthTrend(reads = 3) {
   const seen = new Map();
+  const trend = (gaps) => (gaps.length > 1 ? (gaps[0] - gaps.at(-1)) / (gaps.length - 1) : 0);
   return (arena) => {
     for (const t of arena?.threats ?? []) {
-      const gaps = seen.get(t.slot) ?? [];
-      gaps.push(t.zGap);
-      if (gaps.length > reads + 1) gaps.shift();
-      seen.set(t.slot, gaps);
-      t.zClosing = gaps.length > 1 ? (gaps[0] - gaps.at(-1)) / (gaps.length - 1) : 0;
+      const s = seen.get(t.slot) ?? { z: [], x: [] };
+      s.z.push(t.zGap);
+      s.x.push(t.gap);
+      if (s.z.length > reads + 1) { s.z.shift(); s.x.shift(); }
+      seen.set(t.slot, s);
+      t.zClosing = trend(s.z);
+      t.xClosing = trend(s.x);
     }
   };
 }
@@ -517,7 +519,7 @@ const mana = (f) => {
  * is distraction by large irrelevant state, and the fourth enemy across the
  * stage has never changed an answer.
  */
-export function semanticState({ arena, profile, enemyKit = false }) {
+export function semanticState({ arena, profile }) {
   const { me, threats, allies, held, items, flying } = arena;
   return {
     me: {
@@ -538,7 +540,6 @@ export function semanticState({ arena, profile, enemyKit = false }) {
       vulnerable: t.vulnerable,
       hp: health(t),
       mp: `${Math.min(t.mp ?? 0, MP_CAP)} of ${MP_CAP}`,
-      ...(enemyKit ? { character: t.name, kit: kitOf(t.name) } : {}),
     })),
     // Things to walk over and take. A weapon in flight is not one of these, so
     // it is listed separately below rather than as a pickup.

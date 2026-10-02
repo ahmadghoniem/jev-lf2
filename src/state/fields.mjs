@@ -26,6 +26,17 @@ export const F = {
   keyHistory: 'P3',
 };
 
+/**
+ * The game's special-move readers (px.js `sg`, `hg`, `ag`, `og`, `ng`, `rg`,
+ * `lg`, `cg`, `dg`), one per combo, by their direction and last key. Each
+ * holds a stage: 0 idle, 1 after Defend, 2 after the direction, 3 after the
+ * last key, waiting for a frame that has the move.
+ */
+export const READERS = {
+  Dh: 'right+attack', Vh: 'left+attack', Eh: 'up+attack', wh: 'down+attack',
+  mh: 'right+jump', Sh: 'left+jump', Fh: 'up+jump', bh: 'down+jump', yh: 'jump+attack',
+};
+
 /** MP has no max field in the pool; `je` was seen at 505 while `Ke` is 500. */
 export const MP_CAP = 500;
 
@@ -54,4 +65,5 @@ export const readFighter = (e) => ({
   alive: e[F.hp] > 0,
   guard: e[F.guard] ?? 0,
   keyHistory: e[F.keyHistory] ?? null,
+  readers: Object.fromEntries(Object.entries(READERS).map(([k, combo]) => [combo, e[k] ?? 0])),
 });

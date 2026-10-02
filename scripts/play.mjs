@@ -18,6 +18,9 @@ import { keyboard, readBindings } from '../src/executor/keyboard.mjs';
 import { runLoop } from '../src/executor/loop.mjs';
 import { heuristicPolicy, jevPolicy, forcePolicy } from '../src/executor/policies.mjs';
 import { profileFor } from '../src/lf2data/tables.mjs';
+import { PRESS_EVERY } from '../src/state/bot.mjs';
+import { trial } from '../src/executor/actions.mjs';
+import { optionTrial } from '../src/state/options.mjs';
 import { openRun } from '../src/telemetry/log.mjs';
 import { menuState, DIFFICULTY } from '../src/executor/setup.mjs';
 import { createClient } from '../src/jev/client.mjs';
@@ -55,6 +58,10 @@ const gitCommit = () => {
 const profile = profileFor(name);
 if (!profile) throw new Error(`no profile for ${name}`);
 
+// Trial flags (2026-09-30), recorded in the run meta.
+trial.angledRun = has('angled-run');
+optionTrial.jumpBack = has('jump-back');
+
 // One harness per game. A batch stopped from outside left its play.mjs
 // running, a second one started beside it, and both drove Henry at once
 // (2026-09-25T04-25-34 and 04-25-35; 04-27-43 had two writers in one run).
@@ -77,7 +84,7 @@ let client = null;
 if (kind === 'jev') {
   loadApiKey();
   client = createClient();
-  policy = jevPolicy(client, profile, { deadlineMs: Number(arg('deadline-ms', 1400)), enemyKit: has('enemy-kit') });
+  policy = jevPolicy(client, profile, { deadlineMs: Number(arg('deadline-ms', 1400)) });
 } else if (kind === 'force') {
   policy = forcePolicy(arg('move', 'shoot'));
 } else {
@@ -127,7 +134,11 @@ const level = (await menuState(cdp).catch(() => null))?.difficulty;
 const difficulty = Object.keys(DIFFICULTY).find((k) => DIFFICULTY[k] === level) ?? 'unknown';
 const run = openRun({ meta: { label: arg('label', `${kind}-${name}`), policy: kind, character: name,
                               archetype: profile.archetype, difficulty, hz, decideEveryMs, seconds,
-                              enemyKit: has('enemy-kit'), commit: gitCommit() } });
+                              // Settings once trialled, now fixed, kept so older runs compare.
+                              enemyKit: false, customKit: false, pressEvery: PRESS_EVERY, reachText: 'current',
+                              noRangedInReach: true, oneFrameKeys: true, painRush: true, grab: true,
+                              stepOut: false, ballTiming: false,
+                              angledRun: trial.angledRun, jumpBack: optionTrial.jumpBack, commit: gitCommit() } });
 
 console.log(`${name} (${profile.archetype}) under ${kind} on ${difficulty}, ${seconds}s → ${run.dir}`);
 console.log('ctrl-c releases the keys and closes the run\n');

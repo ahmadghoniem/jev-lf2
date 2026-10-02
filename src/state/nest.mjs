@@ -30,9 +30,13 @@ export const GROUPS = [
   { name: 'move_away', match: (o) => o === 'open_distance' || o === 'run_out',
     text: 'Move away from the enemy; walking or running is chosen separately.',
     which: 'If you move away from the enemy now, walk or run?' },
-  { name: 'avoid_hit', match: (o) => o === 'defend' || o === 'roll_away',
-    text: 'Keep the enemy\'s next hit off you without attacking; blocking or rolling away is chosen separately.',
-    which: 'If you keep the next hit off you now, block or roll away?' },
+  // jump_back was on the top list after two games where, in this group, it
+  // was offered at 30 asks and never played, the group itself picked at 2 of
+  // them (2026-10-01T23-56-35, 23-59-38). Grouped again at the user's request
+  // (2026-10-02), with the other ways out of a hit.
+  { name: 'avoid_hit', match: (o) => o === 'defend' || o === 'roll_away' || o === 'jump_back',
+    text: 'Keep the enemy\'s next hit off you without attacking; blocking, rolling away or jumping back is chosen separately.',
+    which: 'If you keep the next hit off you now, block, roll away or jump back?' },
 ];
 
 const which = (group) => `which_${group}`;

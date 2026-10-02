@@ -16,11 +16,11 @@
 
 import { P4_KEYS } from './keyboard.mjs';
 import { DRINK_TYPE, doing, unhittable, inSight, airborne } from '../state/arena.mjs';
-import { REACH_SLACK, animTicks, dashBand } from '../lf2data/frames.mjs';
-import { framesFor } from '../lf2data/tables.mjs';
+import { REACH_SLACK, BODY_HALF, animTicks, dashBand } from '../lf2data/frames.mjs';
+import { framesFor, headerFor } from '../lf2data/tables.mjs';
 import { label, plainName, slug } from '../state/options.mjs';
-import { incoming, inboundWeapon, laneDanger, itemUnderHand } from './reflex.mjs';
-import { BOT, createNoise, hesitation, standoffOf, DASH_MIN_GAP, PRESS_EVERY } from '../state/bot.mjs';
+import { incoming, inboundWeapon, laneDanger, itemUnderHand, painRunMove } from './reflex.mjs';
+import { BOT, standoffOf, meleeReach, DASH_MIN_GAP, PRESS_EVERY } from '../state/bot.mjs';
 
 /** Standing on top of an item is what picks it up; the hit box is generous. */
 const PICKUP_RANGE = 40;
@@ -51,18 +51,15 @@ const SPECIAL_SEQUENCE = {
 
 /**
  * Ticks from pressing the double-tap to the first frame with no hurt box: the
- * 60 ms tap, the 60 ms gap and the run before Defend, about 320 ms, with a
- * margin. A weapon arriving sooner than this lands during the run.
+ * one-frame double-tap and the run before Defend, with a margin. A weapon
+ * arriving sooner than this lands during the run.
  */
-export const ROLL_START_TICKS = 12;
+export const ROLL_START_TICKS = 9;
+
+/** Trial switches set by scripts/play.mjs flags (2026-09-30). */
+export const trial = { angledRun: false };
 /** Every standard fighter rolls on frames 102-107 with no hurt box. */
 const hasRoll = (profile) => profile?.canRoll !== false;
-/**
- * The CPU flinches: it drops a movement key for a tick now and then so its walk
- * is not a metronome. Copied at the CPU's own rate, and deterministic so a run
- * is still reproducible.
- */
-const moveNoise = createNoise(7);
 
 /**
  * Where this fighter should stop closing.
@@ -78,15 +75,34 @@ export const standoffFor = (profile, mp = Infinity) =>
   (profile?.hasRanged && mp >= (profile.cheapestRangedMp ?? 0) ? standoffOf(profile) : 0);
 
 /**
- * How far a bare-handed hit reaches, for deciding when to press attack: the
- * best melee move's reach, or the plain attack's when that is further. Deep's
- * best melee is a jump into a hit measured at 3, which would have held his
- * punch until he touched the enemy (its punch reaches 28).
+ * Nearest Jev stands to the enemy in x: half a body. Nearer, the enemy's x
+ * crosses ours as either steps, the side to face flips each time, and a stance
+ * that turns to face it presses left and right in turn. At 2026-09-29T23-27-58,
+ * ticks 941-955, Henry's run attack (a plain Attack inside reach) walked in
+ * place on top of Davis for 15 ticks, dx 6, 0, -3, 5, -1, 9, never pressed
+ * Attack, and was hit. User: "they should always maintain a distance".
  */
-const meleeReach = (profile) => {
-  const best = profile?.bestMelee?.reach, basic = profile?.basicAttack?.kind === 'melee' ? profile.basicAttack.reach : null;
-  return (best == null && basic == null) ? 45 : Math.max(best ?? 0, basic ?? 0);
-};
+const MIN_GAP = BODY_HALF;
+/** Ticks a step apart may take before giving up, so a stage edge cannot hold it. */
+const APART_TICKS = 10;
+
+/**
+ * Steps away from an enemy nearer than MIN_GAP in x, holding one direction
+ * until the gap is back, and no turn meanwhile; null when not needed. The
+ * direction is picked once per episode: read again each tick it flips with the
+ * enemy's x, as the facing did.
+ */
+function keepApart() {
+  let away = null;
+  let ticks = 0;
+  return (a, keys, t) => {
+    if (t.gap >= MIN_GAP) { away = null; ticks = 0; return null; }
+    if (ticks >= APART_TICKS) return null;
+    ticks++;
+    away ??= Math.abs(t.x - a.me.x) >= 1 ? (t.x >= a.me.x ? 'left' : 'right') : opposite(a.me.facing);
+    return { hold: [keys[away]] };
+  };
+}
 
 /**
  * A committed attack that waits until it is worth firing.
@@ -103,11 +119,11 @@ const meleeReach = (profile) => {
  * the lane during the wind-up is chased before the sequence ever starts, which
  * a fixed burst frozen at plan time could not do.
  */
-function aimedAttack(keys, { seq = ['attack'], needReach = false, reach = 45, startup = 5,
+function aimedAttack(keys, { seq = ['attack'], entry = seq.length, needReach = false, reach = 45, startup = 5,
                              profile = null, homes = false }) {
+  const groups = pressGroups(seq, entry);
   let step = 0;
   let side = null;    // the side of the enemy's line aimed from (see `aimSide`)
-  let outTicks = 0;   // ticks spent stepping off the line before this attack
   let calls = 0;      // ticks this stance has run
   let pressedAt = -Infinity;   // the tick of its last press, sequence or repeat
   // A special whose own combo presses Jump (Uj, ja) puts us in 'in_the_air'
@@ -116,7 +132,8 @@ function aimedAttack(keys, { seq = ['attack'], needReach = false, reach = 45, st
   // transform (ja) reached Defend, Jump, went airborne and sat there with
   // Attack never pressed (2026-09-27T20-37-29, tick 1104).
   let jumped = false;
-  const started = () => step > 0 && step < seq.length * PRESS_EVERY;
+  const apart = keepApart();
+  const started = () => step > 0 && step < groups.length * PRESS_EVERY;
   const run = (a, { down = [] } = {}) => {
     calls++;
     const t = enemy(a);
@@ -149,7 +166,7 @@ function aimedAttack(keys, { seq = ['attack'], needReach = false, reach = 45, st
     if (step === 0) {
       const danger = laneDanger(a);
       const busy = seq.length === 1 ? Math.max(startup, animTicks(framesFor(a.me.id), ATTACK_FRAME)) : startup;
-      if (danger && danger.eta < seq.length * PRESS_EVERY + busy) return { hold: [] };
+      if (danger && danger.eta < groups.length * PRESS_EVERY + busy) return { hold: [] };
     }
     // Out of sight nothing lands, so walk on until it is back in view.
     side = aimSide(side, a, t);
@@ -162,10 +179,19 @@ function aimedAttack(keys, { seq = ['attack'], needReach = false, reach = 45, st
     // falling Rudolf — so the last press waits until it is up again. The same
     // for the plain shot: Henry's arrow costs 12 MP, and a shoot answer kept
     // firing at a Rudolf lying on the floor.
-    if (unhittable(t)) {
+    // A jump coming in is not waited out once Defend is down: it crossed
+    // JUMP_CLEAR_GAP mid-sequence, the reset left Henry in the block pose
+    // until Davis landed, the restart lost its Defend and came out as a plain
+    // shot, and Davis hit him out of it (2026-10-01T23-59-38, ticks 727-747;
+    // note at tick 827, "he needs to finish his special").
+    if (unhittable(t) && !(started() && t.doing === 'in_the_air')) {
       if (started()) step = 0;
       return { hold: [] };
     }
+    // On top of the enemy, step apart before anything else; a sequence
+    // already being keyed goes on.
+    const apartKeys = started() ? null : apart(a, keys, t);
+    if (apartKeys) return apartKeys;
     const dz = t.z - a.me.z;
     // A chasing ball finds its target from any depth, so it is fired as soon
     // as the fighter faces the enemy. Held back until the enemy was busy, it
@@ -177,9 +203,12 @@ function aimedAttack(keys, { seq = ['attack'], needReach = false, reach = 45, st
     // resume from. A completed sequence is not restarted — that would be a
     // second cast paid for by the same answer.
     // Aim from beside the enemy's line rather than on it: too far off and
-    // nothing connects, so step in; nearer than the CPU blocks from, step out
-    // first, for at most AIM_OUT_TICKS so a stage edge cannot hold it forever.
-    // A melee move still out of reach walks along and in depth together, as
+    // nothing connects, so step in. Nearer than AIM_MIN_Z it presses from
+    // where it stands: stepping out first (--no-step-out trial, 2026-10-02)
+    // took a median 9 ticks to the press, 64 of 162 close plain shots (40%)
+    // were hit before it, and Henry's arrows fired 5-13 off the line were
+    // blocked no less than those fired on it (scratch/aim-stepout.mjs,
+    // shot-range.mjs BY=dz). A melee move still out of reach walks along and in depth together, as
     // rush_attack does. Depth first came with the ball casts (39ccda4), which
     // must be level to fire; the punch took the same order. 233 of 1567 melee
     // answers (15%) walked only in depth for 3+ ticks with the enemy over 70
@@ -187,40 +216,38 @@ function aimedAttack(keys, { seq = ['attack'], needReach = false, reach = 45, st
     // punch's far ticks held only a depth key, against 0% for rush_attack
     // (Dennis v Deep, 2026-09-29).
     if (!anyDepth && Math.abs(dz) > BOT.AIM_MAX_Z) {
-      if (step > 0 && step < seq.length * PRESS_EVERY) step = 0;
+      if (started()) step = 0;
       if (needReach && !started() && t.gap > reach + REACH_SLACK) {
         return { hold: toward(a, keys, t, { zOff: side * BOT.AIM_Z }) };
       }
       return { hold: depthTo(a, keys, t.z + side * BOT.AIM_Z) };
     }
-    // Only for a single press: a special's three presses already take about
-    // half a second, and adding the step-out let the next answer cut it off.
-    if (!anyDepth && step === 0 && seq.length === 1 && Math.abs(dz) < BOT.AIM_MIN_Z && outTicks < AIM_OUT_TICKS) {
-      outTicks++;
-      return { hold: depthTo(a, keys, t.z + side * BOT.AIM_Z) };
-    }
     if (needReach && !started() && t.gap > reach + REACH_SLACK) {
       return { hold: toward(a, keys, t, { zOff: side * BOT.AIM_Z }) };
     }
-    if (!t.infront) return { hold: [], tap: [keys[dirTo(a.me, t)]] };
-    // One press every PRESS_EVERY ticks.
-    if (step < seq.length * PRESS_EVERY) {
+    // A plain attack turns in the tick it presses: px.js sets the facing from
+    // the direction before it reads Attack.
+    const turnFirst = !t.infront && seq.length === 1 && step === 0;
+    if (!t.infront && !turnFirst) return { hold: [], tap: [keys[dirTo(a.me, t)]] };
+    // One group of presses every PRESS_EVERY ticks.
+    if (step < groups.length * PRESS_EVERY) {
       if (step % PRESS_EVERY === 0) {
         // The last press of a special waits while a star would land inside the
         // move's wind-up: Defend's block pose covers the earlier presses, but
         // after Attack the fighter is open, and in one run every blastpush
         // fired into Rudolf's stars was knocked out of its wind-up. The game's
         // reader stays armed without a timeout, so the wait loses nothing.
-        const last = seq.length > 1 && step / PRESS_EVERY === seq.length - 1;
+        const last = seq.length > 1 && step / PRESS_EVERY === groups.length - 1;
         // Rudolf's wind-up counts too: the star that knocked one blastpush out
         // was thrown a tick after Attack was pressed.
         const danger = last ? laneDanger(a) : null;
         if (danger && danger.eta <= startup + 2) return { hold: [] };
-        const press = seq[step / PRESS_EVERY];
+        const presses = step === 0 ? resumeAt(a.me, groups[0], dirTo(a.me, t)) : groups[step / PRESS_EVERY];
         // A plain Attack over an item picks it up; step off its line first.
-        const item = seq.length === 1 && press === 'attack' ? itemUnderHand(a) : null;
+        const item = seq.length === 1 && presses[0] === 'attack' ? itemUnderHand(a) : null;
         if (item) return { hold: [item.dz >= 0 ? keys.up : keys.down] };
-        const code = press === 'forward' ? keys[dirTo(a.me, t)] : keys[press];
+        const codes = presses.map((p) => (p === 'forward' ? keys[dirTo(a.me, t)] : keys[p]));
+        if (turnFirst) { step++; pressedAt = calls; return { hold: [], tap: [keys[dirTo(a.me, t)], ...codes], turn: true }; }
         // A key still down is let go for a tick first: released and pressed
         // again inside one tick it never looks up to the game, and a tap of a
         // key whose tap is in flight is dropped. Either way the step is lost.
@@ -229,11 +256,11 @@ function aimedAttack(keys, { seq = ['attack'], needReach = false, reach = 45, st
         // tap, Forward was lost (2026-09-28T22-32-08, tick 1063). Across the
         // recorded runs, specials begun with Defend already down fired 155 of
         // 442 times (35%), against 1074 of 1836 (58%) with it up.
-        if (seq.length > 1 && down.includes(code)) return { hold: [] };
-        if (press === 'jump') jumped = true;
+        if (seq.length > 1 && codes.some((c) => down.includes(c))) return { hold: [] };
+        if (presses.includes('jump')) jumped = true;
         step++;
         pressedAt = calls;
-        return { hold: [], tap: [code], special: seq.length > 1 };
+        return { hold: [], tap: codes, special: seq.length > 1 };
       }
       step++;
       return { hold: [] };
@@ -260,8 +287,40 @@ function aimedAttack(keys, { seq = ['attack'], needReach = false, reach = 45, st
   // (2026-09-27T09-28-59 to 09-36-07). The gap covers the ticks between the
   // last press and the move's first frame, where no repeat is pressed yet.
   run.committed = () => seq.length > 1 && (started()
-    || (step >= seq.length * PRESS_EVERY && calls - pressedAt <= COMMIT_GAP));
+    || (step >= groups.length * PRESS_EVERY && calls - pressedAt <= COMMIT_GAP));
   return faced(keys, run);
+}
+
+/**
+ * A sequence's presses grouped by the tick each group goes in: a special's
+ * whole combo (its first `entry` presses) in one group and each follow-up
+ * after it in its own. px.js runs each special reader (`sg` and siblings)
+ * once a frame over that frame's new presses, and a stage that advances goes
+ * on to the next in the same pass, so Defend, a direction and Attack landing
+ * in one frame fire the move at once, and the firing clears the key counters,
+ * so neither the block nor a plain attack follows (trialled as
+ * --one-frame-keys, default since 2026-10-02).
+ */
+function pressGroups(seq, entry) {
+  if (seq.length < 2) return seq.map((p) => [p]);
+  return [seq.slice(0, entry), ...seq.slice(entry).map((p) => [p])];
+}
+
+/**
+ * The part of a one-frame combo still to press, from the stage the game's
+ * reader for it is at (fields.mjs `READERS`): at stage 2 only the last key,
+ * at stage 1 the direction and the last key. Pressing Defend at stage 2
+ * would reset that reader without arming it: the retry at 2026-10-01T23-59-38
+ * tick 738 lost its Defend this way and came out as a plain arrow
+ * (scratch/reader-replay.mjs: 20 of 260 keyed answers since 09-30).
+ */
+function resumeAt(me, group, forward) {
+  if (group.length !== 3 || group[0] !== 'defend') return group;
+  const dir = group[1] === 'forward' ? forward : group[1];
+  const stage = me.readers?.[`${dir}+${group[2]}`] ?? 0;
+  if (stage === 2) return group.slice(2);
+  if (stage === 1) return group.slice(1);
+  return group;
 }
 
 /**
@@ -277,9 +336,14 @@ function faced(keys, run) {
   const step = (a, ctx) => {
     const out = run(a, ctx);
     const t = enemy(a);
-    if (!t || t.infront || out.tap?.length || run.busy?.()) return out;
+    if (!t || t.infront) return out;
     if (!CAN_START.has(doing(a.me)) || Math.abs(t.x - a.me.x) <= BOT.X_DEADZONE) return out;
     if (out.hold.includes(keys.left) || out.hold.includes(keys.right)) return out;
+    // An Attack facing away turns in the same tick.
+    if (out.tap?.length === 1 && out.tap[0] === keys.attack && !out.special) {
+      return { ...out, tap: [keys[dirTo(a.me, t)], keys.attack], turn: true };
+    }
+    if (out.tap?.length || run.busy?.() || run.noTurn?.()) return out;
     return { ...out, tap: [keys[dirTo(a.me, t)]] };
   };
   step.busy = run.busy;
@@ -328,7 +392,8 @@ const JUMP_TO_ATTACK = 7;
  * A special that needs no target lined up — a heal, a teleport, a clone —
  * keyed as soon as the fighter can act, one press every PRESS_EVERY ticks.
  */
-function keyedSpecial(keys, seq) {
+function keyedSpecial(keys, seq, entry = seq.length) {
+  const groups = pressGroups(seq, entry);
   let step = 0;
   // A special whose own combo presses Jump (Uj, ja) puts us in 'in_the_air'
   // too, the same doing() a hit produces. Only the hit should abort the
@@ -337,26 +402,27 @@ function keyedSpecial(keys, seq) {
   const run = (a) => {
     const mine = doing(a.me);
     if (HURT.has(mine) && !(mine === 'in_the_air' && jumped)) {
-      if (step > 0 && step < seq.length * PRESS_EVERY) step = 0;
+      if (step > 0 && step < groups.length * PRESS_EVERY) step = 0;
       jumped = false;
       return { hold: [] };
     }
     if (mine !== 'in_the_air') jumped = false;
     if (step === 0 && mine === 'running') return { hold: [keys[opposite(a.me.facing)]] };
     if (step === 0 && !canStart(a.me, mine, seq)) return { hold: [] };
-    if (step >= seq.length * PRESS_EVERY) return { hold: [] };
+    if (step >= groups.length * PRESS_EVERY) return { hold: [] };
     if (step % PRESS_EVERY === 0) {
-      const press = seq[step / PRESS_EVERY];
       const t = enemy(a);
-      const code = press === 'forward' ? keys[t ? dirTo(a.me, t) : a.me.facing] : keys[press];
-      if (press === 'jump') jumped = true;
+      const forward = t ? dirTo(a.me, t) : a.me.facing;
+      const presses = step === 0 ? resumeAt(a.me, groups[0], forward) : groups[step / PRESS_EVERY];
+      const codes = presses.map((p) => (p === 'forward' ? keys[forward] : keys[p]));
+      if (presses.includes('jump')) jumped = true;
       step++;
-      return { hold: [], tap: [code], special: seq.length > 1 };
+      return { hold: [], tap: codes, special: seq.length > 1 };
     }
     step++;
     return { hold: [] };
   };
-  run.busy = () => step > 0 && step < seq.length * PRESS_EVERY;
+  run.busy = () => step > 0 && step < groups.length * PRESS_EVERY;
   run.committed = () => seq.length > 1 && run.busy();
   return run;
 }
@@ -438,10 +504,13 @@ export function planAction(name, { arena, profile, keys = P4_KEYS } = {}) {
   if (name === 'close_distance') {
     if (!target) return null;
     let side = null;
+    const apart = keepApart();
     return stance((a) => {
       const t = enemy(a);
       if (!t) return { hold: [] };
       side = aimSide(side, a, t);
+      const apartKeys = apart(a, keys, t);
+      if (apartKeys) return apartKeys;
       // While a weapon is inbound through our lane, depth is not corrected: the
       // enemy's projectile travels along the enemy's lane, so aligning with the
       // enemy is walking into its fire. The CPU suppresses lane-following while
@@ -452,13 +521,10 @@ export function planAction(name, { arena, profile, keys = P4_KEYS } = {}) {
       // dash that followed jumped into it (2026-09-28T20-52-43, ticks 1073-1081).
       const w = weaponOnLane(a) ?? laneDanger(a);
       const stopAt = standoffFor(profile, a.me.mp);
-      let hold = toward(a, keys, t, { stopAt, noDepth: !!w, zOff: side * BOT.AIM_Z });
-      // The walk flinch, copied from the CPU: a direction key dropped for a
-      // tick now and then, so the approach is not a metronome.
-      if (moveNoise(hesitation(1)) === 0) hold = [];
+      const hold = toward(a, keys, t, { stopAt, noDepth: !!w, zOff: side * BOT.AIM_Z });
       // Facing is not free: it only changes with a direction press, and a
-      // stance that has stopped walking — at the stand-off, or on a flinch
-      // tick — never presses one, so Jev keeps whatever facing he had, often
+      // stance that has stopped walking at the stand-off never presses one,
+      // so Jev keeps whatever facing he had, often
       // with his back to the enemy. A short tap toward the enemy turns him
       // where he stands without walking anywhere measurable.
       if (!hold.length && !t.infront) return { hold: [], tap: [keys[dirTo(a.me, t)]] };
@@ -475,7 +541,6 @@ export function planAction(name, { arena, profile, keys = P4_KEYS } = {}) {
       if (roomTo(a, opposite(dirTo(a.me, t))) < EDGE_ROOM) {
         return t.infront ? { hold: [] } : { hold: [], tap: [keys[dirTo(a.me, t)]] };
       }
-      if (moveNoise(hesitation(1)) === 0) return { hold: [] };
       return { hold: away(a, keys, t) };
     });
   }
@@ -489,15 +554,19 @@ export function planAction(name, { arena, profile, keys = P4_KEYS } = {}) {
   // a run into a roll became a block facing away from the enemy.
   if (name === 'roll_away') {
     if (!target || !hasRoll(profile)) return null;
-    return stance(rollAway(keys));
+    // Faced back at the enemy once the roll is over: left as it was, the
+    // fighter stood with its back turned for the rest of the answer, 834
+    // ticks in 20 games (note, 2026-10-02T14-14-16 tick 1223).
+    return stance(faced(keys, rollAway(keys)), { runs: true });
   }
+  if (name === 'jump_back') return target ? stance(jumpBack(keys)) : null;
 
   // The game only reads a run from a double-tap, and a run goes on after the
   // key is let go, so it is a stance that also stops it (see `runStance`).
   if (name === 'run_in' || name === 'run_out') {
     if (!target) return null;
     const stopGap = (a) => Math.max(standoffFor(profile, a.me.mp), meleeReach(profile)) + RUN_SKID;
-    return stance(runStance(keys, { toward: name === 'run_in', stopGap }));
+    return stance(runStance(keys, { toward: name === 'run_in', stopGap }), { runs: true });
   }
 
   // Leaving a thrown weapon's line, chosen by the reflex: the side is its call,
@@ -510,7 +579,37 @@ export function planAction(name, { arena, profile, keys = P4_KEYS } = {}) {
     return target ? stance((a) => {
       const t = enemy(a);
       if (!t || itemUnderHand(a)) return { hold: [] };
-      return t.infront ? { hold: [], tap: [keys.attack] } : { hold: [], tap: [keys[dirTo(a.me, t)]] };
+      if (t.infront) return { hold: [], tap: [keys.attack] };
+      // Turned and pressed in one tick.
+      return { hold: [], tap: [keys[dirTo(a.me, t)], keys.attack], turn: true };
+    }) : null;
+  }
+  // The pain rush: run at an enemy that cannot act or block and swing the
+  // run attack (`painRush` in reflex.mjs); where the run attack hits less or
+  // knocks down less than the super punch, walk in and press Attack, which on
+  // that enemy is the super punch.
+  if (name === 'pain_rush') {
+    const move = target && painRunMove(profile);
+    if (!move) return null;
+    if (move.name === 'run_attack') {
+      return stance(chargeStance(keys, { dash: false, reach: move.reach, header: headerFor(profile.name) }), { runs: true });
+    }
+    return stance(faced(keys, (a) => {
+      const t = enemy(a);
+      if (!t || unhittable(t)) return { hold: [] };
+      const level = Math.abs(t.z - a.me.z) < BOT.HIT_Z;
+      if (t.gap > move.reach + REACH_SLACK || !level) return { hold: toward(a, keys, t) };
+      return t.infront ? { hold: [], tap: [keys.attack] } : { hold: [] };
+    }));
+  }
+  // Walk into a dizzy enemy, level with its line; the catch box
+  // in the walking frames grabs it (`grabDizzy` in reflex.mjs).
+  if (name === 'grab') {
+    return target ? stance((a) => {
+      const t = enemy(a);
+      if (!t) return { hold: [] };
+      const hold = toward(a, keys, t, { xDead: 0, zDead: 1 });
+      return { hold: hold.length ? hold : [keys[dirTo(a.me, t)]] };
     }) : null;
   }
   // No arrow held: a direction with Attack throws the held enemy instead.
@@ -551,11 +650,12 @@ export function planAction(name, { arena, profile, keys = P4_KEYS } = {}) {
     return stance(jumpAttackStance(keys, { reach: jump?.reach ?? 0 }));
   }
 
-  // A charge at an enemy already inside the fighter's reach is the plain
-  // attack. Run and dash attacks started within 50 of the enemy landed 17-18%
-  // of the time (1686 answers), where a plain Attack pressed from there landed
-  // 58-74%, and at a gap of a few units the run's direction flipped back and
-  // forth as the enemy's x crossed ours (2026-09-28T20-48-22, tick 1209).
+  // A CHARGE INSIDE REACH IS THE PLAIN ATTACK, never a run: this stays. Run
+  // and dash attacks started within 50 of the enemy landed 17-18% of the time
+  // (1686 answers), where a plain Attack pressed from there landed 58-74%, and
+  // at a gap of a few units the run's direction flipped back and forth as the
+  // enemy's x crossed ours (2026-09-28T20-48-22, tick 1209). The option text
+  // tells Jev the same, from the same meleeReach (options.mjs).
   if (name === 'run_attack' || name === 'dash_attack') {
     if (!target) return null;
     if (target.gap <= meleeReach(profile) + REACH_SLACK && target.zGap <= BOT.AIM_MAX_Z && !itemUnderHand(arena)) {
@@ -563,8 +663,9 @@ export function planAction(name, { arena, profile, keys = P4_KEYS } = {}) {
       return { ...stance(aimedAttack(keys, { profile, needReach: true, reach: meleeReach(profile) })), as: 'punch' };
     }
     return stance(chargeStance(keys, { dash: name === 'dash_attack', reach: meleeReach(profile),
+                                       header: headerFor(profile.name),
                                        band: name === 'dash_attack' ? dashBand(profile) : null,
-                                       dashMove: profile.moves?.find((m) => m.name === 'dash_attack') ?? null }));
+                                       dashMove: profile.moves?.find((m) => m.name === 'dash_attack') ?? null }), { runs: true });
   }
 
   // specials, and the ranged basic attack of an archer, both come from hit_*
@@ -573,15 +674,16 @@ export function planAction(name, { arena, profile, keys = P4_KEYS } = {}) {
     if (!move || !SPECIAL_SEQUENCE[move.input]) return null;
     // Some specials go on to their hit only on a further Attack (Davis's and
     // Deep's jump into a hit).
+    const entry = SPECIAL_SEQUENCE[move.input].length;
     const seq = [...SPECIAL_SEQUENCE[move.input], ...(move.followUp ?? [])];
     if (move.kind === 'utility') {
       // A grab walks in to its reach and a lift faces the enemy, like an
       // attack; a heal, teleport, clone or the like is simply keyed.
       if (move.effect === 'grab' || move.effect === 'lift') {
-        return stance(aimedAttack(keys, { seq, profile, startup: move.startupTicks ?? 5,
+        return stance(aimedAttack(keys, { seq, entry, profile, startup: move.startupTicks ?? 5,
                                           needReach: move.effect === 'grab', reach: move.reach ?? 0 }));
       }
-      return stance(keyedSpecial(keys, seq));
+      return stance(keyedSpecial(keys, seq, entry));
     }
     // A projectile that weakens with distance fires only inside its full-damage
     // band. The answer is chosen against where the enemy was half a second ago;
@@ -592,7 +694,7 @@ export function planAction(name, { arena, profile, keys = P4_KEYS } = {}) {
     // (its option states how much at the enemy's distance), so it fires from
     // where the fighter stands and only walks in once the enemy is past its end.
     const melee = move.kind === 'melee';
-    return stance(aimedAttack(keys, { seq, profile, homes: !!move.homes,
+    return stance(aimedAttack(keys, { seq, entry, profile, homes: !!move.homes,
                                       startup: move.startupTicks ?? 5,
                                       needReach: melee || !!move.range,
                                       reach: melee ? (move.reach ?? 0) : (move.range ?? 0) - REACH_SLACK }));
@@ -660,31 +762,19 @@ function rollSide(a) {
   return room.up >= room.down ? 'up' : 'down';
 }
 /**
- * The double-tap as holds, about the 60 ms press and 60 ms gap that
- * `kb.doubleTap` uses: two ticks down (the first is the tick that chose the
- * direction), one up, then held into the run. Null once the tap is done.
- *
- * A direction already down from the answer before is let go for a tick first.
- * Held on, its press was ticks old and the tap after it read as a walk: Dennis
- * walked a dash attack in from 196 to 64 after a close_distance held the same
- * key (2026-09-28T20-38-12, ticks 308-346). Across the recorded runs, dash
- * attacks started with the key down walked 10+ ticks without running 79 of 446
- * times (18%), against 16 of 1318 (1%) started with it up.
+ * The double-tap that starts a run: press, release and press in one tick
+ * (`kb.quickDouble`, which lets go of a key already down first), then held
+ * into the run. Null once the tap is done.
  */
-function tapStep(ticks, key, wasDown) {
-  const lead = wasDown ? 1 : 0;
-  if (ticks < lead) return { hold: [] };
-  if (ticks <= lead + 1) return { hold: [key] };
-  if (ticks === lead + 2) return { hold: [] };
-  return null;
+function tapStep(ticks, key) {
+  return ticks === 0 ? { hold: [key], run: key } : null;
 }
 function rollAway(keys) {
   let phase = 'ready';
   let dir = null;
   let side = null;
   let ticks = 0;
-  let wasDown = false;
-  return (a, { down = [] } = {}) => {
+  const step = (a) => {
     const t = enemy(a);
     const now = doing(a.me);
     ticks++;
@@ -693,10 +783,9 @@ function rollAway(keys) {
       dir = dirTo(a.me, t) === 'right' ? 'left' : 'right';
       side = rollSide(a);
       phase = 'tap'; ticks = 0;
-      wasDown = down.includes(keys[dir]);
     }
     if (phase === 'tap') {
-      const tap = tapStep(ticks, keys[dir], wasDown);
+      const tap = tapStep(ticks, keys[dir]);
       if (tap) return tap;
       phase = 'run'; ticks = 0;
       return { hold: [keys[dir]] };
@@ -710,7 +799,49 @@ function rollAway(keys) {
     if (phase === 'roll' && ticks <= ROLL_TICKS) return { hold: [keys[side]] };
     return { hold: [] };
   };
+  // No turn toward the enemy until the roll is over: a turn tap between the
+  // two taps of the run broke the double-tap, and 14 of 70 rolls went back
+  // and forth instead (2026-10-02T14-45-30, ticks 506-524).
+  step.noTurn = () => phase === 'tap' || phase === 'run' || (phase === 'roll' && ticks <= ROLL_TICKS);
+  return step;
 }
+/**
+ * A jump away from the enemy (--jump-back trial). The direction is read as
+ * the fighter leaves the ground (frames 210-212, about 6 ticks for every
+ * fighter), so it is held until then; once in the air a tap toward the enemy
+ * turns to face it for the landing. Committed while in the air, so a new
+ * answer does not drop the turn.
+ */
+function jumpBack(keys) {
+  let phase = 'ready';
+  let dir = null;
+  let ticks = 0;
+  const run = (a) => {
+    const t = enemy(a);
+    ticks++;
+    if (phase === 'ready') {
+      if (!t || !CAN_START.has(doing(a.me))) return { hold: [] };
+      dir = dirTo(a.me, t) === 'right' ? 'left' : 'right';
+      phase = 'takeoff'; ticks = 0;
+      return { hold: [keys[dir]], tap: [keys.jump] };
+    }
+    if (phase === 'takeoff') {
+      if (ticks < JUMP_TAKEOFF) return { hold: [keys[dir]] };
+      phase = 'air'; ticks = 0;
+    }
+    if (phase === 'air') {
+      if (doing(a.me) !== 'in_the_air' && ticks > 2) { phase = 'done'; return { hold: [] }; }
+      if (t && !t.infront) return { hold: [], tap: [keys[dirTo(a.me, t)]] };
+    }
+    return { hold: [] };
+  };
+  run.busy = () => phase === 'takeoff' || phase === 'air';
+  run.committed = run.busy;
+  return run;
+}
+/** Ticks the jump's direction is held: frames 210-212 and one to spare. */
+const JUMP_TAKEOFF = 8;
+
 /**
  * A run at the enemy or away from it, ended by a press the other way.
  *
@@ -726,8 +857,7 @@ function runStance(keys, { toward, stopGap }) {
   let phase = 'ready';
   let dir = null;
   let ticks = 0;
-  let wasDown = false;
-  return (a, { down = [] } = {}) => {
+  return (a) => {
     const t = enemy(a);
     const now = doing(a.me);
     ticks++;
@@ -736,10 +866,9 @@ function runStance(keys, { toward, stopGap }) {
       dir = toward ? dirTo(a.me, t) : opposite(dirTo(a.me, t));
       phase = roomTo(a, dir) < RUN_START_ROOM ? 'done' : 'tap';
       ticks = 0;
-      wasDown = down.includes(keys[dir]);
     }
     if (phase === 'tap') {
-      const tap = tapStep(ticks, keys[dir], wasDown);
+      const tap = tapStep(ticks, keys[dir]);
       if (tap) return tap;
       phase = 'run'; ticks = 0;
     }
@@ -769,8 +898,19 @@ function runStance(keys, { toward, stopGap }) {
  * lying on the floor. So it starts only from a stance that can run, at an
  * enemy that can be hit, and gives up without jumping if the run never shows.
  */
-function chargeStance(keys, { dash, reach, band = null, dashMove = null }) {
+function chargeStance(keys, { dash, reach, band = null, dashMove = null, header = null }) {
   const near = band?.near ?? DASH_MIN_GAP, far = band?.far ?? Infinity;
+  // Trial `--angled-run`: the run starts off the enemy's line when its own
+  // depth steering (running_speedz) brings it level before it is in reach at
+  // running_speed. A run_attack walked 10 ticks into line first and was hit
+  // there (2026-09-29T21-41-00, ticks 1179-1189).
+  const levelInRun = (t, dz) => {
+    if (!trial.angledRun || !header?.running_speed || !header?.running_speedz) return false;
+    const along = (t.gap - (dash ? near : reach + RUN_SKID)) / header.running_speed;
+    const depth = (dz - BOT.HIT_Z + 1) / header.running_speedz;
+    return depth <= along && depth < CHARGE_GIVE_UP;
+  };
+  let angled = false;
   const dashReach = (dashMove?.reach ?? reach) + REACH_SLACK;
   const startup = dashMove?.startupTicks ?? 0;
   let phase = 'ready';
@@ -781,8 +921,7 @@ function chargeStance(keys, { dash, reach, band = null, dashMove = null }) {
   // The smallest gap seen in the run, and the tick it was seen.
   let closest = Infinity;
   let closestAt = 0;
-  let wasDown = false;
-  const run = (a, { down = [] } = {}) => {
+  const run = (a) => {
     const t = enemy(a);
     const now = doing(a.me);
     ticks++;
@@ -803,11 +942,12 @@ function chargeStance(keys, { dash, reach, band = null, dashMove = null }) {
       // A run carries along its line, so it starts from the enemy's. Started
       // from 111 of depth away, run attacks swung left and right past Firen
       // (2026-09-24T20-28-06, ticks 1652-1705).
-      if (Math.abs(t.z - a.me.z) > BOT.AIM_MAX_Z) return { hold: depthTo(a, keys, t.z) };
+      const dz = Math.abs(t.z - a.me.z);
+      angled = dz > BOT.AIM_MAX_Z && levelInRun(t, dz);
+      if (dz > BOT.AIM_MAX_Z && !angled) return { hold: depthTo(a, keys, t.z) };
       dir = dirTo(a.me, t);
       phase = now === 'running' && a.me.facing === dir ? 'run' : 'tap';
       ticks = 0;
-      wasDown = down.includes(keys[dir]);
     }
     // An enemy that crosses over before the run is under way is run at from
     // where it is now. Held to the first side, Dennis ran and swung away from a
@@ -829,14 +969,14 @@ function chargeStance(keys, { dash, reach, band = null, dashMove = null }) {
       if (ticks - closestAt > NOT_CLOSING_TICKS) { phase = 'stop'; ticks = 0; }
     }
     if (phase === 'tap') {
-      const tap = tapStep(ticks, keys[dir], wasDown);
-      if (tap) return tap;
+      const tap = tapStep(ticks, keys[dir]);
+      if (tap) return angled && t ? { ...tap, hold: [...tap.hold, ...depthTo(a, keys, t.z)] } : tap;
       phase = 'run'; ticks = 0;
     }
     if (phase === 'run') {
       if (now !== 'running') {
         if (ticks > RUN_START_TICKS) { phase = 'done'; return { hold: [] }; }
-        return { hold: [keys[dir]] };
+        return { hold: [keys[dir], ...(angled && t ? depthTo(a, keys, t.z) : [])] };
       }
       // Closer than a dash carries, the dash goes past the enemy (Henry ended
       // 166 behind Rudolf that way), so the run's own attack is used instead.
@@ -923,8 +1063,8 @@ const roomTo = (a, dir) => (dir === 'left' ? a.me.x : (a.stageWidth ?? Infinity)
 const opposite = (dir) => (dir === 'right' ? 'left' : 'right');
 /** What a fighter can start a run from. */
 const ACTIONABLE = new Set(['neutral', 'walking', 'running']);
-/** Reads it takes the game to show a run after the double-tap (about 4 measured), with margin. */
-const RUN_START_TICKS = 10;
+/** The one-frame double-tap shows the run on the next frame; given up after this. */
+const RUN_START_TICKS = 6;
 
 /** The move an option name refers to, matched the way the name was built. */
 export const findSpecial = (profile, name) =>
@@ -953,7 +1093,7 @@ function toward(arena, keys, t, { stopAt = 0, xDead = BOT.X_DEADZONE, zDead = BO
   if (!t) return [];
   const out = [];
   const dx = t.x - arena.me.x;
-  const dz = t.z + zOff - arena.me.z;
+  const dz = onStage(arena, t.z + zOff) - arena.me.z;
   // The x dead zone is the CPU's own 6, not the tighter depth one. At 3 the key
   // flickered on and off — and flipped sides — as dx wobbled ±4 around zero with
   // the enemy standing on top of us, which read as the fighter tapping left and
@@ -970,21 +1110,30 @@ function toward(arena, keys, t, { stopAt = 0, xDead = BOT.X_DEADZONE, zDead = BO
  * Which side of the enemy's line to aim from: +1 for the larger depth, -1 for
  * the smaller. It follows the side Jev stands on once he is clearly off the
  * line, and keeps the last choice while he is near it, so it does not flip
- * as the gap passes zero.
+ * as the gap passes zero. A side whose aim point is past the stage edge is
+ * swapped for the other: with the enemy 3 above Henry at the bottom edge
+ * (z 510), aiming 11 below its line held Down into the edge for 19 ticks
+ * (2026-10-02T12-02-15, ticks 1121-1139); 265 such ticks in that batch.
  */
 function aimSide(prev, arena, t) {
-  if (prev == null || Math.abs(t.z - arena.me.z) >= BOT.AIM_MIN_Z) return arena.me.z >= t.z ? 1 : -1;
-  return prev;
+  let side = prev == null || Math.abs(t.z - arena.me.z) >= BOT.AIM_MIN_Z ? (arena.me.z >= t.z ? 1 : -1) : prev;
+  const { top = -Infinity, bottom = Infinity } = arena.stageDepth ?? {};
+  const inside = (s) => { const z = t.z + s * BOT.AIM_Z; return z >= top && z <= bottom; };
+  if (!inside(side) && inside(-side)) side = -side;
+  return side;
+}
+
+/** Depth `z` moved inside the stage's depth limits, where the fighter can stand. */
+function onStage(arena, z) {
+  const { top = -Infinity, bottom = Infinity } = arena.stageDepth ?? {};
+  return Math.min(bottom, Math.max(top, z));
 }
 
 /** The depth keys that walk toward depth `z`, with a dead zone of 1. */
 function depthTo(arena, keys, z) {
-  const dz = z - arena.me.z;
+  const dz = onStage(arena, z) - arena.me.z;
   return dz < -1 ? [keys.up] : dz > 1 ? [keys.down] : [];
 }
-
-/** At most this long stepping off the line before an attack: ~0.3 s. */
-const AIM_OUT_TICKS = 8;
 
 /**
  * A weapon that is going to pass through our lane: in the air, inside the
@@ -1005,8 +1154,9 @@ function away(arena, keys, t) {
   return [keys[dirTo(arena.me, t) === 'right' ? 'left' : 'right']];
 }
 
-const stance = (step) => ({ kind: 'stance', step, busy: step.busy ?? (() => false),
-                            committed: step.committed ?? (() => false) });
+/** `runs`: the stance double-taps on purpose, so the keyboard lets it re-press a direction at once. */
+const stance = (step, { runs = false } = {}) => ({ kind: 'stance', step, busy: step.busy ?? (() => false),
+                            committed: step.committed ?? (() => false), runs });
 
 /** Which of the offered options the executor can actually carry out. */
 export function executableOptions(options, ctx) {

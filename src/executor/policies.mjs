@@ -48,6 +48,9 @@ export function offer(arena, profile) {
     pain: painWindow(near),
     depth: near?.zGap ?? 0,
     zClosing: near?.zClosing ?? 0,
+    xClosing: near?.xClosing ?? 0,
+    myDoing: doing(arena.me),
+    answerTicks: arena.answerTicks,
     weaponInbound: !!inboundWeapon(arena),
     guardWorn: guardWorn(arena),
     roomBehind: roomBehind(arena),
@@ -101,12 +104,13 @@ export function forcePolicy(move) {
  * lands late answers a question about a fight that has moved on — and `null`
  * on a miss, which the loop treats as "keep doing what you were doing".
  */
-export function jevPolicy(client, profile, { deadlineMs = 1400, enemyKit = false } = {}) {
+export function jevPolicy(client, profile, { deadlineMs = 1400 } = {}) {
   return {
     name: 'jev',
+    backend: client.backend,
     questions: (options, arena) => questionSet(options, arena, profile),
     async decide({ arena, options, questions = questionSet(options, arena, profile) }) {
-      const state = semanticState({ arena, profile, enemyKit });
+      const state = semanticState({ arena, profile });
       const t0 = Date.now();
       const answer = await client.ask({ state, questions, deadlineMs });
       const latencyMs = Date.now() - t0;
@@ -137,7 +141,10 @@ function roomBehind(arena) {
  * note holds for any fighter.
  */
 function enemyDry(t) {
-  const specials = (profileFor(t?.name)?.moves ?? []).filter((m) => m.mp > 20 && !m.allowedWhenShort);
+  return dryOf(t, profileFor(t?.name));
+}
+function dryOf(t, profile) {
+  const specials = (profile?.moves ?? []).filter((m) => m.mp > 20 && !m.allowedWhenShort && !m.needsWeapon);
   if (!t || !specials.length) return null;
   const cheapest = Math.min(...specials.map((m) => m.mp));
   const mp = t.mp ?? 0;

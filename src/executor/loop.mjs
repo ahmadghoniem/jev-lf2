@@ -121,7 +121,7 @@ export async function runLoop({ cdp, pool, kb, run, name, policy, overlay, hz = 
   let planned = null;      // the cached plan for the current action
   let plannedFor = null;   // which action it was planned for
   let lastAsk = 0;
-  let shown = { policy: policy.name };   // what the overlay is currently saying
+  let shown = { policy: policy.name, model: policy.backend ?? null };   // what the overlay is currently saying
   let forceDraw = false;                 // set when an answer lands, cleared once drawn
   let deadStreak = 0;                    // consecutive not-alive reads (debounce)
   let confirmedDead = false;             // once true, every later tick logs as dead
@@ -175,6 +175,7 @@ export async function runLoop({ cdp, pool, kb, run, name, policy, overlay, hz = 
     && tick - attackTick <= HOLD_TICKS
     && (planned?.busy?.() || (!stepEmpty && HOLDABLE.has(doing(arena.me))));
   const HOLDS = new Set(['defend', 'wait']);
+  const PUNISHES = new Set(['punish', 'pain_rush', 'grab']);
   const ROLLING = (frame) => frame >= 102 && frame <= 107;
   let paused = false;
   let pausedAtMs = 0;
@@ -241,14 +242,24 @@ export async function runLoop({ cdp, pool, kb, run, name, policy, overlay, hz = 
     // --- the layer that cannot wait for a network call
     let reflex = reflexFor(arena, { profile });
     // The punish reflex does not cut into a special being keyed in.
-    if (reflex?.action === 'punish' && source === policy.name
+    if (PUNISHES.has(reflex?.action) && source === policy.name
         && (planned?.busy?.() || planned?.committed?.())) reflex = null;
     // Nor does it take the place of a special Jev picked and the bar can pay
     // for. Henry's punish is an arrow that staggers again, so against Rudolf
     // it fired at every return to neutral and 9 super-arrow answers never got
     // a key in (2026-09-27T09-57-23, 09-58-17).
+    // A rush or grab on an enemy that cannot act is kept.
     if (reflex?.action === 'punish' && source === policy.name && action?.startsWith('special_')
         && (findSpecial(profile, action)?.mp ?? Infinity) <= arena.me.mp) reflex = null;
+    // A run into a dance of pain goes on until it has swung, even once the
+    // reflex no longer asks for it: a run let go carries on into the enemy
+    // without the swing. A Jev answer may still cut it, except a special (see
+    // the answer below).
+    const rushing = source === 'reflex' && action === 'pain_rush'
+      && (planned?.busy?.() || doing(arena.me) === 'running');
+    if (rushing && (!reflex || PUNISHES.has(reflex.action))) {
+      reflex = { action: 'pain_rush', reason: 'running in on an enemy that cannot act' };
+    }
     // A roll owns the keys until it is done, since the block would cut it
     // short — except against a weapon about to land during the run-up, where
     // Defend is what starts the tumble anyway (running + Defend is the roll).
@@ -283,8 +294,9 @@ export async function runLoop({ cdp, pool, kb, run, name, policy, overlay, hz = 
       counts.reflexes++;
       deferred = null;     // the reflex hands back through `standing`
       held = null;
+      // A reflex tick is a new order, re-planned, except a rush under way.
+      if (!(rushing && reflex.action === 'pain_rush')) plannedFor = null;
       action = reflex.action; source = 'reflex'; stance = null;
-      plannedFor = null;   // a reflex tick is a new order; re-plan it
     }
 
     // --- a decision that arrived since the last tick
@@ -314,9 +326,16 @@ export async function runLoop({ cdp, pool, kb, run, name, policy, overlay, hz = 
       // block when the weapon is far enough off for the roll to start first.
       // Without this, a roll chosen against Rudolf's stars — most of the times
       // it is offered — was always overruled by the block.
+      // A special does not cut a pain rush: a blastpush cut into one skidded
+      // and spent 150 MP on a dance a punch would have ended
+      // (2026-10-02T14-19-28, tick 394). Other answers may: from 13:00 that
+      // day, dances whose rush a wait, shoot or close_distance cut lost 70-74
+      // HP each and went down 10 of 11 times, against 63.5 and 13 of 20 for
+      // rushes let run (scratch/rush-cuts.mjs).
       else if (result?.action && (!(reflex?.thrown || reflex?.owns)
                || (reflex.worn && !HOLDS.has(result.action))
-               || (result.action === 'roll_away' && reflex.eta >= ROLL_START_TICKS))) {
+               || (result.action === 'roll_away' && reflex.eta >= ROLL_START_TICKS))
+               && !(reflex?.action === 'pain_rush' && result.action.startsWith('special_'))) {
         // Each answer owns one execution, except that the same answer arriving
         // while a special is half played lets it finish. A special takes 15
         // ticks, about one decision interval, so restarting it on every repeat
@@ -338,6 +357,8 @@ export async function runLoop({ cdp, pool, kb, run, name, policy, overlay, hz = 
       shown = {
         ...shown,
         latencyMs: result?.latencyMs ?? null,
+        // Which model answered, so a game with Glide in the seat says so.
+        model: result?.model ?? shown.model,
         confidence: result?.answers?.action?.confidence ?? null,
         probabilities: result?.answers?.action?.probabilities ?? null,
         // The follow-up per grouped kind ("which special"), keyed by the kind
@@ -404,6 +425,8 @@ export async function runLoop({ cdp, pool, kb, run, name, policy, overlay, hz = 
     if (due && ownFor > lead) counts.ownWaits = (counts.ownWaits ?? 0) + 1;
     if (due && downFor <= lead && ownFor <= lead) {
       lastAsk = Date.now();
+      // Ticks until the answer takes effect, for options judged on arrival.
+      arena.answerTicks = lead;
       const options = offer(arena, profile);
       // The panel names the options as they are chosen, so the list on screen is
       // the list Jev was handed — not a redraw of the last answer's keys.
@@ -461,8 +484,17 @@ export async function runLoop({ cdp, pool, kb, run, name, policy, overlay, hz = 
       } else if (plan?.kind === 'stance') {
         stance = plan.step;
         const step = stance(arena, { down: kb.stats.down });
-        await kb.hold(step.hold ?? []);
-        for (const code of step.tap ?? []) await kb.tap(code, undefined, { intended: !!step.special });
+        // A run started inside one tick (`tapStep`).
+        if (step.run) await kb.quickDouble(step.run);
+        // Only a stance that runs on purpose, or a special's own presses, may
+        // press a direction again inside the double-tap window (keyboard.mjs).
+        await kb.hold(step.hold ?? [], { again: !!plan.runs });
+        for (const code of step.tap ?? []) {
+          const sent = await kb.tap(code, undefined, { intended: !!step.special, again: !!plan.runs || !!step.special });
+          // A turn held back as a double-tap would leave the Attack after it
+          // facing away, so the rest waits for the next tick.
+          if (!sent && step.turn) break;
+        }
         // Nothing pressed and nothing mid-move: what this action was asked
         // about stopped holding. Ask again rather than sit out the interval.
         const empty = !step.hold?.length && !step.tap?.length;
@@ -481,7 +513,12 @@ export async function runLoop({ cdp, pool, kb, run, name, policy, overlay, hz = 
       tick,
       me: { frame: arena.me.frame, doing: doing(arena.me), hp: arena.me.hp,
             darkHp: arena.me.darkHp, mp: arena.me.mp, x: arena.me.x, z: arena.me.z,
-            facing: arena.me.facing, holding: arena.held?.name ?? null, guard: arena.me.guard },
+            facing: arena.me.facing, holding: arena.held?.name ?? null, guard: arena.me.guard,
+            // The special readers past stage 0, to check the key entry after the fact.
+            ...(() => {
+              const r = Object.entries(arena.me.readers ?? {}).filter(([, s]) => s > 0);
+              return r.length ? { readers: Object.fromEntries(r) } : {};
+            })() },
       threats: arena.threats.slice(0, 3).map((t) => ({ slot: t.slot, name: t.name, frame: t.frame,
         doing: t.doing, vulnerable: t.vulnerable, hp: t.hp, dx: Math.round(t.dx), dz: Math.round(t.dz),
         onScreen: !!t.onScreen, facing: t.facing, waiting: t.waiting })),
@@ -533,6 +570,7 @@ export async function runLoop({ cdp, pool, kb, run, name, policy, overlay, hz = 
   fromPage(await overlay?.update({ ...shown, counts }, { force: true }));
   counts.defused = kb.stats.defused ?? 0;
   counts.unshouted = kb.stats.unshouted ?? 0;
+  counts.heldBack = kb.stats.heldBack ?? 0;
   return counts;
 }
 

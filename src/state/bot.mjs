@@ -59,6 +59,19 @@ export const BOT = {
   HESITATION_PER_LEVEL: 20,
 };
 
+/**
+ * How far a bare-handed hit reaches, for deciding when to press attack: the
+ * best melee move's reach, or the plain attack's when that is further. Deep's
+ * best melee is a jump into a hit measured at 3, which would have held his
+ * punch until he touched the enemy (its punch reaches 28). Shared by the
+ * executor and the option text, so what Jev is told a run attack does inside
+ * this reach is what the executor does.
+ */
+export const meleeReach = (profile) => {
+  const best = profile?.bestMelee?.reach, basic = profile?.basicAttack?.kind === 'melee' ? profile.basicAttack.reach : null;
+  return (best == null && basic == null) ? 45 : Math.max(best ?? 0, basic ?? 0);
+};
+
 /** Where a fighter that can shoot wants to stand: just inside its firing band. */
 export const STANDOFF_X = BOT.RANGED_MIN_X + 50;
 

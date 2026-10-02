@@ -75,6 +75,13 @@ export async function readBindings(cdp, player = 'P4') {
 const TAP_MS = 100;
 /** Long enough for the game to read a press in an earlier frame than the next one. */
 const FRAME_MS = 50;
+/**
+ * How long after a left or right is let go pressing it again can start a
+ * run. Across 165 runs a re-press 1 tick after letting go ran 34 of 105 times
+ * (32%), after 2-5 ticks 12 of 81 (15%), after 6-12 ticks 0 of 73
+ * (scratch/tap-gap-runs.mjs, 2026-09-30): 6 ticks at 30 a second.
+ */
+const DOUBLE_TAP_MS = 200;
 
 /**
  * The game's special-move reader, as px.js writes it (`sg`, `hg` and their
@@ -149,6 +156,7 @@ export function keyboard(cdp, bindings = P4_KEYS) {
   let dispatched = 0;
   let defused = 0;
   let unshouted = 0;
+  let heldBack = 0;
   let facing = null;
   const history = []; // the last presses the game counted, as slots
   // The game's own press history, read each tick, and every press sent since.
@@ -180,7 +188,7 @@ export function keyboard(cdp, bindings = P4_KEYS) {
   async function defuse() {
     const ahead = facing === 'left' ? ['left', 'right'] : ['right', 'left'];
     const slot = ['up', 'down', ...ahead]
-      .find((s) => s !== combo.via() && bindings[s] && !down.has(bindings[s]));
+      .find((s) => s !== combo.via() && bindings[s] && !down.has(bindings[s]) && !runs(bindings[s]));
     if (!slot) return;
     defused++;
     await press(bindings[slot], { intended: true });
@@ -188,8 +196,20 @@ export function keyboard(cdp, bindings = P4_KEYS) {
     await release(bindings[slot]);
   }
 
-  async function press(code, { intended = false } = {}) {
+  /** Whether pressing this key now would be a double-tap, which the game reads as a run. */
+  const runs = (code) => ['left', 'right'].includes(slotOf.get(code))
+    && Date.now() - (releasedAt.get(code) ?? -Infinity) < DOUBLE_TAP_MS;
+
+  /**
+   * `again`: the press may be a double-tap on purpose (a run, a roll, a
+   * special's Forward). Any other left or right let go inside DOUBLE_TAP_MS
+   * is not pressed; the stance asks for it again next tick. Accidental runs
+   * carried Henry into Davis (2026-09-30). This covers every press the harness
+   * makes, which is why it sits here and not in the stances.
+   */
+  async function press(code, { intended = false, again = false } = {}) {
     if (!allowed.has(code) || down.has(code)) return;
+    if (!again && runs(code)) { heldBack++; return; }
     const slot = slotOf.get(code);
     if (!intended && combo.completes(slot)) await defuse();
     if (slot === 'defend' && (startsShout(history)
@@ -218,11 +238,11 @@ export function keyboard(cdp, bindings = P4_KEYS) {
 
   return {
     /** The full set of keys that should be held right now; everything else lifts. */
-    async hold(codes = []) {
+    async hold(codes = [], { again = false } = {}) {
       const want = new Set(codes.filter((c) => allowed.has(c)));
       const work = [];
       for (const c of down) if (!want.has(c) && !releasing.has(c)) work.push(release(c));
-      for (const c of want) work.push(press(c));
+      for (const c of want) work.push(press(c, { again }));
       await Promise.all(work);
     },
 
@@ -230,19 +250,36 @@ export function keyboard(cdp, bindings = P4_KEYS) {
      * A momentary press, released on its own. Ignored while one is in flight.
      * `intended` marks a press that is part of a special on purpose.
      */
-    async tap(code, ms = TAP_MS, { intended = false } = {}) {
-      if (releasing.has(code)) return;
-      await press(code, { intended });
+    async tap(code, ms = TAP_MS, { intended = false, again = false } = {}) {
+      if (releasing.has(code)) return false;
+      if (!again && runs(code) && !down.has(code)) { heldBack++; return false; }
+      await press(code, { intended, again });
       releasing.set(code, setTimeout(() => { releasing.delete(code); release(code); }, ms));
+      return down.has(code);
+    },
+
+    /**
+     * A double-tap inside one frame, left held. px.js counts
+     * a press that follows a press and a release of the same key within 2
+     * frames as a double-tap (`G0`), so the run starts on the next frame,
+     * where the 60 ms press and 60 ms gap took about 4.
+     */
+    async quickDouble(code) {
+      if (!allowed.has(code)) return;
+      if (releasing.has(code)) { clearTimeout(releasing.get(code)); releasing.delete(code); }
+      await release(code);
+      await press(code, { again: true });
+      await release(code);
+      await press(code, { again: true });
     },
 
     /** Two quick taps then a hold — how the game reads a run or a dash. */
     async doubleTap(code, gapMs = 60) {
-      await press(code);
+      await press(code, { again: true });
       await sleep(gapMs);
       await release(code);
       await sleep(gapMs);
-      await press(code);
+      await press(code, { again: true });
     },
 
     async releaseAll() {
@@ -261,7 +298,7 @@ export function keyboard(cdp, bindings = P4_KEYS) {
       since = [];
     },
 
-    get stats() { return { dispatched, defused, unshouted, down: [...down] }; },
+    get stats() { return { dispatched, defused, unshouted, heldBack, down: [...down] }; },
   };
 }
 

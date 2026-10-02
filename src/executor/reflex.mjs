@@ -8,8 +8,8 @@
  * could be the reflexes' doing and get credited to Jev.
  */
 
-import { framesFor } from '../lf2data/tables.mjs';
-import { nextHit, nextSpawn, reachOfFrame, lifeTicks, REACH_SLACK, BODY_HALF } from '../lf2data/frames.mjs';
+import { framesFor, headerFor } from '../lf2data/tables.mjs';
+import { nextHit, nextSpawn, reachOfFrame, lifeTicks, ticksToEnd, REACH_SLACK, BODY_HALF } from '../lf2data/frames.mjs';
 import { Z_TOLERANCE, Y_TOLERANCE, doing, unhittable, airborne } from '../state/arena.mjs';
 import { BOT } from '../state/bot.mjs';
 import { steers } from '../lf2data/profile.mjs';
@@ -298,6 +298,11 @@ export function createReflex({ maxBlockTicks = BOT.BLOCK_COMMIT_FRAMES,
   const walls = { up: null, down: null };
   const room = (dir, z) => (walls[dir] == null ? Infinity : Math.abs(z - walls[dir]));
   return function reflex(arena, opts = {}) {
+    // The stage's own depth limits, when read, are the walls from the start.
+    if (arena.stageDepth) {
+      walls.up ??= arena.stageDepth.top;
+      walls.down ??= arena.stageDepth.bottom;
+    }
     // Leave the line before the star is on it. Standing in it and blocking
     // wears the guard out in two or three stars and then every star lands
     // (the observer: "run towards a different lane instead of standing and
@@ -421,8 +426,98 @@ export function createReflex({ maxBlockTicks = BOT.BLOCK_COMMIT_FRAMES,
     }
     blocked = 0;
     if (rest > 0) rest--;
-    return punish(arena, opts.profile);
+    return grabDizzy(arena, opts.profile) ?? painRush(arena, opts.profile) ?? punish(arena, opts.profile);
   };
+}
+
+/**
+ * The move a rush on a helpless enemy ends with: the run
+ * attack when it hits and knocks down at least as hard as the super punch,
+ * else the super punch, walked in to. Null for a fighter with no super punch
+ * (Julian, Knight). Henry's run attack is his super punch's hit (35, fall 60).
+ */
+export function painRunMove(profile) {
+  const punch = profile?.moves?.find((m) => m.name === 'super_punch' && m.input === 'a');
+  if (!punch) return null;
+  const run = profile.moves.find((m) => m.name === 'run_attack');
+  return run && run.damage >= punch.damage && (run.fall ?? 0) >= (punch.fall ?? 0) ? run : punch;
+}
+/** Ticks from the one-frame double-tap to a run that moves. */
+const RUN_START = 1;
+
+/**
+ * Walking into a dizzy enemy (state 16, the dance of pain)
+ * grabs it: every fighter's walking frames carry an itr kind 1 (catch) in
+ * front of the body, and the hold_grip/punch_held reflex then punches it.
+ * A grab dealt 72 HP on average and knocked down in 29 of 30 (Henry, 09-24
+ * to 09-27), against 35 for the super punch an Attack gives there. Since the
+ * punish reflex took the dance too (223eadd, 09-27) it fires first, and
+ * Henry's grabs fell from 17 in 70 games to 1 in 134 (scratch/catches.mjs).
+ * So the fighter walks in when it reaches the catch box before the dance ends.
+ * Trialled as --grab (2026-10-02): 15 grabs, 66 HP each, 13 knocked down
+ * (87%); made the default the same day.
+ */
+export function grabDizzy(arena, profile) {
+  const t = arena.threats[0];
+  const header = headerFor(profile?.name);
+  if (!t || !header?.walking_speed) return null;
+  const frames = framesFor(t.id);
+  if (frames?.[t.frame]?.state !== 16) return null;
+  const walk = framesFor(arena.me.id)?.[WALK_FRAME];
+  const box = walk?.itr?.find((i) => i.kind === 1);
+  if (!box) return null;
+  if (laneDanger(arena)) return null;
+  if (!['neutral', 'walking'].includes(doing(arena.me))) return null;
+  if (t.zGap > BOT.AIM_MAX_Z) return null;
+  const far = box.x + box.w - (walk.centerx ?? 0) + BODY_HALF;
+  const left = ticksToEnd(frames, t.frame, t.waiting ?? 0);
+  const steps = Math.ceil(Math.max(0, t.gap - far) / header.walking_speed);
+  const arrive = steps + 1;
+  if (!(arrive <= left) || steps > GRAB_WALK_TICKS) return null;
+  return { action: 'grab', owns: true, reason: `${t.name ?? 'the enemy'} is dizzy for ${left} ticks — walk into it and grab it (${arrive} ticks)` };
+}
+/** The first walking frame, where the catch box is. */
+const WALK_FRAME = 5;
+/**
+ * The longest walk to a grab. A dance started by a shot slides the enemy
+ * away at about walking speed: in the first --grab games, walks begun within
+ * 84 caught 5 of 5 (7 ticks of walking at most) and those from 89 or more 0
+ * of 11, while the run attack went unused (note, 2026-10-02T14-03-37 tick
+ * 1450). Further out the pain rush or the punish reflex answers.
+ */
+const GRAB_WALK_TICKS = 7;
+
+/**
+ * The pain rush (trialled as --pain-rush, default since 2026-10-02). An enemy whose frame carries an itr kind 6 (the dance of
+ * pain, 226-229, 28 ticks; the broken guard, 112-114) cannot act or block,
+ * and an Attack touching it is the super punch. Out of the super punch's
+ * reach, the punish reflex fires the ordinary attack, for Henry an arrow (40,
+ * fall 20) that knocks down only within 20 ticks of the dance starting. So
+ * the fighter runs in when the hit lands before the state ends: its start,
+ * the run at running_speed to the move's reach, and the move's wind-up.
+ * Otherwise null, and punish goes on as before.
+ */
+export function painRush(arena, profile) {
+  const t = arena.threats[0];
+  const move = painRunMove(profile);
+  const header = headerFor(profile?.name);
+  if (!t || !move || !header) return null;
+  const frames = framesFor(t.id);
+  if (!frames?.[t.frame]?.itr?.some((i) => i.kind === 6)) return null;
+  if (laneDanger(arena)) return null;
+  if (!['neutral', 'walking', 'running'].includes(doing(arena.me))) return null;
+  if (t.zGap > BOT.AIM_MAX_Z) return null;
+  const punch = profile.moves.find((m) => m.name === 'super_punch');
+  // In reach, the plain Attack of the punish reflex is the super punch.
+  if (t.gap <= punch.reach + REACH_SLACK) return null;
+  const runs = move.name === 'run_attack';
+  const speed = runs ? header.running_speed : header.walking_speed;
+  if (!speed) return null;
+  const left = ticksToEnd(frames, t.frame, t.waiting ?? 0);
+  const arrive = (runs ? RUN_START : 0) + Math.ceil(Math.max(0, t.gap - move.reach - REACH_SLACK) / speed)
+    + (move.startupTicks ?? 0) + 1;
+  if (!(arrive <= left)) return null;
+  return { action: 'pain_rush', reason: `${t.name ?? 'the enemy'} cannot act for ${left} ticks — ${runs ? 'run' : 'walk'} in and hit it (${arrive} ticks)` };
 }
 
 /**
