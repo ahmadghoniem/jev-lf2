@@ -13,11 +13,14 @@ export const arg = (name, fallback) => {
 /** Whether a bare `--name` flag was passed. */
 export const has = (name) => process.argv.includes(`--${name}`);
 
-/** Loads `TYPESAFE_API_KEY` from the repo's `.env` unless the environment already has it. */
+/** Loads the API keys (`TYPESAFE_API_KEY`, `FASTINO_API_KEY`) from the repo's `.env` unless the environment already has them. */
 export function loadApiKey(envFile = new URL('../.env', import.meta.url)) {
-  if (process.env.TYPESAFE_API_KEY || !existsSync(envFile)) return;
-  const found = readFileSync(envFile, 'utf8').match(/^TYPESAFE_API_KEY=(.+)$/m);
-  if (found) process.env.TYPESAFE_API_KEY = found[1].trim();
+  if (!existsSync(envFile)) return;
+  const text = readFileSync(envFile, 'utf8');
+  for (const name of ['TYPESAFE_API_KEY', 'FASTINO_API_KEY']) {
+    const found = text.match(new RegExp(`^${name}=(.+)$`, 'm'));
+    if (found && !process.env[name]) process.env[name] = found[1].trim();
+  }
 }
 
 /** The newest recorded run under runs/, as a path. */

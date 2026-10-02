@@ -12,7 +12,11 @@
  * moved on. Here a live call gets one attempt and a hard deadline, and a miss
  * degrades to the executor's reflexes. Retries exist only in `replay()`, which
  * runs offline against recorded states where latency does not matter.
+ *
+ * `JEV_BACKEND=glide` sends the same questions to Glide instead (glide.mjs).
  */
+
+import { GLIDE, toGlide, fromGlide } from './glide.mjs';
 
 export const ENV = {
   apiKey: 'TYPESAFE_API_KEY',
@@ -132,10 +136,13 @@ export function createClient({
   model = process.env[ENV.defaultModel] ?? DEFAULTS.model,
   deadlineMs = DEFAULTS.deadlineMs,
   fetchImpl = globalThis.fetch,
+  backend = process.env.JEV_BACKEND ?? 'jev',
 } = {}) {
-  if (!apiKey) throw new TypeSafeError(`no API key; set ${ENV.apiKey} or pass apiKey`);
+  const glide = backend === 'glide';
+  if (glide) apiKey = process.env[GLIDE.apiKey];
+  if (!apiKey) throw new TypeSafeError(`no API key; set ${glide ? GLIDE.apiKey : ENV.apiKey} or pass apiKey`);
 
-  const url = `${baseURL.replace(/\/+$/, '')}/v1/systemone`;
+  const url = glide ? GLIDE.url : `${baseURL.replace(/\/+$/, '')}/v1/systemone`;
   const headers = {
     Authorization: `Bearer ${apiKey}`,
     Accept: 'application/json',
@@ -154,15 +161,17 @@ export function createClient({
 
     let res;
     try {
-      res = await fetchImpl(url, { method: 'POST', headers, body: JSON.stringify(body), signal: abort, keepalive: true });
+      const sent = glide ? toGlide(body) : body;
+      res = await fetchImpl(url, { method: 'POST', headers, body: JSON.stringify(sent), signal: abort, keepalive: true });
     } catch (err) {
       if (timeout.aborted) throw new DeadlineExceeded(ms);
       throw err;
     }
 
     const text = await res.text();
-    const parsed = text.length === 0 ? undefined : safeJson(text);
-    if (!res.ok) throw APIError.fromResponse(res.status, parsed, res.headers);
+    const raw = text.length === 0 ? undefined : safeJson(text);
+    if (!res.ok) throw APIError.fromResponse(res.status, raw, res.headers);
+    const parsed = glide ? fromGlide(raw, body.questions) : raw;
 
     usage.calls++;
     usage.inputTokens += parsed?.usage?.input_tokens ?? 0;
@@ -173,6 +182,8 @@ export function createClient({
 
   return {
     usage,
+    /** Which service answers: jev or glide. Shown on the overlay. */
+    backend,
     /** Estimated spend so far, from the published input-token price. */
     get costUsd() { return usage.inputTokens * USD_PER_INPUT_TOKEN; },
 

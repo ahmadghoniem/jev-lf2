@@ -32,7 +32,6 @@
       color: #fff;
       background: rgba(16, 32, 108, 0.93);
       border: 0.28vmin solid rgb(90, 119, 216);
-      border-left: 0.75vmin solid #f0a830;
       border-radius: 1.1vmin;
       box-shadow: 0 0 2.4vmin rgba(0, 0, 0, 0.7);
       overflow: hidden;
@@ -123,7 +122,6 @@
       font-family: Arial, Helvetica, sans-serif; color: #fff;
       background: rgba(16, 32, 108, 0.96);
       border: 0.28vmin solid rgb(90, 119, 216);
-      border-top: 0.75vmin solid #f0a830;
       border-radius: 1.1vmin; box-shadow: 0 0 2.4vmin rgba(0, 0, 0, 0.7);
       padding: 1vmin 1.2vmin;
     }
@@ -156,7 +154,6 @@
       color: rgb(190, 208, 255);
       background: rgba(16, 32, 108, 0.96);
       border: 0.28vmin solid rgb(90, 119, 216);
-      border-left: 0.75vmin solid #f0a830;
       border-radius: 1.1vmin; box-shadow: 0 0 2.4vmin rgba(0, 0, 0, 0.7);
       padding: .6vmin .9vmin .8vmin;
     }
@@ -192,7 +189,7 @@
   el.id = ID;
   el.innerHTML = `
     <div class="jv-head">
-      <span class="jv-title">JEV &middot; SYSTEM ONE</span>
+      <span class="jv-title" data-title>JEV &middot; SYSTEM ONE</span>
       <span class="jv-sub" data-sub>waiting</span>
     </div>
     <div class="jv-body">
@@ -297,10 +294,14 @@
     q('now').textContent = d.action || '—';
 
     const badge = q('badge');
-    badge.textContent = (d.source || 'idle').toUpperCase();
+    // A model answer is badged with the model's family (JEV, GLIDE), not "jev" for all.
+    badge.textContent = (d.source === 'jev' && d.model ? d.model.split(/[-:.]/)[0] : d.source || 'idle').toUpperCase();
     badge.className = 'jv-badge'
       + (d.source === 'reflex' ? ' reflex' : d.source === 'jev' ? '' : ' heuristic');
 
+    // The title names the model answering (jev-1.13.0, glide:...),
+    // so a game with another model in the seat says so.
+    if (d.model) q('title').textContent = d.model.toUpperCase();
     q('sub').textContent = d.reflex ? d.reflex
       : d.latencyMs != null
         ? d.latencyMs + ' ms · ' + (d.confidence != null ? 'conf ' + d.confidence.toFixed(2) : 'no answer')
